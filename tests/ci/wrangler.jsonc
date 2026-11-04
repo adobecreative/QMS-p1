@@ -1,0 +1,16 @@
+{
+  // Automated tests only (GitHub Actions and local runs): the real worker behind tests/ci/entry.js,
+  // with local D1 and R2 and no Cloudflare account. Never deployed.
+  "name": "qms-ci",
+  "main": "entry.js",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "directory": "../../public",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [{ "binding": "DB", "database_name": "qms-db-ci", "database_id": "00000000-0000-0000-0000-000000000000" }],
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "qms-files-ci" }],
+  "triggers": { "crons": ["0 5 * * *", "*/15 * * * *"] }
+}

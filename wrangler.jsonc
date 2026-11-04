@@ -1,0 +1,80 @@
+{
+  // QMS — Hospital Quality Management (CBAHI / JCI), built on the Fikra platform structure.
+  // Everything here must stay separate from the Fikra / FMS projects: own Worker, database and storage.
+  "name": "qms-p1",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-09-01",
+
+  // The website (public/) is served directly; only /api/* runs the Worker code.
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+
+  // Database (data + activity logs). No database_id on purpose: `wrangler deploy`
+  // connects to the D1 database with this name, or creates it if it does not exist.
+  // Never put another project's database id here.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "qms-db-p1"
+    }
+  ],
+
+  // PDF storage. Created on deploy if it does not exist.
+  "r2_buckets": [
+    {
+      "binding": "FILES",
+      "bucket_name": "qms-files-p1"
+    }
+  ],
+
+  // Daily file reminders (UTC: 05:00 UTC = 08:00 Riyadh), and late-ticket alerts every 15 minutes.
+  "triggers": {
+    "crons": ["0 5 * * *", "*/15 * * * *"]
+  },
+
+  // AI assistant (Cloudflare Workers AI): free daily allowance, nothing to create or pay for.
+  // The daily cap is set in the Admin Center settings.
+  "ai": {
+    "binding": "AI"
+  },
+
+  "observability": {
+    "enabled": true
+  },
+
+  // The license for this site, signed with the owner's private key (made with the license maker page).
+  // It is not a secret: it only works on the domains it names, and changing any part of it breaks the signature.
+  // To renew, replace the value with the new license and merge.
+  "vars": {
+    "LICENSE": "PORTAL1.eyJ2IjoxLCJpZCI6ImpLSUE4NkhQIiwib3JnX2FyIjoi2YHZg9ix2KkiLCJvcmdfZW4iOiJGaWtyYSIsImRvbWFpbnMiOlsicG9ydGFsLmFpLWZpa3JhLmNvbSJdLCJleHBpcmVzIjoiMjAyNy0xMC0yOCIsIm1heF91c2VycyI6MCwiaXNzdWVkIjoiMjAyNi0xMC0yOCJ9.lUgwOdBoBieGVP55Luc_AG7OsE22Z1o2tpESvZCDCH7DjQGH_fJL7J9wyvFxV2xhdhMYcmsWBstUud-SzaWZGw"
+  },
+
+  // PR preview builds (Workers Builds runs `wrangler preview` for non-main branches).
+  // Previews use their own empty database and storage, never the live data.
+  // Cron triggers are not supported in previews. The license is domain-locked,
+  // so a preview link opens on the license page; it still proves the build works.
+  "previews": {
+    "vars": {
+      "LICENSE": "PORTAL1.eyJ2IjoxLCJpZCI6ImpLSUE4NkhQIiwib3JnX2FyIjoi2YHZg9ix2KkiLCJvcmdfZW4iOiJGaWtyYSIsImRvbWFpbnMiOlsicG9ydGFsLmFpLWZpa3JhLmNvbSJdLCJleHBpcmVzIjoiMjAyNy0xMC0yOCIsIm1heF91c2VycyI6MCwiaXNzdWVkIjoiMjAyNi0xMC0yOCJ9.lUgwOdBoBieGVP55Luc_AG7OsE22Z1o2tpESvZCDCH7DjQGH_fJL7J9wyvFxV2xhdhMYcmsWBstUud-SzaWZGw"
+  },
+    "d1_databases": [
+      {
+        "binding": "DB",
+        "database_name": "qms-db-p1-preview"
+      }
+    ],
+    "r2_buckets": [
+      {
+        "binding": "FILES",
+        "bucket_name": "qms-files-p1-preview"
+      }
+    ],
+    "ai": {
+      "binding": "AI"
+    }
+  }
+}

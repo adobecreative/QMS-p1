@@ -1,0 +1,38 @@
+// Runs the offline demo inside a locked-down frame (no same-origin, no storage, no history), like an in-app previewer.
+const { chromium } = require('/home/claude/.npm-global/lib/node_modules/playwright');
+const fs = require('fs');
+(async () => {
+  const b = await chromium.launch();
+  const page = await (await b.newContext({ viewport: { width: 390, height: 844 } })).newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
+  page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text().slice(0, 200)); });
+  await page.route(/^https?:\/\/(?!host\.test)/, (r) => r.abort());
+  await page.route('http://host.test/', (r) => r.fulfill({ contentType: 'text/html', body: '<!doctype html><body style="margin:0"><iframe id="f" sandbox="allow-scripts allow-forms allow-modals" style="border:0;width:100vw;height:100vh"></iframe></body>' }));
+  await page.goto('http://host.test/');
+  const html = fs.readFileSync('/mnt/user-data/outputs/facilities-demo-offline.html', 'utf8');
+  await page.evaluate((h) => { document.getElementById('f').srcdoc = h; }, html);
+  const f = page.frameLocator('#f');
+  await f.locator('.cards').waitFor({ timeout: 20000 });
+  console.log('PASS dashboard renders in the locked-down frame:', (await f.locator('.card-num').allInnerTexts()).join(','));
+  await f.locator('.nav-link').nth(2).click();
+  await f.locator('.page-head .btn-primary').waitFor();
+  console.log('PASS nav click works (departments page)');
+  await f.locator('.nav-link').nth(0).click();
+  await f.locator('.cards').waitFor();
+  await f.locator('.files-table tbody tr').nth(2).locator('a.btn').click();
+  await f.locator('.pdf-canvas').waitFor({ timeout: 20000 });
+  await page.waitForTimeout(1500);
+  console.log('PASS View PDF works:', await f.locator('.pdf-page').innerText());
+  await f.locator('.doc-item').nth(1).click();
+  await page.waitForTimeout(800);
+  console.log('PASS picking a file works:', await f.locator('.doc h1').innerText());
+  await f.locator('#demo-user').selectOption('3');
+  await page.waitForTimeout(800);
+  console.log('PASS role switch works, nav items:', await f.locator('.nav-link').count());
+  await f.locator('.top .lang-btn').nth(1).click();
+  await page.waitForTimeout(400);
+  console.log('PASS language switch:', await f.locator('.nav-link').first().innerText());
+  console.log(errors.length ? 'ERRORS: ' + errors.join(' | ') : 'no errors');
+  await b.close();
+})().catch((e) => { console.log('CRASH ' + e.message.split('\n').slice(0, 4).join(' / ')); process.exit(2); });
