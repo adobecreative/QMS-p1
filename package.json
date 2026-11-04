@@ -1,0 +1,17 @@
+{
+  "name": "qms-p1",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Hospital Quality Management System (CBAHI / JCI) on the Fikra platform structure (Cloudflare Workers + D1 + R2)",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "build": "echo \"No build step needed\""
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

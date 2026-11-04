@@ -1,0 +1,6 @@
+.state/
+wrangler.log
+.state2/
+restore-backup.json
+restore.sql
+node.log

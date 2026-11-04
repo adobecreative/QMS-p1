@@ -1,0 +1,29 @@
+# Runs the system with automatic HTTPS. On the server, from this folder:
+#   cp example.env .env   (then fill it in)
+#   docker compose up -d --build
+services:
+  portal:
+    build: ..
+    restart: always
+    env_file: .env
+    environment:
+      TRUST_PROXY: '1'
+    volumes:
+      - portal-data:/data
+  # Caddy gets and renews the SSL certificate for DOMAIN by itself and passes requests to the system.
+  caddy:
+    image: caddy:2
+    restart: always
+    ports:
+      - '80:80'
+      - '443:443'
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    depends_on:
+      - portal
+volumes:
+  portal-data:
+  caddy-data:
