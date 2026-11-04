@@ -1,0 +1,58 @@
+{
+  "name": "qms-p1",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Hospital Quality Management System (CBAHI / JCI) — chapters as UI, shared engines underneath.",
+  "scripts": {
+    "dev": "next dev",
+    "dev:worker": "tsx watch --env-file-if-exists=.env src/worker/index.ts",
+    "build": "next build",
+    "start": "next start",
+    "worker": "tsx --env-file-if-exists=.env src/worker/index.ts",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:seed": "tsx --env-file-if-exists=.env prisma/seed.ts",
+    "db:reset": "prisma migrate reset --force",
+    "postinstall": "prisma generate"
+  },
+  "prisma": {
+    "seed": "tsx --env-file-if-exists=.env prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "6.19.3",
+    "bcryptjs": "3.0.3",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.540.0",
+    "next": "15.5.29",
+    "next-auth": "5.0.0-beta.32",
+    "next-intl": "^4.3.4",
+    "nodemailer": "^7.0.6",
+    "react": "19.1.10",
+    "react-dom": "19.1.10",
+    "server-only": "^0.0.1",
+    "zod": "^4.1.5"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.1",
+    "@tailwindcss/postcss": "^4.1.12",
+    "@types/node": "^22.18.0",
+    "@types/nodemailer": "^7.0.1",
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9",
+    "eslint": "^9.34.0",
+    "eslint-config-next": "15.5.29",
+    "prisma": "6.19.3",
+    "tailwindcss": "^4.1.12",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=20.18"
+  }
+}
