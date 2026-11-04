@@ -64,7 +64,8 @@
     "d1_databases": [
       {
         "binding": "DB",
-        "database_name": "qms-db-p1-preview"
+        "database_name": "qms-db-p1-preview",
+        "database_id": "74f69887-1414-44af-8f14-184de2f43f34"
       }
     ],
     "r2_buckets": [
