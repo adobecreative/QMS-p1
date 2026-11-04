@@ -10,6 +10,7 @@ for i in $(seq 1 120); do curl -s -o /dev/null http://localhost:8787/ && break; 
 node smoke.mjs
 RC=$?
 node systems.mjs || RC=1
+node quality.mjs || RC=1
 node restore.mjs || RC=1
 kill -TERM -- -$PID 2>/dev/null
 [ $RC -ne 0 ] && tail -40 wrangler.log
