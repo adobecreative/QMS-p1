@@ -127,7 +127,10 @@ export const APPS = {
 export const APP_ORDER = ['quality', 'docs', 'desk', 'assets', 'rounds', 'reports', 'admin'];
 // Both admin roles run the Admin Center; only the super admin changes the user accounts.
 export const isAdminRole = (u) => u.role === 'super_admin' || u.role === 'systems_admin';
-export const access = (app) => (app === 'admin' || app === 'reports' ? (isAdminRole(S.user) ? 'admin' : 'none') : S.user[app] || 'none');
+// Systems of the Fikra platform that QMS does not use (they stay in the code, switched off here).
+// Asset Management and spare parts belong to the facilities system (FMS); its evidence comes over the optional link.
+export const OFF_APPS = ['assets'];
+export const access = (app) => OFF_APPS.includes(app) ? 'none' : (app === 'admin' || app === 'reports' ? (isAdminRole(S.user) ? 'admin' : 'none') : S.user[app] || 'none');
 export const appPages = (app) => APPS[app].pages(access(app));
 export const myApps = () => APP_ORDER.filter((a) => appPages(a).length);
 // Pages opened from inside another page, not shown in the menu.

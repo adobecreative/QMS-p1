@@ -1,8 +1,8 @@
 // Interface text. Edit any value here to change wording; keep the keys as they are.
 window.I18N = {
   ar: {
-    'app.name': 'منصة فكرة',
-    'app.tagline': 'الوثائق والخدمات والأصول',
+    'app.name': 'نظام الجودة والاعتماد',
+    'app.tagline': 'الجودة وسلامة المرضى والاعتماد',
 
     // The portal and its systems
     'app.docs': 'إدارة الوثائق',
@@ -2129,8 +2129,8 @@ window.I18N = {
   },
 
   en: {
-    'app.name': 'Fikra Portal',
-    'app.tagline': 'Documents, services and assets',
+    'app.name': 'Quality & Accreditation',
+    'app.tagline': 'Quality, patient safety and accreditation',
 
     // The portal and its systems
     'app.docs': 'Document Control',

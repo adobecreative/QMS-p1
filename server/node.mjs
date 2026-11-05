@@ -256,7 +256,7 @@ setInterval(() => {
   for (const c of CRONS) if (c.due(at)) worker.scheduled({ cron: c.cron, scheduledTime: at.getTime() }, env, context());
 }, 5000).unref();
 
-server.listen(PORT, HOST, () => console.log(`Fikra Portal on http://${HOST}:${PORT} (data in ${DATA_DIR}${S3 ? ', files in S3 bucket ' + S3 : ''})`));
+server.listen(PORT, HOST, () => console.log(`QMS on http://${HOST}:${PORT} (data in ${DATA_DIR}${S3 ? ', files in S3 bucket ' + S3 : ''})`));
 const stop = () => {
   server.close();
   sqlite.close();

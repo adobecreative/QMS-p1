@@ -38,7 +38,7 @@ export const DEFAULT_SETTINGS = {
   repeat_days: 7, // repeat a reminder every N days while a file stays yellow/red (0 = once only)
   timezone: 'Asia/Riyadh',
   email_lang: 'ar',
-  sender_name: 'منصة فكرة | Fikra Portal',
+  sender_name: 'نظام الجودة والاعتماد | Quality & Accreditation',
   mail_url: '',
   mail_token: '',
   // How email goes out: 'gas' = the Google Apps Script web app above (a Gmail account),
@@ -104,7 +104,7 @@ export const DEFAULT_SETTINGS = {
 };
 export const SLA_KEYS = [1, 2, 3, 4].flatMap((p) => [`sla_p${p}_resp`, `sla_p${p}_res`]);
 export const MAX_LOGO_BYTES = 1024 * 1024;
-export const DEFAULT_APP_NAME = { ar: 'منصة فكرة', en: 'Fikra Portal' };
+export const DEFAULT_APP_NAME = { ar: 'نظام الجودة والاعتماد', en: 'Quality & Accreditation' };
 
 // What every page needs to draw the brand, signed in or not.
 export const brandOut = (s) => ({
