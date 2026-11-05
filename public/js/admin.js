@@ -1,7 +1,7 @@
 // Admin Center: users, activity log, settings, license and backup.
 import { render } from '../app.js';
 import { ApiError, S, h, has, icon, t } from './core.js';
-import { applyBrand, authShell, brand, isAdminRole } from './layout.js';
+import { OFF_APPS, applyBrand, authShell, brand, isAdminRole } from './layout.js';
 import { api, checkField, deptById, deptName, errText, errorBox, field, fileName, fmtDate, input, openDialog, personName, select, toast, typeName } from './offline.js';
 import { fmtDuration, pick, priorityChip } from './tickets.js';
 import { linkPanel } from './quality.js';
@@ -52,7 +52,7 @@ export async function usersPage(root, _param, alive) {
                     : h(
                         'dl',
                         { class: 'perm-list' },
-                        ['docs', 'desk', 'assets', 'rounds'].map((app) => {
+                        ['quality', 'docs', 'desk', 'assets', 'rounds'].filter((app) => !OFF_APPS.includes(app)).map((app) => {
                           const r = u[app + '_role'] || 'none';
                           return h('div', {}, h('dt', {}, t('app.' + app)), h('dd', r === 'none' ? { class: 'muted' } : {}, t(app + 'role.' + r)));
                         }),
@@ -111,7 +111,7 @@ export function userDialog(u) {
     'fieldset',
     { class: 'app-roles' },
     h('legend', {}, t('user.app_roles')),
-    h('div', { class: 'form-grid' }, field(t('app.quality'), qualityRole, t('user.quality_hint')), field(t('app.docs'), docs, t('user.docs_hint')), field(t('app.desk'), desk, t('user.desk_hint')), field(t('app.assets'), assetsRole, t('user.assets_hint')), field(t('app.rounds'), roundsRole, t('user.rounds_hint'))),
+    h('div', { class: 'form-grid' }, field(t('app.quality'), qualityRole, t('user.quality_hint')), field(t('app.docs'), docs, t('user.docs_hint')), field(t('app.desk'), desk, t('user.desk_hint')), OFF_APPS.includes('assets') ? null : field(t('app.assets'), assetsRole, t('user.assets_hint')), field(t('app.rounds'), roundsRole, t('user.rounds_hint'))),
     teamNote,
     jobField,
   );

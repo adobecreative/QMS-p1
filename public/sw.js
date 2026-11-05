@@ -47,7 +47,7 @@ self.addEventListener('push', (e) => {
     /* an empty or unreadable message still shows, so the person knows to look */
   }
   e.waitUntil(
-    self.registration.showNotification(m.title || 'Fikra Portal', {
+    self.registration.showNotification(m.title || 'Quality & Accreditation', {
       body: m.body || '',
       tag: m.tag || undefined,
       renotify: !!m.tag,
