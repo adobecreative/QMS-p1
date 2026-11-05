@@ -28,6 +28,8 @@ export const DESK_ROLES = ['none', 'dept', 'technician', 'supervisor'];
 // Asset Management: viewer reads the register and the maintenance plans; manager changes them.
 export const ASSETS_ROLES = ['none', 'viewer', 'manager'];
 export const ROUNDS_ROLES = ['none', 'inspector', 'manager'];
+// Quality & Accreditation (CBAHI / JCI): viewer reads the standards and readiness, assessor scores them, manager runs the lists.
+export const QUALITY_ROLES = ['none', 'viewer', 'assessor', 'manager'];
 // What a technician or engineer is called on screen. Stored as a key, named in public/i18n.js.
 export const JOB_TITLES = ['technician', 'engineer', 'supervisor', 'specialist'];
 
@@ -89,6 +91,8 @@ export const DEFAULT_SETTINGS = {
   // Spare parts: standalone (stock kept here), linked (a sub-store fed by the ERP's main warehouse),
   // erp (the ERP keeps all stock; parts are asked for here and their use recorded on the request).
   inventory_mode: 'standalone',
+  // Quality & Accreditation: the starter CBAHI chapters are added once, so a chapter renamed or switched off stays so.
+  std_chapters_seeded: '',
 };
 export const SLA_KEYS = [1, 2, 3, 4].flatMap((p) => [`sla_p${p}_resp`, `sla_p${p}_res`]);
 export const MAX_LOGO_BYTES = 1024 * 1024;

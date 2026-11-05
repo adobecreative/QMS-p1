@@ -492,4 +492,43 @@ export const MIGRATIONS = [
   `CREATE INDEX IF NOT EXISTS idx_push_subs_user ON push_subs(user_id)`,
   // The owner's health page counts the log by day.
   `CREATE INDEX IF NOT EXISTS idx_logs_at ON logs(at)`,
+  // Quality & Accreditation. A chapter is a CBAHI chapter (LD, QM, MM...) with the JCI chapters it maps to.
+  `CREATE TABLE IF NOT EXISTS std_chapters (
+     code TEXT PRIMARY KEY,
+     name_ar TEXT NOT NULL,
+     name_en TEXT NOT NULL,
+     jci TEXT,
+     sort INTEGER NOT NULL DEFAULT 0,
+     active INTEGER NOT NULL DEFAULT 1)`,
+  // A standard: its CBAHI code, the hospital's own wording, ESR (Essential Safety Requirement: must be met),
+  // the JCI standards it matches, the department that owns it, and its latest self-assessment score.
+  `CREATE TABLE IF NOT EXISTS standards (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     chapter TEXT NOT NULL,
+     code TEXT NOT NULL UNIQUE,
+     title_ar TEXT NOT NULL,
+     title_en TEXT NOT NULL,
+     esr INTEGER NOT NULL DEFAULT 0,
+     jci TEXT,
+     department_id INTEGER,
+     active INTEGER NOT NULL DEFAULT 1,
+     score TEXT,
+     note TEXT,
+     evidence TEXT,
+     assessed_at TEXT,
+     assessed_by TEXT,
+     created_at TEXT NOT NULL,
+     updated_at TEXT NOT NULL)`,
+  `CREATE INDEX IF NOT EXISTS idx_standards_chapter ON standards(chapter, active)`,
+  // Every self-assessment kept, so a surveyor can see how a standard moved over time.
+  `CREATE TABLE IF NOT EXISTS std_assessments (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     standard_id INTEGER NOT NULL,
+     score TEXT NOT NULL,
+     note TEXT,
+     evidence TEXT,
+     user_id INTEGER,
+     user_name TEXT,
+     at TEXT NOT NULL)`,
+  `CREATE INDEX IF NOT EXISTS idx_std_assessments ON std_assessments(standard_id, at)`,
 ];

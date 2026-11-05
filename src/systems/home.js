@@ -4,11 +4,12 @@ import { isAdmin } from '../lib/config.js';
 import { getSettings } from '../lib/db.js';
 import { json, nowIso, todayIn } from '../lib/util.js';
 import { statusOf, plusDays } from './docs.js';
+import { qualityHome } from './quality.js';
 import { aiReady, ticketScope } from './tickets.js';
 
 const has = (r) => !!r && r !== 'none';
 // Who sees the AI assistant's daily use: the people who run a system, never the staff using it.
-const isManager = (u) => isAdmin(u) || u.desk === 'supervisor' || u.assets === 'manager' || u.rounds === 'manager' || u.docs === 'dept_admin';
+const isManager = (u) => isAdmin(u) || u.desk === 'supervisor' || u.assets === 'manager' || u.rounds === 'manager' || u.quality === 'manager' || u.docs === 'dept_admin';
 
 export async function handleHome(env, user) {
   const settings = await getSettings(env);
@@ -40,6 +41,8 @@ export async function handleHome(env, user) {
         .then(({ results }) => (out.recent = results.map((r) => ({ ...r, late: !!r.late })))),
     );
   }
+
+  if (has(user.quality)) jobs.push(qualityHome(env).then((r) => (out.quality = r)));
 
   if (has(user.assets)) {
     jobs.push(

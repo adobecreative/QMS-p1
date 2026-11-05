@@ -8,6 +8,7 @@ import { dashboardPage, departmentsPage, documentsPage, typesPage } from './js/d
 import { costsPage, devTypesPage, movesPage, partsPage, pmPage, requestsPage } from './js/inventory.js';
 import { APPS, access, appPages, applyBrand, authPage, currentRoute, forgotPage, header, link, myApps, resetPage, roleLabel, setUrl, twoFactorRequiredPage } from './js/layout.js';
 import { IDB, OFF, api, drawOffBar, errText, loading, personName, syncQueue, warmPages } from './js/offline.js';
+import { chaptersPage, standardsPage } from './js/quality.js';
 import { compliancePage, reportsPage } from './js/reports.js';
 import { checklistsPage, duePage, roundLogPage, roundScanPage } from './js/rounds.js';
 import { categoriesPage, locationsPage, refreshBadge, requestPage, staffPage, ticketsPage, trackPage } from './js/tickets.js';
@@ -18,6 +19,7 @@ let renderSeq = 0;
 // The first page after signing in: a greeting with today's date, the systems this person can open
 // (each with its own few numbers, only from what they may see), their latest requests and the AI assistant.
 const HOME_STATS = {
+  quality: (d) => d.quality && [[d.quality.pct === null ? '-' : d.quality.pct + '%', 'home.quality_pct'], [d.quality.esr_gap, 'home.quality_esr', true], [d.quality.open, 'home.quality_open']],
   desk: (d) => d.desk && [[d.desk.new, 'home.desk_new'], [d.desk.doing, 'home.desk_doing'], [d.desk.late, 'home.desk_late', true]],
   assets: (d) => d.assets && [[d.assets.total, 'home.assets_total'], [d.assets.pm_week, 'home.assets_pm'], [d.assets.down, 'home.assets_down', true]],
   rounds: (d) => d.rounds && [[d.rounds.due, 'home.rounds_due'], [d.rounds.late, 'home.rounds_late', true], [d.rounds.done, 'home.rounds_done']],
@@ -118,7 +120,7 @@ function portalPage(root, alive) {
 
 /* --------------------------------- start -------------------------------- */
 
-const PAGES = { dashboard: dashboardPage, tickets: ticketsPage, categories: categoriesPage, locations: locationsPage, staff: staffPage, api: apiPage, documents: documentsPage, departments: departmentsPage, types: typesPage, users: usersPage, logs: logsPage, health: healthPage, settings: settingsPage, register: registerPage, pm: pmPage, devtypes: devTypesPage, contracts: contractsPage, vendors: vendorsPage, parts: partsPage, moves: movesPage, requests: requestsPage, costs: costsPage, due: duePage, rlog: roundLogPage, checklists: checklistsPage, scan: roundScanPage, overview: reportsPage, compliance: compliancePage };
+const PAGES = { dashboard: dashboardPage, tickets: ticketsPage, categories: categoriesPage, locations: locationsPage, staff: staffPage, api: apiPage, documents: documentsPage, departments: departmentsPage, types: typesPage, users: usersPage, logs: logsPage, health: healthPage, settings: settingsPage, register: registerPage, pm: pmPage, devtypes: devTypesPage, contracts: contractsPage, vendors: vendorsPage, parts: partsPage, moves: movesPage, requests: requestsPage, costs: costsPage, due: duePage, rlog: roundLogPage, checklists: checklistsPage, scan: roundScanPage, overview: reportsPage, compliance: compliancePage, chapters: chaptersPage, standards: standardsPage };
 
 export function render() {
   const seq = ++renderSeq;

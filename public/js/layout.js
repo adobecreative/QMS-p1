@@ -116,6 +116,7 @@ export function langToggle() {
 /* The portal and its systems. One account opens every system the person has a role in;
    each system has its own menu, and its name is the first part of the address (desk/tickets/5). */
 export const APPS = {
+  quality: { icon: 'award', pages: (r) => (r === 'none' ? [] : ['chapters', 'standards']) },
   docs: { icon: 'file', pages: (r) => (r === 'admin' ? ['dashboard', 'documents', 'types', 'settings'] : r === 'dept_admin' ? ['dashboard', 'documents'] : r === 'viewer' ? ['documents', 'dashboard'] : []) },
   desk: { icon: 'desk', pages: (r) => (r === 'admin' ? ['tickets', 'categories', 'locations', 'settings'] : r === 'none' ? [] : ['tickets']) },
   assets: { icon: 'box', pages: (r) => (r === 'none' ? [] : ['register', 'pm', 'contracts', 'vendors', 'parts', 'moves', 'requests', 'costs', ...(r === 'viewer' ? [] : ['devtypes'])]) },
@@ -123,7 +124,7 @@ export const APPS = {
   reports: { icon: 'chart', pages: (r) => (r === 'admin' ? ['overview', 'compliance'] : []) },
   admin: { icon: 'shield', pages: (r) => (r === 'admin' ? ['users', 'departments', 'staff', ...(S.user.is_owner ? ['api'] : []), 'logs', ...(S.user.is_owner ? ['health'] : []), 'settings'] : []) },
 };
-export const APP_ORDER = ['docs', 'desk', 'assets', 'rounds', 'reports', 'admin'];
+export const APP_ORDER = ['quality', 'docs', 'desk', 'assets', 'rounds', 'reports', 'admin'];
 // Both admin roles run the Admin Center; only the super admin changes the user accounts.
 export const isAdminRole = (u) => u.role === 'super_admin' || u.role === 'systems_admin';
 export const access = (app) => (app === 'admin' || app === 'reports' ? (isAdminRole(S.user) ? 'admin' : 'none') : S.user[app] || 'none');
@@ -132,7 +133,7 @@ export const myApps = () => APP_ORDER.filter((a) => appPages(a).length);
 // Pages opened from inside another page, not shown in the menu.
 export const HIDDEN_ROUTES = { categories: 'tickets', locations: 'tickets', scan: 'due', vendors: 'contracts', moves: 'parts', requests: 'parts' };
 // Addresses from before the portal (bookmarks, links in emails) still open their page.
-export const PAGE_APP = { dashboard: 'docs', documents: 'docs', types: 'docs', tickets: 'desk', categories: 'desk', locations: 'desk', users: 'admin', departments: 'admin', staff: 'admin', api: 'admin', logs: 'admin', health: 'admin', register: 'assets', pm: 'assets', devtypes: 'assets', contracts: 'assets', vendors: 'assets', parts: 'assets', moves: 'assets', requests: 'assets', costs: 'assets', due: 'rounds', rlog: 'rounds', checklists: 'rounds', scan: 'rounds', overview: 'reports', compliance: 'reports' };
+export const PAGE_APP = { dashboard: 'docs', documents: 'docs', types: 'docs', tickets: 'desk', categories: 'desk', locations: 'desk', users: 'admin', departments: 'admin', staff: 'admin', api: 'admin', logs: 'admin', health: 'admin', register: 'assets', pm: 'assets', devtypes: 'assets', contracts: 'assets', vendors: 'assets', parts: 'assets', moves: 'assets', requests: 'assets', costs: 'assets', due: 'rounds', rlog: 'rounds', checklists: 'rounds', scan: 'rounds', overview: 'reports', compliance: 'reports', chapters: 'quality', standards: 'quality' };
 // A link written as a page name ("tickets/5") goes to that page in the system it belongs to.
 export function fullPath(path) {
   const first = path.split('/')[0];
@@ -159,7 +160,7 @@ export function currentRoute() {
 // Under the name: what the person is in the system open now.
 export function roleLabel(app) {
   if (isAdminRole(S.user)) return t('role.' + S.user.role);
-  if (app === 'docs' || app === 'desk' || app === 'assets' || app === 'rounds') return t(app + 'role.' + access(app));
+  if (app === 'docs' || app === 'desk' || app === 'assets' || app === 'rounds' || app === 'quality') return t(app + 'role.' + access(app));
   return '';
 }
 

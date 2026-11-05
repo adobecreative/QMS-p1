@@ -99,6 +99,7 @@ export function userDialog(u) {
   const desk = select(['none', 'dept', 'technician', 'supervisor'].map((r) => [r, t('deskrole.' + r)]), u ? u.desk_role : 'none', {});
   const assetsRole = select(['none', 'viewer', 'manager'].map((r) => [r, t('assetsrole.' + r)]), u ? u.assets_role || 'none' : 'none', {});
   const roundsRole = select(['none', 'inspector', 'manager'].map((r) => [r, t('roundsrole.' + r)]), u ? u.rounds_role || 'none' : 'none', {});
+  const qualityRole = select(['none', 'viewer', 'assessor', 'manager'].map((r) => [r, t('qualityrole.' + r)]), u ? u.quality_role || 'none' : 'none', {});
   const job = select([['', t('common.none')], ...['technician', 'engineer', 'supervisor', 'specialist'].map((j) => [j, t('job.' + j)])], u ? u.job_title || '' : '', {});
   const jobField = field(t('user.job_title'), job);
   const password = input({ type: 'password', minlength: 8, required: !u, autocomplete: 'new-password', dir: 'ltr' });
@@ -109,7 +110,7 @@ export function userDialog(u) {
     'fieldset',
     { class: 'app-roles' },
     h('legend', {}, t('user.app_roles')),
-    h('div', { class: 'form-grid' }, field(t('app.docs'), docs, t('user.docs_hint')), field(t('app.desk'), desk, t('user.desk_hint')), field(t('app.assets'), assetsRole, t('user.assets_hint')), field(t('app.rounds'), roundsRole, t('user.rounds_hint'))),
+    h('div', { class: 'form-grid' }, field(t('app.quality'), qualityRole, t('user.quality_hint')), field(t('app.docs'), docs, t('user.docs_hint')), field(t('app.desk'), desk, t('user.desk_hint')), field(t('app.assets'), assetsRole, t('user.assets_hint')), field(t('app.rounds'), roundsRole, t('user.rounds_hint'))),
     teamNote,
     jobField,
   );
@@ -148,6 +149,7 @@ export function userDialog(u) {
         desk_role: desk.value,
         assets_role: assetsRole.value,
         rounds_role: roundsRole.value,
+        quality_role: qualityRole.value,
         department_id: level.value !== 'user' || !dept.value ? null : Number(dept.value),
         job_title: job.value || null,
         active: active.checked,
@@ -198,7 +200,9 @@ export function logValue(key, v) {
   if (key === 'job_title') return has('job.' + v) ? t('job.' + v) : String(v);
   if (key === 'team_id') return deptName(deptById(v)) || '#' + v;
   if (key === 'priority') return 'P' + v;
-  if (key === 'docs_role' || key === 'desk_role' || key === 'assets_role' || key === 'rounds_role') {
+  if (key === 'score' && has('qa.score.' + v)) return t('qa.score.' + v);
+  if (key === 'esr') return t(v ? 'common.yes' : 'common.no');
+  if (key === 'docs_role' || key === 'desk_role' || key === 'assets_role' || key === 'rounds_role' || key === 'quality_role') {
     const k = key.replace('_role', 'role.') + v;
     return has(k) ? t(k) : String(v);
   }
@@ -229,6 +233,7 @@ export function logDetails(l) {
   if (l.action === 'login' || l.action === 'login_failed' || l.action === 'login_locked')
     return [d.ip ? h('div', {}, 'IP: ', h('bdi', { dir: 'ltr' }, d.ip) , d.country ? ' (' + d.country + ')' : '') : null, d.method ? h('div', {}, t('tfa.method_' + d.method)) : null, d.step ? h('div', {}, t('tfa.failed_' + d.step)) : null];
   if (l.action === 'reset_failed') return has('err.' + d.error) ? t('err.' + d.error) : d.error;
+  if (l.action === 'import' && l.entity === 'standard') return t('log.import_std_detail', { saved: d.saved, errors: d.errors });
   if (l.action === 'import' && l.entity === 'asset') return t('log.import_asset_detail', { added: d.added, updated: d.updated, plans: d.plans });
   if (l.action === 'import') return t('log.import_detail', { added: d.added, updated: d.updated, deactivated: d.deactivated });
   if (l.action === 'notify_failed' && l.entity === 'ticket') return has('err.' + d.error) ? t('err.' + d.error) : d.error;

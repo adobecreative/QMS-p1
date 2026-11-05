@@ -1,5 +1,5 @@
 // Passwords, sessions, two-step sign-in and who may do what.
-import { ASSETS_ROLES, DESK_ROLES, DOCS_ROLES, LOCK_MINUTES, MAX_FAILED_LOGINS, PBKDF2_ITERATIONS, RECOVERY_COUNT, ROUNDS_ROLES, SESSION_DAYS, TOTP_PERIOD, isAdmin } from './config.js';
+import { ASSETS_ROLES, DESK_ROLES, DOCS_ROLES, LOCK_MINUTES, MAX_FAILED_LOGINS, PBKDF2_ITERATIONS, RECOVERY_COUNT, QUALITY_ROLES, ROUNDS_ROLES, SESSION_DAYS, TOTP_PERIOD, isAdmin } from './config.js';
 import { logStmt } from './db.js';
 import { HttpError, b64d, b64e, checkLang, fail, nowIso, safeEqual, sha256Hex, str, toHex } from './util.js';
 
@@ -52,7 +52,7 @@ export async function getUser(request, env) {
   const token = readCookie(request, 'fm_session');
   if (!/^[0-9a-f]{64}$/.test(token)) return null;
   const row = await env.DB.prepare(
-    `SELECT u.id, u.name, u.name_en, u.email, u.role, u.docs_role, u.desk_role, u.assets_role, u.rounds_role, u.department_id, u.job_title, u.totp_on, s.token_hash,
+    `SELECT u.id, u.name, u.name_en, u.email, u.role, u.docs_role, u.desk_role, u.assets_role, u.rounds_role, u.quality_role, u.department_id, u.job_title, u.totp_on, s.token_hash,
             (SELECT value FROM settings WHERE key = 'require_2fa') AS require_2fa
        FROM sessions s JOIN users u ON u.id = s.user_id
       WHERE s.token_hash = ? AND s.expires_at > ? AND u.active = 1`,
@@ -66,7 +66,7 @@ export async function getUser(request, env) {
   return row;
 }
 
-export const isManagerRole = (u) => isAdmin(u) || u.docs_role === 'dept_admin' || u.desk_role === 'supervisor' || u.assets_role === 'manager' || u.rounds_role === 'manager';
+export const isManagerRole = (u) => isAdmin(u) || u.docs_role === 'dept_admin' || u.desk_role === 'supervisor' || u.assets_role === 'manager' || u.rounds_role === 'manager' || u.quality_role === 'manager';
 export const needs2fa = (u, level) => (level === 'super' ? isAdmin(u) : level === 'managers' ? isManagerRole(u) : false);
 
 /* two-step sign-in (TOTP) */
@@ -161,6 +161,7 @@ export function withAccess(u) {
   u.desk = sup ? 'admin' : DESK_ROLES.includes(u.desk_role) ? u.desk_role : 'none';
   u.assets = sup ? 'admin' : ASSETS_ROLES.includes(u.assets_role) ? u.assets_role : 'none';
   u.rounds = sup ? 'admin' : ROUNDS_ROLES.includes(u.rounds_role) ? u.rounds_role : 'none';
+  u.quality = sup ? 'admin' : QUALITY_ROLES.includes(u.quality_role) ? u.quality_role : 'none';
   return u;
 }
 
@@ -174,7 +175,8 @@ export const userOut = (u) => ({
   desk_role: u.desk_role || 'none',
   assets_role: u.assets_role || 'none',
   rounds_role: u.rounds_role || 'none',
-  ...(u.docs ? { docs: u.docs, desk: u.desk, assets: u.assets, rounds: u.rounds } : {}),
+  quality_role: u.quality_role || 'none',
+  ...(u.docs ? { docs: u.docs, desk: u.desk, assets: u.assets, rounds: u.rounds, quality: u.quality } : {}),
   department_id: u.department_id ?? null,
   job_title: u.job_title || '',
   totp_on: !!u.totp_on,
