@@ -5,6 +5,7 @@ import { isAdmin } from '../lib/config.js';
 import { getSettings, logStmt, setSettingStmt } from '../lib/db.js';
 import { ARABIC_RE, fail, json, nowIso, str } from '../lib/util.js';
 import { route2 } from './assets.js';
+import { fmsEvidence } from './fmslink.js';
 
 // met = fully met, partial = partially met, not_met, na = not applicable to this hospital.
 export const STD_SCORES = ['met', 'partial', 'not_met', 'na'];
@@ -102,6 +103,7 @@ export async function handleQuality(request, env, url, seg, method, user) {
       dept_list: deptList,
       can_manage: manager,
       can_assess: manager || role === 'assessor',
+      fms: fmsEvidence(settings),
     });
   }
 
