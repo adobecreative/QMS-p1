@@ -93,6 +93,14 @@ export const DEFAULT_SETTINGS = {
   inventory_mode: 'standalone',
   // Quality & Accreditation: the starter CBAHI chapters are added once, so a chapter renamed or switched off stays so.
   std_chapters_seeded: '',
+  // The optional link to the Fikra portal (see src/systems/fmslink.js). The key never leaves the server.
+  link_on: '0',
+  link_url: '',
+  link_key: '',
+  link_synced_at: '',
+  link_error: '',
+  link_snapshot: '',
+  link_portal: '',
 };
 export const SLA_KEYS = [1, 2, 3, 4].flatMap((p) => [`sla_p${p}_resp`, `sla_p${p}_res`]);
 export const MAX_LOGO_BYTES = 1024 * 1024;

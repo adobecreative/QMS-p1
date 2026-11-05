@@ -2,7 +2,7 @@
 // and the readiness score. Each standard can name the JCI standards it matches.
 import { render } from '../app.js';
 import { kpiRow } from './assets.js';
-import { S, h, icon, t } from './core.js';
+import { S, h, has, icon, t } from './core.js';
 import { link, navigate } from './layout.js';
 import { api, checkField, errText, errorBox, field, fmtDate, input, openDialog, select, toast } from './offline.js';
 import { pick, simpleDelete } from './tickets.js';
@@ -57,7 +57,8 @@ export async function chaptersPage(root, _param, alive) {
   const cards = d.chapters
     .filter((c) => c.active)
     .map((c) => {
-      const el = card(c.code, chapterName(c), c.jci ? 'JCI: ' + c.jci : '', c.stats, c.stats.esr_gap ? h('span', { class: 'qa-alert' }, t('qa.esr_gap', { n: c.stats.esr_gap })) : null);
+      const linked = c.code === 'FMS' && d.fms ? h('span', { class: 'qa-linked' + (d.fms.error ? ' is-error' : '') }, t(d.fms.error ? 'qa.fms.badge_error' : 'qa.fms.badge')) : null;
+      const el = card(c.code, chapterName(c), c.jci ? 'JCI: ' + c.jci : '', c.stats, [c.stats.esr_gap ? h('span', { class: 'qa-alert' }, t('qa.esr_gap', { n: c.stats.esr_gap })) : null, linked]);
       if (!d.can_manage) return el;
       return h('div', { class: 'qa-card-wrap' }, el, h('button', { type: 'button', class: 'btn btn-icon qa-edit', title: t('common.edit'), 'aria-label': t('common.edit') + ': ' + chapterName(c), onclick: () => chapterDialog(c) }, icon('edit')));
     });
@@ -217,6 +218,7 @@ export async function standardsPage(root, param, alive) {
         : null,
     ),
     h('section', { class: 'panel qa-summary' }, h('div', { class: 'qa-summary-pct' }, h('b', { class: band(stats.pct), dir: 'ltr' }, pctText(stats.pct)), h('span', { class: 'muted' }, t('qa.readiness'))), h('div', { class: 'qa-summary-body' }, meter(stats.pct, t('qa.readiness')), counts(stats))),
+    ch === 'FMS' ? fmsPanel(d.fms) : '',
     h('div', { class: 'filters' }, h('div', { class: 'doc-search', role: 'search' }, icon('search'), search), pickCh, score),
     box,
   );
@@ -368,4 +370,98 @@ function importDialog(chapters, ch) {
     },
   });
   if (ch) area.focus();
+}
+
+/* ------------------- the optional link to the Fikra portal ------------------ */
+
+const when = (iso) => new Intl.DateTimeFormat(S.lang === 'ar' ? 'ar-EG-u-nu-latn' : 'en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(iso));
+const linkError = (code) => t(has('err.' + code) ? 'err.' + code : 'err.link_unreachable');
+
+// FMS evidence from the portal, on the FMS chapter (and the ESR and all-standards views).
+export function fmsPanel(f) {
+  if (!f) return '';
+  const sn = f.snapshot;
+  const portal = f.portal ? (() => { try { const p = JSON.parse(f.portal); return pick(p.name_ar, p.name_en); } catch { return ''; } })() : '';
+  const rows = [];
+  if (sn && sn.tickets) {
+    const tk = sn.tickets;
+    rows.push(
+      ['qa.fms.open', tk.open + (tk.open_partial ? '+' : '')],
+      ['qa.fms.late', tk.late],
+      ['qa.fms.patient', tk.patient_impact],
+      ['qa.fms.closed30', tk.closed_30],
+      ['qa.fms.sla', pctText(tk.sla_pct)],
+      ['qa.fms.wo30', tk.work_orders_30],
+    );
+  }
+  if (sn && sn.assets) {
+    const a = sn.assets;
+    rows.push(['qa.fms.assets', a.total + (a.partial ? '+' : '')], ['qa.fms.down', a.out_of_service], ['qa.fms.pm', pctText(a.pm_pct)], ['qa.fms.pm_overdue', a.pm_overdue], ['qa.fms.high_risk', a.high_risk]);
+  }
+  return h(
+    'section',
+    { class: 'panel qa-fms' },
+    h(
+      'div',
+      { class: 'panel-head' },
+      h('div', { class: 'panel-title' }, h('h2', {}, t('qa.fms.title')), portal ? h('span', { class: 'muted small' }, portal) : null),
+      h('span', { class: 'small muted' }, f.synced_at ? t('qa.fms.synced', { at: when(sn ? sn.at : f.synced_at) }) : t('qa.fms.never')),
+    ),
+    f.error ? h('p', { class: 'notice notice-warn qa-fms-note' }, t('qa.fms.error', { err: linkError(f.error) })) : null,
+    rows.length ? kpiRow(rows) : h('p', { class: 'empty' }, t('qa.fms.empty')),
+    h('p', { class: 'hint qa-fms-note' }, t('qa.fms.hint')),
+  );
+}
+
+// Admin Center, system owner only: switch the link on, the portal's address and its read-only key.
+export function linkPanel() {
+  const box = h('section', { class: 'panel pad stack settings', 'aria-busy': 'true' }, h('h2', {}, t('link.title')));
+  api('/fms-link')
+    .then((d) => draw(d))
+    .catch(() => box.remove());
+  const draw = (d) => {
+    const on = input({ type: 'checkbox', checked: d.on });
+    const url = input({ type: 'url', dir: 'ltr', maxlength: 300, value: d.url, placeholder: 'https://portal.example.com' });
+    const key = input({ type: 'password', dir: 'ltr', maxlength: 60, autocomplete: 'off', placeholder: 'fms_...' });
+    const fields = h('div', { class: 'stack' }, field(t('link.url'), url, t('link.url_hint')), field(t('link.key'), key, d.key_set ? t('link.key_set') : t('link.key_hint')));
+    const show = () => (fields.hidden = !on.checked);
+    on.addEventListener('change', show);
+    show();
+    const err = h('p', { class: 'form-error', role: 'alert', hidden: true });
+    const status = d.on
+      ? h('p', { class: 'small ' + (d.error ? 'form-error' : 'muted') }, d.error ? t('link.failed', { err: linkError(d.error) }) : d.synced_at ? t('link.ok', { at: when(d.synced_at) }) : t('qa.fms.never'))
+      : h('p', { class: 'small muted' }, t('link.off'));
+    const save = h('button', { type: 'submit', class: 'btn btn-primary' }, t('common.save'));
+    const sync = d.on ? h('button', { type: 'button', class: 'btn' }, t('link.sync')) : '';
+    if (sync)
+      sync.addEventListener('click', async () => {
+        sync.disabled = true;
+        try {
+          const r = await api('/fms-link/sync', { method: 'POST' });
+          toast(r.ok ? t('link.synced') : t('link.failed', { err: linkError(r.error) }), !r.ok);
+          draw(await api('/fms-link'));
+        } catch (e) {
+          toast(errText(e), true);
+          sync.disabled = false;
+        }
+      });
+    const form = h('form', { class: 'stack' }, checkField(t('link.on'), on), fields, status, err, h('div', { class: 'actions' }, save, sync));
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      err.hidden = true;
+      save.disabled = true;
+      try {
+        const r = await api('/fms-link', { method: 'PUT', body: { on: on.checked, url: url.value, key: key.value } });
+        toast(!r.on ? t('link.saved_off') : r.sync && !r.sync.ok ? t('link.failed', { err: linkError(r.sync.error) }) : t('link.saved_on'), !!(r.on && r.sync && !r.sync.ok));
+        draw(r);
+      } catch (e) {
+        err.textContent = errText(e);
+        err.hidden = false;
+        save.disabled = false;
+      }
+    });
+    box.removeAttribute('aria-busy');
+    box.replaceChildren(h('h2', {}, t('link.title')), h('p', { class: 'muted' }, t('link.help')), form);
+  };
+  return box;
 }
