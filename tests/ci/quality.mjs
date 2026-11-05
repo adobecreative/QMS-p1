@@ -15,6 +15,12 @@ const login = async (email, password) => {
     if (sc && sc.startsWith('fm_session=')) cookie = sc.split(';')[0];
     return { s: r.status, j: await r.json().catch(() => null) };
   };
+  // A form upload (files), and a raw fetch to read a PDF.
+  api.form = async (path, method, fd) => {
+    const r = await fetch(B + '/api' + path, { method, headers: { cookie, 'x-requested-with': 'fetch' }, body: fd });
+    return { s: r.status, j: await r.json().catch(() => null) };
+  };
+  api.raw = (path) => fetch(B + '/api' + path, { headers: { cookie, 'x-requested-with': 'fetch' } });
   const r = await api('/login', 'POST', { email, password });
   check(r.s === 200, 'sign in ' + email, r);
   return api;
@@ -142,6 +148,41 @@ if (r.s === 200) check(!JSON.stringify(r.j).includes(linkKey) && !('link_key' in
 r = await owner('/fms-link', 'PUT', { on: false });
 check(r.s === 200 && !r.j.on && !r.j.key_set && r.j.snapshot === null, 'switching off forgets the key and the summary', r.j);
 check((await qv('/quality')).j.fms === null, 'and the evidence leaves the FMS chapter');
+
+// Chapter files: a documents file filed under a CBAHI chapter shows on that chapter's page.
+{
+  r = await owner('/doc-types');
+  check(r.s === 200 && r.j.chapters.some((c) => c.code === 'FMS'), 'the file form lists the chapters', r.j && r.j.chapters);
+  const type = r.j.doc_types[0].key;
+  const pdfBytes = new TextEncoder().encode('%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF');
+  const fileForm = (extra) => {
+    const fd = new FormData();
+    for (const [k, v] of Object.entries({ name: 'خطة السلامة من الحريق', name_en: 'Fire safety plan', file_number: 'FMS-PL-01', doc_type: type, department_id: deptA.id, ...extra })) fd.set(k, String(v));
+    fd.set('pdf', new Blob([pdfBytes], { type: 'application/pdf' }), 'fire.pdf');
+    return fd;
+  };
+  check((await owner.form('/files', 'POST', fileForm({ chapter: 'ZZZ' }))).s === 400, 'an unknown chapter is refused');
+  r = await owner.form('/files', 'POST', fileForm({ chapter: 'fms' }));
+  check(r.s === 200 && r.j.id, 'a file is added under the FMS chapter', r);
+  const fileId = r.j.id;
+  r = await qv('/quality/files?chapter=FMS');
+  const got = r.j && r.j.files.find((f) => f.id === fileId);
+  check(r.s === 200 && got && got.chapter === 'FMS' && got.pdf_url && r.j.can_add === false, 'a quality viewer sees the chapter files, read only', r.j);
+  check((await owner('/quality/files?chapter=FMS')).j.can_add === true, 'a documents admin can add files there');
+  check((await qv('/quality/files?chapter=LD')).j.files.length === 0, 'other chapters do not show it');
+  const pdf = await qv.raw('/quality/files/' + fileId + '/pdf');
+  check(pdf.status === 200 && pdf.headers.get('content-type') === 'application/pdf', 'a quality viewer opens the PDF', pdf.status);
+  check((await tech('/quality/files?chapter=FMS')).s === 403, 'someone without a quality role cannot list chapter files');
+  r = await owner('/quality');
+  check(r.j.chapters.find((c) => c.code === 'FMS').files >= 1, 'the chapter card counts its files', r.j.chapters.find((c) => c.code === 'FMS'));
+  r = await owner('/files');
+  check(r.j.files.find((f) => f.id === fileId).chapter === 'FMS', 'the documents list carries the chapter');
+  r = await owner.form('/files/' + fileId, 'PUT', fileForm({ chapter: '' }));
+  check(r.s === 200, 'the chapter can be taken off', r);
+  check((await qv.raw('/quality/files/' + fileId + '/pdf')).status === 404, 'a file without a chapter is not open to quality users');
+  r = await owner('/logs');
+  check(r.j.logs.some((l) => l.entity === 'file' && l.details && l.details.includes('"chapter"')), 'the chapter change is in the activity log');
+}
 
 // Activity log and backup.
 r = await owner('/logs');

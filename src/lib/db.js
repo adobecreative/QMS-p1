@@ -15,6 +15,8 @@ export async function ensureSchema(env) {
   // Optional English file name, shown when the interface is in English. ALTER TABLE has no IF NOT EXISTS.
   const { results: cols } = await env.DB.prepare('PRAGMA table_info(files)').all();
   if (!cols.some((c) => c.name === 'name_en')) await env.DB.prepare('ALTER TABLE files ADD COLUMN name_en TEXT').run();
+  // The CBAHI chapter a file belongs to (std_chapters.code), so it shows on that chapter's page. Optional.
+  if (!cols.some((c) => c.name === 'chapter')) await env.DB.prepare('ALTER TABLE files ADD COLUMN chapter TEXT').run();
   // A technical department (IT, biomedical, maintenance) receives tickets. Technicians carry a job title.
   const { results: deptCols } = await env.DB.prepare('PRAGMA table_info(departments)').all();
   if (!deptCols.some((c) => c.name === 'is_team')) await env.DB.prepare('ALTER TABLE departments ADD COLUMN is_team INTEGER NOT NULL DEFAULT 0').run();

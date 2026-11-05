@@ -213,7 +213,7 @@ export function zipStore(files) {
   return new Blob([...parts, ...central, new Uint8Array(end.buffer)]);
 }
 
-export function fileDialog(file) {
+export function fileDialog(file, preset) {
   const isEdit = !!file;
   if (!S.departments.length) {
     toast(t('file.no_depts'), true);
@@ -243,6 +243,12 @@ export function fileDialog(file) {
   const notify = input({ type: 'date', value: (file && file.notify_date) || '' });
   const review = input({ type: 'checkbox', checked: !!(file && file.under_review) });
   const pdf = input({ type: 'file', accept: 'application/pdf,.pdf', required: !isEdit });
+  // The CBAHI chapter, so the file shows on that chapter's page in Quality & Accreditation.
+  const chapters = S.chapters || [];
+  const chapter = select(
+    [['', t('file.no_chapter')], ...chapters.map((c) => [c.code, c.code + ' · ' + (S.lang === 'en' ? c.name_en : c.name_ar)])],
+    (file && file.chapter) || (preset && preset.chapter) || '',
+  );
   const sync = () => {
     expiry.disabled = permanent.checked;
     near.disabled = permanent.checked;
@@ -262,6 +268,7 @@ export function fileDialog(file) {
       field(t('file.type'), type),
       field(t('file.department'), dept),
       field(t('file.issue'), issue),
+      chapters.length ? h('div', { class: 'span-2' }, field(t('file.chapter'), chapter, t('file.chapter_hint'))) : null,
       h('div', { class: 'span-2' }, checkField(t('file.permanent'), permanent)),
       field(t('file.expiry'), expiry),
       field(t('file.near_days'), near, t('file.near_hint', { n: S.defaults.near_days })),
@@ -276,6 +283,8 @@ export function fileDialog(file) {
       fd.set('name_en', nameEn.value);
       fd.set('file_number', number.value);
       fd.set('doc_type', type.value);
+      if (chapters.length) fd.set('chapter', chapter.value);
+      else if (file && file.chapter) fd.set('chapter', file.chapter);
       fd.set('issue_date', issue.value);
       fd.set('expiry_date', permanent.checked ? '' : expiry.value);
       fd.set('near_days', permanent.checked ? '' : near.value);

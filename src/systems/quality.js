@@ -3,8 +3,9 @@
 import { readJson } from '../lib/auth.js';
 import { isAdmin } from '../lib/config.js';
 import { getSettings, logStmt, setSettingStmt } from '../lib/db.js';
-import { ARABIC_RE, fail, json, nowIso, str } from '../lib/util.js';
+import { ARABIC_RE, fail, json, nowIso, str, todayIn } from '../lib/util.js';
 import { route2 } from './assets.js';
+import { fileOut } from './docs.js';
 import { fmsEvidence } from './fmslink.js';
 
 // met = fully met, partial = partially met, not_met, na = not applicable to this hospital.
@@ -38,7 +39,7 @@ const withPct = (r) => ({ ...r, pct: readiness(r) });
 // The code's letters before the number: "LD.12" and "LD-12" are in LD.
 export const chapterOf = (code) => (/^([A-Za-z]{2,6})/.exec(code) || [])[1]?.toUpperCase() || '';
 
-async function seedChapters(env, settings) {
+export async function seedChapters(env, settings) {
   if (settings.std_chapters_seeded === '1') return;
   await env.DB.batch([
     ...STARTER_CHAPTERS.map(([code, ar, en, jci, sort]) => env.DB.prepare('INSERT OR IGNORE INTO std_chapters (code, name_ar, name_en, jci, sort) VALUES (?, ?, ?, ?, ?)').bind(code, ar, en, jci, sort)),
@@ -83,7 +84,7 @@ export async function handleQuality(request, env, url, seg, method, user) {
 
   // The chapters with their readiness, the ESR line across chapters, and the whole hospital.
   if (r2 === 'GET /quality') {
-    const [{ results: chapters }, { results: by }, all, { results: departments }, { results: deptList }] = await Promise.all([
+    const [{ results: chapters }, { results: by }, all, { results: departments }, { results: deptList }, { results: fileCounts }] = await Promise.all([
       env.DB.prepare('SELECT * FROM std_chapters ORDER BY sort, code').all(),
       env.DB.prepare(`SELECT chapter, ${STATS} FROM standards WHERE active = 1 GROUP BY chapter`).all(),
       env.DB.prepare(`SELECT ${STATS} FROM standards WHERE active = 1`).first(),
@@ -92,11 +93,13 @@ export async function handleQuality(request, env, url, seg, method, user) {
           WHERE s.active = 1 GROUP BY s.department_id ORDER BY d.name_ar`,
       ).all(),
       env.DB.prepare('SELECT id, name_ar, name_en FROM departments ORDER BY name_ar').all(),
+      env.DB.prepare('SELECT chapter, COUNT(*) AS n FROM files WHERE chapter IS NOT NULL GROUP BY chapter').all(),
     ]);
+    const filesBy = Object.fromEntries(fileCounts.map((r) => [r.chapter, r.n]));
     const map = Object.fromEntries(by.map((r) => [r.chapter, r]));
     const esr = await env.DB.prepare(`SELECT ${STATS} FROM standards WHERE active = 1 AND esr = 1`).first();
     return json({
-      chapters: chapters.map((c) => ({ ...c, stats: withPct(map[c.code] || { n: 0 }) })),
+      chapters: chapters.map((c) => ({ ...c, stats: withPct(map[c.code] || { n: 0 }), files: filesBy[c.code] || 0 })),
       esr: withPct(esr),
       total: withPct(all),
       departments: departments.map(withPct),
@@ -104,6 +107,35 @@ export async function handleQuality(request, env, url, seg, method, user) {
       can_manage: manager,
       can_assess: manager || role === 'assessor',
       fms: fmsEvidence(settings),
+    });
+  }
+
+  // The chapter's files (policies, plans, records) from the documents system, for every quality user:
+  // they are the chapter's evidence, so they are shown whatever department owns them. Read only here;
+  // adding and changing stays with the people who manage documents.
+  if (r2 === 'GET /quality/files') {
+    const ch = str(url.searchParams.get('chapter') || '', 6).toUpperCase();
+    if (!ch) fail(400, 'std_bad_chapter');
+    const [{ results }, { results: types }] = await Promise.all([
+      env.DB.prepare(
+        `SELECT f.*, d.name_ar AS dept_ar, d.name_en AS dept_en FROM files f LEFT JOIN departments d ON d.id = f.department_id
+          WHERE f.chapter = ? ORDER BY f.doc_type, f.name LIMIT 1000`,
+      ).bind(ch).all(),
+      env.DB.prepare('SELECT key, name_ar, name_en FROM doc_types ORDER BY id').all(),
+    ]);
+    const today = todayIn(settings.timezone);
+    return json({
+      files: results.map((f) => ({ ...fileOut(f, today, settings), dept_ar: f.dept_ar, dept_en: f.dept_en, pdf_url: '/api/quality/files/' + f.id + '/pdf' })),
+      doc_types: types,
+      can_add: user.docs === 'admin' || user.docs === 'dept_admin',
+    });
+  }
+  if (method === 'GET' && seg[0] === 'quality' && seg[1] === 'files' && /^\d+$/.test(seg[2] || '') && seg[3] === 'pdf' && seg.length === 4) {
+    const f = await env.DB.prepare('SELECT pdf_key FROM files WHERE id = ? AND chapter IS NOT NULL').bind(Number(seg[2])).first();
+    const obj = f && f.pdf_key ? await env.FILES.get(f.pdf_key) : null;
+    if (!obj) fail(404, 'not_found');
+    return new Response(obj.body, {
+      headers: { 'content-type': 'application/pdf', 'content-length': String(obj.size), 'content-disposition': 'inline', 'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff' },
     });
   }
 

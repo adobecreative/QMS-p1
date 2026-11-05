@@ -26,6 +26,7 @@ export function fileOut(f, today, settings) {
     name_en: f.name_en || '',
     file_number: f.file_number,
     doc_type: f.doc_type,
+    chapter: f.chapter || null,
     issue_date: f.issue_date,
     expiry_date: f.expiry_date,
     near_days: f.near_days,
@@ -37,6 +38,10 @@ export function fileOut(f, today, settings) {
     days_left: st.days,
     updated_at: f.updated_at,
   };
+}
+
+export async function checkChapter(env, chapter) {
+  if (chapter && !(await env.DB.prepare('SELECT 1 FROM std_chapters WHERE code = ?').bind(chapter).first())) fail(400, 'std_bad_chapter');
 }
 
 export function readFileFields(form) {
@@ -60,7 +65,9 @@ export function readFileFields(form) {
   if (near_days !== null && (!Number.isInteger(near_days) || near_days < 0 || near_days > 3650)) fail(400, 'invalid_near_days');
   const notify_date = optDate(form.get('notify_date'));
   const under_review = form.get('under_review') === '1' ? 1 : 0;
-  return { name, name_en, file_number, doc_type, department_id, issue_date, expiry_date, near_days, notify_date, under_review };
+  // The CBAHI chapter (checked against std_chapters by the caller). Empty = no chapter.
+  const chapter = str(form.get('chapter'), 6).toUpperCase() || null;
+  return { name, name_en, file_number, doc_type, department_id, issue_date, expiry_date, near_days, notify_date, under_review, chapter };
 }
 
 // Text the browser extracted from the PDF it is uploading. Missing text is fine: it is filled in later.
