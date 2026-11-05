@@ -10,13 +10,13 @@ import { handleTwoFactor } from './systems/account.js';
 import { handleApiKeys, handleIntegration } from './systems/api.js';
 import { handleAssets, runPmJobs } from './systems/assets.js';
 import { handleContracts, runContractReminders } from './systems/contracts.js';
-import { addDemo, demoIds, fileOut, readFileFields, readPdf, readText, removeDemo, runReminders, textStmt } from './systems/docs.js';
+import { addDemo, checkChapter, demoIds, fileOut, readFileFields, readPdf, readText, removeDemo, runReminders, textStmt } from './systems/docs.js';
 import { handleHealth, logServerError } from './systems/health.js';
 import { handleInventory, runStockReminders } from './systems/inventory.js';
 import { handleCompliance, handleReportMail, handleReports, runMonthlyReport } from './systems/reports.js';
 import { handleHome } from './systems/home.js';
 import { handleFmsLink, runFmsSync } from './systems/fmslink.js';
-import { handleQuality } from './systems/quality.js';
+import { handleQuality, seedChapters } from './systems/quality.js';
 import { handleRounds, runRoundReminders } from './systems/rounds.js';
 import { handlePublicTickets, handleTickets, runTicketAlerts } from './systems/tickets.js';
 
@@ -324,7 +324,10 @@ async function handleApi(request, env, url, ctx) {
       `SELECT t.id, t.key, t.name_ar, t.name_en, (SELECT COUNT(*) FROM files f WHERE f.doc_type = t.key) AS file_count
          FROM doc_types t ORDER BY t.id`,
     ).all();
-    return json({ doc_types: results });
+    // The CBAHI chapters a file can be filed under (shown in the file form).
+    await seedChapters(env, await getSettings(env));
+    const { results: chapters } = await env.DB.prepare('SELECT code, name_ar, name_en FROM std_chapters WHERE active = 1 ORDER BY sort, code').all();
+    return json({ doc_types: results, chapters });
   }
 
   if (seg[0] === 'doc-types' && method !== 'GET') {
@@ -443,6 +446,7 @@ async function handleApi(request, env, url, ctx) {
     const dept = await env.DB.prepare('SELECT id FROM departments WHERE id = ?').bind(data.department_id).first();
     if (!dept) fail(400, 'department_required');
     if (!(await env.DB.prepare('SELECT id FROM doc_types WHERE key = ?').bind(data.doc_type).first())) fail(400, 'invalid_type');
+    await checkChapter(env, data.chapter);
     const pdf = await readPdf(form);
     if (!pdf) fail(400, 'pdf_required');
     const text = readText({ body: form.get('text_body'), compact: form.get('text_compact') });
@@ -451,10 +455,10 @@ async function handleApi(request, env, url, ctx) {
     try {
       const now = nowIso();
       const res = await env.DB.prepare(
-        `INSERT INTO files (department_id, name, name_en, file_number, doc_type, issue_date, expiry_date, near_days, under_review, notify_date, pdf_key, pdf_name, pdf_size, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO files (department_id, name, name_en, file_number, doc_type, chapter, issue_date, expiry_date, near_days, under_review, notify_date, pdf_key, pdf_name, pdf_size, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-        .bind(data.department_id, data.name, data.name_en, data.file_number, data.doc_type, data.issue_date, data.expiry_date, data.near_days, data.under_review, data.notify_date, key, pdf.name, pdf.size, now, now)
+        .bind(data.department_id, data.name, data.name_en, data.file_number, data.doc_type, data.chapter, data.issue_date, data.expiry_date, data.near_days, data.under_review, data.notify_date, key, pdf.name, pdf.size, now, now)
         .run();
       const fileId = res.meta.last_row_id;
       if (text) await textStmt(env, fileId, key, text).run();
@@ -541,7 +545,8 @@ async function handleApi(request, env, url, ctx) {
       const pdf = await readPdf(form);
       const text = pdf ? readText({ body: form.get('text_body'), compact: form.get('text_compact') }) : null;
       if (data.doc_type !== file.doc_type && !(await env.DB.prepare('SELECT id FROM doc_types WHERE key = ?').bind(data.doc_type).first())) fail(400, 'invalid_type');
-      const diff = changes(file, data, ['name', 'name_en', 'file_number', 'doc_type', 'department_id', 'issue_date', 'expiry_date', 'near_days', 'under_review', 'notify_date']);
+      if (data.chapter !== (file.chapter || null)) await checkChapter(env, data.chapter);
+      const diff = changes({ ...file, chapter: file.chapter || null }, data, ['name', 'name_en', 'file_number', 'doc_type', 'chapter', 'department_id', 'issue_date', 'expiry_date', 'near_days', 'under_review', 'notify_date']);
       let key = file.pdf_key;
       let pdfName = file.pdf_name;
       let pdfSize = file.pdf_size;
@@ -559,12 +564,12 @@ async function handleApi(request, env, url, ctx) {
       try {
         await env.DB.batch([
           env.DB.prepare(
-            `UPDATE files SET department_id = ?, name = ?, name_en = ?, file_number = ?, doc_type = ?, issue_date = ?, expiry_date = ?, near_days = ?, under_review = ?, notify_date = ?,
+            `UPDATE files SET department_id = ?, name = ?, name_en = ?, file_number = ?, doc_type = ?, chapter = ?, issue_date = ?, expiry_date = ?, near_days = ?, under_review = ?, notify_date = ?,
                     pdf_key = ?, pdf_name = ?, pdf_size = ?, updated_at = ?,
                     last_notified_status = ?, last_notified_on = ?, notify_date_sent = ?
               WHERE id = ?`,
           ).bind(
-            data.department_id, data.name, data.name_en, data.file_number, data.doc_type, data.issue_date, data.expiry_date, data.near_days, data.under_review, data.notify_date,
+            data.department_id, data.name, data.name_en, data.file_number, data.doc_type, data.chapter, data.issue_date, data.expiry_date, data.near_days, data.under_review, data.notify_date,
             key, pdfName, pdfSize, nowIso(),
             statusReset ? null : file.last_notified_status, statusReset ? null : file.last_notified_on, customReset ? null : file.notify_date_sent,
             id,

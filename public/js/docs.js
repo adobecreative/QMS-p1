@@ -23,6 +23,7 @@ export async function loadFiles() {
   const [d, ty, f] = await Promise.all([api('/departments?for=docs'), api('/doc-types'), api('/files')]);
   S.departments = d.departments;
   S.docTypes = ty.doc_types;
+  S.chapters = ty.chapters || [];
   return f.files;
 }
 
@@ -484,6 +485,7 @@ export function docArticle(f, startPage) {
         { class: 'meta-grid' },
         meta(t('file.department'), h('span', { class: 'strong' }, deptName(deptById(f.department_id)))),
         meta(t('file.number'), h('span', { class: 'mono strong', dir: 'ltr' }, f.file_number)),
+        f.chapter ? meta(t('file.chapter'), h('span', { class: 'strong' }, chapterLabel(f.chapter))) : null,
         meta(t('file.issue'), dateEl(f.issue_date)),
         meta(t('file.expiry'), h('div', { class: 'meta-row' }, dateEl(f.expiry_date), f.status !== 'none' ? statusChip(f.status) : null)),
       ),
@@ -491,6 +493,11 @@ export function docArticle(f, startPage) {
     f.has_pdf ? ackBar(f) : null,
     f.has_pdf ? pdfViewer(f, startPage) : h('div', { class: 'panel empty' }, t('doc.no_pdf')),
   );
+}
+
+export function chapterLabel(code) {
+  const c = (S.chapters || []).find((x) => x.code === code);
+  return c ? code + ' · ' + (S.lang === 'en' ? c.name_en : c.name_ar) : code;
 }
 
 export let pdfJsLoading = null;
@@ -616,7 +623,7 @@ export function pdfViewer(file, startPage) {
   (async () => {
     try {
       await loadPdfJs();
-      const url = '/api/files/' + file.id + '/pdf?v=' + encodeURIComponent(file.updated_at || '');
+      const url = (file.pdf_url || '/api/files/' + file.id + '/pdf') + '?v=' + encodeURIComponent(file.updated_at || '');
       st.doc = await window.pdfjsLib.getDocument({ url, isEvalSupported: false, cMapUrl: '/vendor/cmaps/', cMapPacked: true, standardFontDataUrl: '/vendor/standard_fonts/' }).promise;
       st.page = Math.min(Math.max(1, startPage || 1), st.doc.numPages);
       stage.replaceChildren(canvas);

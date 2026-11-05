@@ -3239,3 +3239,76 @@ a.qa-card:hover {
   background: var(--yellow-bg);
   color: var(--yellow-ink);
 }
+
+/* a chapter's files, as tiles */
+.qa-files {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(140px, 40vw), 1fr));
+  gap: 12px;
+  padding: 16px;
+}
+.qa-file {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  padding: 14px;
+  background: var(--gold-tint);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--ink);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.qa-file:hover:not(:disabled) {
+  border-color: var(--accent);
+  box-shadow: 0 6px 18px rgba(138, 100, 32, 0.12);
+}
+.qa-file:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+.qa-file-icon {
+  display: inline-flex;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--accent);
+}
+.qa-file-name {
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.qa-file-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.qa-section-title {
+  font-size: 18px;
+  margin-block: 8px -4px;
+}
+.dialog-wide {
+  width: min(980px, calc(100vw - 24px));
+}
+.dialog-body {
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.qa-viewer-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}

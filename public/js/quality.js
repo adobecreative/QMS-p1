@@ -2,10 +2,12 @@
 // and the readiness score. Each standard can name the JCI standards it matches.
 import { render } from '../app.js';
 import { kpiRow } from './assets.js';
+import { pdfViewer } from './docs.js';
 import { S, h, has, icon, t } from './core.js';
 import { link, navigate } from './layout.js';
-import { api, checkField, errText, errorBox, field, fmtDate, input, openDialog, select, toast } from './offline.js';
+import { api, checkField, errText, errorBox, field, fmtDate, input, openDialog, select, statusChip, toast } from './offline.js';
 import { pick, simpleDelete } from './tickets.js';
+import { fileDialog } from './xlsx.js';
 
 export const STD_SCORES = ['met', 'partial', 'not_met', 'na'];
 const SCORE_CHIP = { met: 'chip-valid', partial: 'chip-near', not_met: 'chip-expired', na: 'chip-review' };
@@ -34,7 +36,7 @@ export async function chaptersPage(root, _param, alive) {
   }
   if (!alive()) return;
   S.quality = d;
-  const card = (code, name, sub, stats, extra, cls) =>
+  const card = (code, name, sub, stats, extra, cls, files) =>
     link(
       'quality/standards/' + code,
       { class: 'qa-card' + (cls ? ' ' + cls : '') },
@@ -42,7 +44,7 @@ export async function chaptersPage(root, _param, alive) {
       h('span', { class: 'qa-name' }, name),
       sub ? h('span', { class: 'qa-sub' }, sub) : null,
       meter(stats.pct, t('qa.readiness')),
-      h('span', { class: 'qa-n muted' }, t('qa.n_standards', { n: stats.n || 0 })),
+      h('span', { class: 'qa-n muted' }, t('qa.n_standards', { n: stats.n || 0 }), files ? ' · ' + t('qa.n_files', { n: files }) : ''),
       stats.n ? counts(stats) : null,
       extra,
     );
@@ -58,7 +60,7 @@ export async function chaptersPage(root, _param, alive) {
     .filter((c) => c.active)
     .map((c) => {
       const linked = c.code === 'FMS' && d.fms ? h('span', { class: 'qa-linked' + (d.fms.error ? ' is-error' : '') }, t(d.fms.error ? 'qa.fms.badge_error' : 'qa.fms.badge')) : null;
-      const el = card(c.code, chapterName(c), c.jci ? 'JCI: ' + c.jci : '', c.stats, [c.stats.esr_gap ? h('span', { class: 'qa-alert' }, t('qa.esr_gap', { n: c.stats.esr_gap })) : null, linked]);
+      const el = card(c.code, chapterName(c), c.jci ? 'JCI: ' + c.jci : '', c.stats, [c.stats.esr_gap ? h('span', { class: 'qa-alert' }, t('qa.esr_gap', { n: c.stats.esr_gap })) : null, linked], '', c.files);
       if (!d.can_manage) return el;
       return h('div', { class: 'qa-card-wrap' }, el, h('button', { type: 'button', class: 'btn btn-icon qa-edit', title: t('common.edit'), 'aria-label': t('common.edit') + ': ' + chapterName(c), onclick: () => chapterDialog(c) }, icon('edit')));
     });
@@ -151,9 +153,10 @@ function chapterDialog(c) {
 // quality/standards/LD: one chapter; quality/standards/ESR: every ESR; quality/standards: all of them.
 export async function standardsPage(root, param, alive) {
   const ch = String(param || '').toUpperCase();
-  let d, list;
+  let d, list, files;
+  const real = ch && ch !== 'ESR';
   try {
-    [d, list] = await Promise.all([api('/quality'), api('/standards' + (ch ? '?chapter=' + encodeURIComponent(ch) : ''))]);
+    [d, list, files] = await Promise.all([api('/quality'), api('/standards' + (ch ? '?chapter=' + encodeURIComponent(ch) : '')), real ? api('/quality/files?chapter=' + encodeURIComponent(ch)) : null]);
   } catch (e) {
     if (alive()) root.replaceChildren(errorBox(e));
     return;
@@ -218,11 +221,82 @@ export async function standardsPage(root, param, alive) {
         : null,
     ),
     h('section', { class: 'panel qa-summary' }, h('div', { class: 'qa-summary-pct' }, h('b', { class: band(stats.pct), dir: 'ltr' }, pctText(stats.pct)), h('span', { class: 'muted' }, t('qa.readiness'))), h('div', { class: 'qa-summary-body' }, meter(stats.pct, t('qa.readiness')), counts(stats))),
+    chapter && files ? filesPanel(chapter, files) : '',
     ch === 'FMS' ? fmsPanel(d.fms) : '',
+    chapter ? h('h2', { class: 'qa-section-title' }, t('qa.chapter_standards')) : '',
     h('div', { class: 'filters' }, h('div', { class: 'doc-search', role: 'search' }, icon('search'), search), pickCh, score),
     box,
   );
   draw();
+}
+
+/* --------------------------- the chapter's files -------------------------- */
+
+// The chapter's files as tiles, like a library page: policies, plans, records. They live in the
+// documents system, filed under this chapter; quality users read them here.
+const TYPE_ICON = { policy: 'shield', program: 'grid', procedure: 'clipboard', plan: 'clipboard', form: 'edit', report: 'chart', license: 'award' };
+function filesPanel(chapter, data) {
+  const typeName = (k) => {
+    const x = data.doc_types.find((y) => y.key === k);
+    return x ? pick(x.name_ar, x.name_en) : k;
+  };
+  const tile = (f) =>
+    h(
+      'button',
+      { type: 'button', class: 'qa-file', onclick: () => fileViewer(f, typeName(f.doc_type)), disabled: !f.has_pdf, title: pick(f.name, f.name_en) },
+      h('span', { class: 'qa-file-icon' }, icon(TYPE_ICON[f.doc_type] || 'file', 26)),
+      h('span', { class: 'qa-file-name' }, pick(f.name, f.name_en)),
+      h('span', { class: 'qa-file-meta' }, h('span', { class: 'tag' }, typeName(f.doc_type)), h('span', { class: 'mono small', dir: 'ltr' }, f.file_number)),
+      f.status !== 'none' ? statusChip(f.status) : null,
+    );
+  const add = data.can_add
+    ? h(
+        'button',
+        {
+          type: 'button',
+          class: 'btn btn-primary',
+          onclick: async () => {
+            try {
+              const [dp, ty] = await Promise.all([api('/departments?for=docs'), api('/doc-types')]);
+              S.departments = dp.departments;
+              S.docTypes = ty.doc_types;
+              S.chapters = ty.chapters;
+            } catch (e) {
+              toast(errText(e), true);
+              return;
+            }
+            fileDialog(null, { chapter: chapter.code });
+          },
+        },
+        icon('plus'),
+        t('qa.file_add'),
+      )
+    : null;
+  return h(
+    'section',
+    { class: 'panel' },
+    h('div', { class: 'panel-head' }, h('div', { class: 'panel-title' }, h('h2', {}, t('qa.chapter_files')), h('span', { class: 'muted small' }, t('qa.n_files', { n: data.files.length }))), add),
+    data.files.length ? h('div', { class: 'qa-files' }, data.files.map(tile)) : h('p', { class: 'empty' }, t(data.can_add ? 'qa.files_empty_admin' : 'qa.files_empty')),
+  );
+}
+
+function fileViewer(f, typeLabel) {
+  const dlg = h(
+    'dialog',
+    { class: 'dialog dialog-wide' },
+    h(
+      'div',
+      { class: 'dialog-body' },
+      h('div', { class: 'qa-viewer-head' }, h('div', {}, h('span', { class: 'tag' }, typeLabel), h('h2', { class: 'dialog-title' }, pick(f.name, f.name_en)), h('p', { class: 'muted small' }, [pick(f.dept_ar, f.dept_en), f.file_number].filter(Boolean).join(' · '))), h('button', { type: 'button', class: 'btn btn-icon', 'aria-label': t('common.close'), title: t('common.close'), onclick: () => dlg.close() }, icon('close'))),
+      pdfViewer(f),
+    ),
+  );
+  dlg.addEventListener('close', () => {
+    document.body.classList.remove('no-scroll');
+    dlg.remove();
+  });
+  document.body.append(dlg);
+  dlg.showModal();
 }
 
 function stdRow(s, canManage, chapters) {

@@ -361,3 +361,13 @@ R2: `pdf/<uuid>.pdf` للملفات، `brand/<uuid>` للشعار.
 ## 14. النسخة التجريبية (من المحادثة الأولى)
 
 `demo/` فيه نسخة تعمل بدون سيرفر (`mock.js`) وسكريبتات بنائها. **لم تُحدَّث** بإضافات المحادثة الثانية، ومساراتها مكتوبة على `/home/claude/facilities-tracker`.
+
+## Chapter files
+
+A documents file can be filed under a CBAHI chapter (`files.chapter` = `std_chapters.code`, optional, chosen in the
+file form). The chapter page in Quality shows those files as tiles ("Chapter files") and opens the PDF in place.
+- `GET /api/quality/files?chapter=X`: every quality role reads a chapter's files, whatever department owns them
+  (they are accreditation evidence). `can_add` is true for documents admins and department admins.
+- `GET /api/quality/files/:id/pdf`: the PDF, only while the file has a chapter.
+- Adding and changing files stays in the documents system (`POST/PUT /api/files`), which now takes `chapter`.
+- `GET /api/doc-types` also returns the active chapters, for the file form.
