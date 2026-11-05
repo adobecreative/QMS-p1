@@ -4,6 +4,7 @@ import { ApiError, S, h, has, icon, t } from './core.js';
 import { applyBrand, authShell, brand, isAdminRole } from './layout.js';
 import { api, checkField, deptById, deptName, errText, errorBox, field, fileName, fmtDate, input, openDialog, personName, select, toast, typeName } from './offline.js';
 import { fmtDuration, pick, priorityChip } from './tickets.js';
+import { linkPanel } from './quality.js';
 import { zipStore } from './xlsx.js';
 
 /* --------------------------------- users -------------------------------- */
@@ -196,7 +197,7 @@ export function logValue(key, v) {
   if (key === 'under_review' || key === 'active') return t(v ? 'common.yes' : 'common.no');
   if (key === 'department_id') return deptName(deptById(v)) || '#' + v;
   if (key === 'doc_type') return typeName(v);
-  if (key === 'is_team' || key === 'require_qr' || key === 'auto_assign' || key === 'ai_enabled' || key === 'round_reminders' || key === 'monthly_report') return t(v && v !== '0' ? 'common.yes' : 'common.no');
+  if (key === 'is_team' || key === 'require_qr' || key === 'auto_assign' || key === 'ai_enabled' || key === 'round_reminders' || key === 'monthly_report' || key === 'link_on') return t(v && v !== '0' ? 'common.yes' : 'common.no');
   if (key === 'job_title') return has('job.' + v) ? t('job.' + v) : String(v);
   if (key === 'team_id') return deptName(deptById(v)) || '#' + v;
   if (key === 'priority') return 'P' + v;
@@ -710,6 +711,7 @@ export async function settingsPage(root, _param, alive, app) {
       ),
     ),
     app === 'docs' ? demoPanel(s.demo) : '',
+    app === 'admin' ? linkPanel() : '',
     app === 'admin' ? licensePanel(lic) : '',
     app === 'admin' ? backupPanel(s) : '',
   );

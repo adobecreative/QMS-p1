@@ -110,6 +110,39 @@ check((await qa('/std-chapters/NR', 'PUT', { name_ar: 'س', name_en: 'S' })).s =
 r = await owner('/quality');
 check(r.j.chapters.length === 9 && r.j.chapters.find((c) => c.code === 'NR').jci === 'COP, ASC', 'the chapters show the changes', r.j.chapters.map((c) => c.code));
 
+/* ---- the optional link to the Fikra portal (here the test site reads its own /api/v1) ---- */
+
+const sup = await login('super@example.com', 'secret-pass-2');
+r = await owner('/fms-link');
+check(r.s === 200 && r.j.on === false && !r.j.key_set, 'the link is off by default');
+check((await qv('/quality')).j.fms === null, 'with the link off, no FMS evidence is shown');
+check((await sup('/fms-link')).s === 403, 'only the system owner sets the link');
+check((await owner('/fms-link', 'PUT', { on: true, url: 'ftp://x', key: '' })).s === 400, 'a bad address is refused');
+check((await owner('/fms-link', 'PUT', { on: true, url: B })).s === 400, 'switching on needs a key');
+check((await owner('/fms-link', 'PUT', { on: true, url: B, key: 'abc' })).s === 400, 'a key in the wrong form is refused');
+r = await owner('/api-keys', 'POST', { name_ar: 'ربط الجودة', name_en: 'QMS link', scopes: ['tickets_read', 'assets_read'] });
+check(r.s === 200 && /^fms_/.test(r.j.key), 'owner makes a read-only key', r);
+const linkKey = r.j.key;
+r = await owner('/fms-link', 'PUT', { on: true, url: B + '/', key: linkKey });
+check(r.s === 200 && r.j.on && r.j.key_set && r.j.sync && r.j.sync.ok && !('key' in r.j) && !JSON.stringify(r.j).includes(linkKey), 'switching on reads at once, and the key never comes back', r.j);
+check(r.j.snapshot && r.j.snapshot.tickets && r.j.snapshot.tickets.open >= 1 && r.j.snapshot.assets && typeof r.j.snapshot.assets.total === 'number', 'the summary has requests and devices', r.j.snapshot);
+r = await qv('/quality');
+check(r.j.fms && r.j.fms.snapshot && r.j.fms.error === null && r.j.fms.synced_at, 'a quality viewer sees the FMS evidence', r.j.fms);
+// A key switched off in the portal: the error shows, the last summary stays.
+const keys = (await owner('/api-keys')).j.keys;
+const k = keys.find((x) => x.name_en === 'QMS link');
+await owner('/api-keys/' + k.id, 'PUT', { name_ar: k.name_ar, name_en: k.name_en, scopes: k.scopes, active: false });
+r = await owner('/fms-link/sync', 'POST');
+check(r.s === 200 && r.j.ok === false && r.j.error === 'link_bad_key', 'a refused key is reported', r.j);
+r = await qv('/quality');
+check(r.j.fms.error === 'link_bad_key' && r.j.fms.snapshot && r.j.fms.snapshot.tickets, 'the last good summary stays on screen with the error', r.j.fms);
+check((await qv('/fms-link/sync', 'POST')).s === 403, 'a viewer cannot run the sync');
+r = await owner('/backup');
+if (r.s === 200) check(!JSON.stringify(r.j).includes(linkKey) && !('link_key' in ((r.j.data || r.j).settings || {})), 'the backup never holds the link key');
+r = await owner('/fms-link', 'PUT', { on: false });
+check(r.s === 200 && !r.j.on && !r.j.key_set && r.j.snapshot === null, 'switching off forgets the key and the summary', r.j);
+check((await qv('/quality')).j.fms === null, 'and the evidence leaves the FMS chapter');
+
 // Activity log and backup.
 r = await owner('/logs');
 check(r.s === 200 && r.j.logs.some((l) => l.action === 'assess' && l.entity === 'standard'), 'assessments are in the activity log');

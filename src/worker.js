@@ -15,6 +15,7 @@ import { handleHealth, logServerError } from './systems/health.js';
 import { handleInventory, runStockReminders } from './systems/inventory.js';
 import { handleCompliance, handleReportMail, handleReports, runMonthlyReport } from './systems/reports.js';
 import { handleHome } from './systems/home.js';
+import { handleFmsLink, runFmsSync } from './systems/fmslink.js';
 import { handleQuality } from './systems/quality.js';
 import { handleRounds, runRoundReminders } from './systems/rounds.js';
 import { handlePublicTickets, handleTickets, runTicketAlerts } from './systems/tickets.js';
@@ -638,6 +639,12 @@ async function handleApi(request, env, url, ctx) {
 
   /* ---- Quality & Accreditation: CBAHI chapters, standards, self-assessment and readiness (JCI mapped) ---- */
 
+  // The optional link to the Fikra portal: the system owner alone sets it (it holds the portal's key).
+  if (seg[0] === 'fms-link') {
+    const ownerRow = await env.DB.prepare('SELECT MIN(id) AS id FROM users').first();
+    return handleFmsLink(request, env, seg, method, user, user.id === ownerRow.id);
+  }
+
   if (['quality', 'standards', 'std-chapters'].includes(seg[0])) {
     const res = await handleQuality(request, env, url, seg, method, user);
     if (res) return res;
@@ -1072,6 +1079,8 @@ export default {
           } else {
             console.log('pm jobs', JSON.stringify(await runPmJobs(env)));
             console.log('ticket alerts', JSON.stringify(await runTicketAlerts(env)));
+            // Once an hour (it checks the time itself); never throws, a failed read is kept on the link's status.
+            console.log('fms link', JSON.stringify(await runFmsSync(env, { id: null, name: 'system' }, false)));
           }
         } catch (e) {
           console.error(e);

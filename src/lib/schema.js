@@ -531,4 +531,8 @@ export const MIGRATIONS = [
      user_name TEXT,
      at TEXT NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS idx_std_assessments ON std_assessments(standard_id, at)`,
+  // The FMS summary read from the Fikra portal, one row a day, for trends.
+  `CREATE TABLE IF NOT EXISTS fms_snapshots (
+     day TEXT PRIMARY KEY,
+     data TEXT NOT NULL)`,
 ];
