@@ -326,7 +326,7 @@ async function handleApi(request, env, url, ctx) {
     ).all();
     // The CBAHI chapters a file can be filed under (shown in the file form).
     await seedChapters(env, await getSettings(env));
-    const { results: chapters } = await env.DB.prepare('SELECT code, name_ar, name_en FROM std_chapters WHERE active = 1 ORDER BY sort, code').all();
+    const { results: chapters } = await env.DB.prepare("SELECT code, name_ar, name_en FROM std_chapters WHERE framework = 'cbahi' AND active = 1 ORDER BY sort, code").all();
     return json({ doc_types: results, chapters });
   }
 

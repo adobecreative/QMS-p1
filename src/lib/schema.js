@@ -58,6 +58,22 @@ export const SCHEMA = [
 
 // Added after the first release. Safe to run on every start: each statement is idempotent.
 export const MIGRATIONS = [
+  // What a standard is scored by: CBAHI sub-standards (LD.1.1), JCI measurable elements (ME 1, with D when a
+  // document is needed and is_new when the 8th edition added it), CHI sub-standards. The standard's own score
+  // is worked out from these when it has any.
+  `CREATE TABLE IF NOT EXISTS std_elements (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     standard_id INTEGER NOT NULL,
+     num TEXT NOT NULL,
+     text TEXT NOT NULL,
+     doc INTEGER NOT NULL DEFAULT 0,
+     is_new INTEGER NOT NULL DEFAULT 0,
+     score TEXT,
+     note TEXT,
+     assessed_at TEXT,
+     assessed_by TEXT,
+     sort INTEGER NOT NULL DEFAULT 0,
+     UNIQUE (standard_id, num))`,
   // "I have read and understood": one row per user and file. A row only counts while its
   // pdf_key matches the file's current PDF, so replacing the PDF asks everyone to read it again.
   `CREATE TABLE IF NOT EXISTS acks (
@@ -492,20 +508,24 @@ export const MIGRATIONS = [
   `CREATE INDEX IF NOT EXISTS idx_push_subs_user ON push_subs(user_id)`,
   // The owner's health page counts the log by day.
   `CREATE INDEX IF NOT EXISTS idx_logs_at ON logs(at)`,
-  // Quality & Accreditation. A chapter is a CBAHI chapter (LD, QM, MM...) with the JCI chapters it maps to.
+  // Quality & Accreditation. A chapter belongs to one framework (cbahi, jci, chi): FMS and MOI are in
+  // both CBAHI and JCI, so the key is the pair. A CBAHI chapter can name the JCI chapters it maps to.
   `CREATE TABLE IF NOT EXISTS std_chapters (
-     code TEXT PRIMARY KEY,
+     framework TEXT NOT NULL DEFAULT 'cbahi',
+     code TEXT NOT NULL,
      name_ar TEXT NOT NULL,
      name_en TEXT NOT NULL,
      jci TEXT,
      sort INTEGER NOT NULL DEFAULT 0,
-     active INTEGER NOT NULL DEFAULT 1)`,
+     active INTEGER NOT NULL DEFAULT 1,
+     PRIMARY KEY (framework, code))`,
   // A standard: its CBAHI code, the hospital's own wording, ESR (Essential Safety Requirement: must be met),
   // the JCI standards it matches, the department that owns it, and its latest self-assessment score.
   `CREATE TABLE IF NOT EXISTS standards (
      id INTEGER PRIMARY KEY AUTOINCREMENT,
+     framework TEXT NOT NULL DEFAULT 'cbahi',
      chapter TEXT NOT NULL,
-     code TEXT NOT NULL UNIQUE,
+     code TEXT NOT NULL,
      title_ar TEXT NOT NULL,
      title_en TEXT NOT NULL,
      esr INTEGER NOT NULL DEFAULT 0,
@@ -518,7 +538,8 @@ export const MIGRATIONS = [
      assessed_at TEXT,
      assessed_by TEXT,
      created_at TEXT NOT NULL,
-     updated_at TEXT NOT NULL)`,
+     updated_at TEXT NOT NULL,
+     UNIQUE (framework, code))`,
   `CREATE INDEX IF NOT EXISTS idx_standards_chapter ON standards(chapter, active)`,
   // Every self-assessment kept, so a surveyor can see how a standard moved over time.
   `CREATE TABLE IF NOT EXISTS std_assessments (
@@ -529,7 +550,8 @@ export const MIGRATIONS = [
      evidence TEXT,
      user_id INTEGER,
      user_name TEXT,
-     at TEXT NOT NULL)`,
+     at TEXT NOT NULL,
+     element_id INTEGER)`,
   `CREATE INDEX IF NOT EXISTS idx_std_assessments ON std_assessments(standard_id, at)`,
   // The FMS summary read from the Fikra portal, one row a day, for trends.
   `CREATE TABLE IF NOT EXISTS fms_snapshots (
