@@ -12,6 +12,7 @@ node smoke.mjs
 RC=$?
 node systems.mjs || RC=1
 node quality.mjs || RC=1
+node meetings.mjs || RC=1
 ON_NODE=1 node restore.mjs || RC=1
 kill -TERM -- -$PID 2>/dev/null
 [ $RC -ne 0 ] && tail -40 node.log

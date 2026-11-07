@@ -1314,8 +1314,9 @@ export async function locationsPage(root, _param, alive) {
   if (!alive()) return;
   const label = (l) => pick(l.name_ar, l.name_en);
   const active = list.filter((l) => l.active);
+  const desk = access('desk') !== 'none';
   root.replaceChildren(
-    h('p', {}, link('tickets', { class: 'back-link' }, t('tk.back'))),
+    desk ? h('p', {}, link('tickets', { class: 'back-link' }, t('tk.back'))) : '',
     h(
       'div',
       { class: 'page-head' },
@@ -1337,7 +1338,7 @@ export async function locationsPage(root, _param, alive) {
             h(
               'table',
               {},
-              h('thead', {}, h('tr', {}, ['loc.name', 'user.department', 'user.status', 'cat.count', 'common.actions'].map((c) => h('th', { scope: 'col' }, t(c))))),
+              h('thead', {}, h('tr', {}, ['loc.name', 'user.department', 'user.status', ...(desk ? ['cat.count'] : []), 'common.actions'].map((c) => h('th', { scope: 'col' }, t(c))))),
               h(
                 'tbody',
                 {},
@@ -1348,7 +1349,7 @@ export async function locationsPage(root, _param, alive) {
                     h('td', { class: 'strong' }, label(l)),
                     h('td', {}, l.department_id ? deptName(deptById(l.department_id)) : h('span', { class: 'muted' }, t('common.none'))),
                     h('td', {}, l.active ? t('field.active') : h('span', { class: 'muted' }, t('user.inactive'))),
-                    h('td', {}, h('span', { class: 'mono' }, String(l.ticket_count))),
+                    desk ? h('td', {}, h('span', { class: 'mono' }, String(l.ticket_count))) : null,
                     h(
                       'td',
                       {},

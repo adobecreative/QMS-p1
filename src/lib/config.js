@@ -30,6 +30,9 @@ export const ASSETS_ROLES = ['none', 'viewer', 'manager'];
 export const ROUNDS_ROLES = ['none', 'inspector', 'manager'];
 // Quality & Accreditation (CBAHI / JCI): viewer reads the standards and readiness, assessor scores them, manager runs the lists.
 export const QUALITY_ROLES = ['none', 'viewer', 'assessor', 'manager'];
+// Committees & meetings: viewer reads every committee, secretary runs the committees they chair or keep the
+// minutes of (and their own department's meetings), manager runs all of them and the meeting settings.
+export const MEETINGS_ROLES = ['none', 'viewer', 'secretary', 'manager'];
 // What a technician or engineer is called on screen. Stored as a key, named in public/i18n.js.
 export const JOB_TITLES = ['technician', 'engineer', 'supervisor', 'specialist'];
 

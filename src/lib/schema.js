@@ -557,4 +557,82 @@ export const MIGRATIONS = [
   `CREATE TABLE IF NOT EXISTS fms_snapshots (
      day TEXT PRIMARY KEY,
      data TEXT NOT NULL)`,
+  // Committees & meetings. kind: committee (hospital committee), department (a department's own meeting),
+  // special (one-off: urgent, RCA, task force). The schedule comes from frequency and first_date: weekly and
+  // every-two-weeks keep the weekday, the monthly ones keep "the nth weekday of the month" of the first date.
+  `CREATE TABLE IF NOT EXISTS committees (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     kind TEXT NOT NULL DEFAULT 'committee',
+     code TEXT NOT NULL UNIQUE,
+     name_ar TEXT NOT NULL,
+     name_en TEXT NOT NULL,
+     department_id INTEGER,
+     meeting_type TEXT,
+     urgent INTEGER NOT NULL DEFAULT 0,
+     purpose TEXT,
+     frequency TEXT NOT NULL DEFAULT 'monthly',
+     first_date TEXT,
+     start_time TEXT NOT NULL DEFAULT '10:00',
+     duration_min INTEGER NOT NULL DEFAULT 60,
+     venue TEXT,
+     quorum_pct INTEGER NOT NULL DEFAULT 50,
+     active INTEGER NOT NULL DEFAULT 1,
+     created_at TEXT NOT NULL,
+     updated_at TEXT NOT NULL)`,
+  // A member: picked by employee number (or typed), with a role in the committee. A member who stops coming
+  // is switched off with a reason, never deleted, so old minutes still name them. The substitute gets the
+  // same invitations.
+  `CREATE TABLE IF NOT EXISTS committee_members (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     committee_id INTEGER NOT NULL,
+     emp_no TEXT,
+     name TEXT NOT NULL,
+     name_en TEXT,
+     email TEXT,
+     position TEXT,
+     role TEXT NOT NULL DEFAULT 'member',
+     sort INTEGER NOT NULL DEFAULT 0,
+     active INTEGER NOT NULL DEFAULT 1,
+     inactive_reason TEXT,
+     inactive_at TEXT,
+     substitute_name TEXT,
+     substitute_email TEXT,
+     created_at TEXT NOT NULL)`,
+  `CREATE INDEX IF NOT EXISTS idx_committee_members ON committee_members(committee_id, active)`,
+  // Terms of reference and reference papers, kept in storage.
+  `CREATE TABLE IF NOT EXISTS committee_files (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     committee_id INTEGER NOT NULL,
+     kind TEXT NOT NULL DEFAULT 'reference',
+     name TEXT NOT NULL,
+     file_key TEXT NOT NULL,
+     content_type TEXT,
+     size INTEGER NOT NULL DEFAULT 0,
+     uploaded_by TEXT,
+     created_at TEXT NOT NULL)`,
+  // A session. status: scheduled, rescheduled, postponed (no new date yet when date_tbd = 1), cancelled, held.
+  // A session moved by hand (moved = 1) is kept when the schedule is made again. seq counts changes, for the
+  // calendar invitation (ICS SEQUENCE). invited_at / remind3_at / remind1_at: what has been sent.
+  `CREATE TABLE IF NOT EXISTS committee_sessions (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     committee_id INTEGER NOT NULL,
+     num INTEGER NOT NULL,
+     kind TEXT NOT NULL DEFAULT 'regular',
+     date TEXT NOT NULL,
+     start_time TEXT NOT NULL,
+     duration_min INTEGER NOT NULL DEFAULT 60,
+     venue TEXT,
+     status TEXT NOT NULL DEFAULT 'scheduled',
+     date_tbd INTEGER NOT NULL DEFAULT 0,
+     moved INTEGER NOT NULL DEFAULT 0,
+     reason TEXT,
+     original_date TEXT,
+     seq INTEGER NOT NULL DEFAULT 0,
+     invited_at TEXT,
+     remind3_at TEXT,
+     remind1_at TEXT,
+     created_at TEXT NOT NULL,
+     updated_at TEXT NOT NULL,
+     UNIQUE (committee_id, num))`,
+  `CREATE INDEX IF NOT EXISTS idx_committee_sessions_date ON committee_sessions(date, status)`,
 ];

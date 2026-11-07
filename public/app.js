@@ -8,6 +8,7 @@ import { dashboardPage, departmentsPage, documentsPage, typesPage } from './js/d
 import { costsPage, devTypesPage, movesPage, partsPage, pmPage, requestsPage } from './js/inventory.js';
 import { APPS, access, appPages, applyBrand, authPage, currentRoute, forgotPage, header, link, myApps, resetPage, roleLabel, setUrl, twoFactorRequiredPage } from './js/layout.js';
 import { IDB, OFF, api, drawOffBar, errText, loading, personName, syncQueue, warmPages } from './js/offline.js';
+import { calendarPage, committeesPage } from './js/meetings.js';
 import { chaptersPage, standardsPage } from './js/quality.js';
 import { compliancePage, reportsPage } from './js/reports.js';
 import { checklistsPage, duePage, roundLogPage, roundScanPage } from './js/rounds.js';
@@ -17,8 +18,9 @@ let renderSeq = 0;
 /* -------------------------------- portal -------------------------------- */
 
 // The first page after signing in: a greeting with today's date, the systems this person can open
-// (each with its own few numbers, only from what they may see), their latest requests and the AI assistant.
+// (each with its own few numbers, only from what they may see) and the meetings coming up.
 const HOME_STATS = {
+  meetings: (d) => d.meetings && [[d.meetings.today, 'home.meetings_today'], [d.meetings.upcoming, 'home.meetings_upcoming'], [d.meetings.late, 'home.meetings_late', true]],
   quality: (d) => d.quality && [[d.quality.pct === null ? '-' : d.quality.pct + '%', 'home.quality_pct'], [d.quality.esr_gap, 'home.quality_esr', true], [d.quality.open, 'home.quality_open']],
   desk: (d) => d.desk && [[d.desk.new, 'home.desk_new'], [d.desk.doing, 'home.desk_doing'], [d.desk.late, 'home.desk_late', true]],
   assets: (d) => d.assets && [[d.assets.total, 'home.assets_total'], [d.assets.pm_week, 'home.assets_pm'], [d.assets.down, 'home.assets_down', true]],
@@ -72,43 +74,30 @@ function portalPage(root, alive) {
         c.el.classList.add('has-stats');
       }
       const panels = [];
-      if (d.recent) {
-        const when = new Intl.DateTimeFormat(S.lang === 'ar' ? 'ar-EG-u-nu-latn' : 'en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+      if (d.meetings) {
+        const when = new Intl.DateTimeFormat(S.lang === 'ar' ? 'ar-EG-u-nu-latn' : 'en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
         const en = S.lang === 'en';
         panels.push(
           h(
             'section',
             { class: 'panel home-recent' },
-            h('h2', {}, t('home.recent')),
-            d.recent.length
+            h('h2', {}, t('home.next_meetings')),
+            d.meetings.next.length
               ? h(
                   'ul',
                   { class: 'home-list' },
-                  d.recent.map((r) =>
+                  d.meetings.next.map((m) =>
                     h(
                       'li',
                       {},
-                      link('desk/tickets/' + r.id, { class: 'home-item' },
-                        h('span', { class: 'home-item-text' }, h('b', {}, '#' + r.id + ' · ' + (en ? r.cat_en : r.cat_ar)), h('small', { class: 'muted' }, [en ? r.dept_en : r.dept_ar, en ? r.loc_en : r.loc_ar, when.format(new Date(r.created_at))].filter(Boolean).join(' · '))),
-                        h('span', { class: 'home-pill' + (r.late ? ' is-alert' : r.status === 'new' ? ' is-new' : '') }, r.late ? t('tcard.late') : t('tst.' + r.status)),
+                      link('meetings/committees/' + m.committee_id, { class: 'home-item' },
+                        h('span', { class: 'home-item-text' }, h('b', {}, en ? m.name_en : m.name_ar), h('small', { class: 'muted' }, [m.code, m.venue].filter(Boolean).join(' · '))),
+                        h('span', { class: 'home-pill' + (m.date === d.today ? ' is-new' : '') }, when.format(new Date(m.date + 'T00:00:00')) + ' · ' + m.start_time),
                       ),
                     ),
                   ),
                 )
-              : h('p', { class: 'muted' }, t('home.recent_none')),
-          ),
-        );
-      }
-      if (d.ai && d.ai.ready) {
-        const used = d.ai.limit ? [h('p', { class: 'muted' }, t('home.ai_used', { n: d.ai.used, limit: d.ai.limit })), h('div', { class: 'home-meter', role: 'img', 'aria-label': t('home.ai_used', { n: d.ai.used, limit: d.ai.limit }) }, h('span', { style: 'width:' + Math.min(100, Math.round((d.ai.used / d.ai.limit) * 100)) + '%' }))] : [];
-        panels.push(
-          h(
-            'section',
-            { class: 'panel home-ai' },
-            h('h2', {}, h('span', { class: 'home-ai-icon' }, icon('spark', 20)), t('home.ai')),
-            h('p', {}, t('home.ai_staff')),
-            ...used,
-            canRequest ? link('request', { class: 'btn' }, icon('plus'), t('req.new')) : null,
+              : h('p', { class: 'muted' }, t('home.next_none')),
           ),
         );
       }
@@ -120,7 +109,7 @@ function portalPage(root, alive) {
 
 /* --------------------------------- start -------------------------------- */
 
-const PAGES = { dashboard: dashboardPage, tickets: ticketsPage, categories: categoriesPage, locations: locationsPage, staff: staffPage, api: apiPage, documents: documentsPage, departments: departmentsPage, types: typesPage, users: usersPage, logs: logsPage, health: healthPage, settings: settingsPage, register: registerPage, pm: pmPage, devtypes: devTypesPage, contracts: contractsPage, vendors: vendorsPage, parts: partsPage, moves: movesPage, requests: requestsPage, costs: costsPage, due: duePage, rlog: roundLogPage, checklists: checklistsPage, scan: roundScanPage, overview: reportsPage, compliance: compliancePage, chapters: chaptersPage, standards: standardsPage };
+const PAGES = { dashboard: dashboardPage, tickets: ticketsPage, categories: categoriesPage, locations: locationsPage, staff: staffPage, api: apiPage, documents: documentsPage, departments: departmentsPage, types: typesPage, users: usersPage, logs: logsPage, health: healthPage, settings: settingsPage, register: registerPage, pm: pmPage, devtypes: devTypesPage, contracts: contractsPage, vendors: vendorsPage, parts: partsPage, moves: movesPage, requests: requestsPage, costs: costsPage, due: duePage, rlog: roundLogPage, checklists: checklistsPage, scan: roundScanPage, overview: reportsPage, compliance: compliancePage, chapters: chaptersPage, standards: standardsPage, committees: committeesPage, calendar: calendarPage };
 
 export function render() {
   const seq = ++renderSeq;

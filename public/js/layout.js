@@ -117,26 +117,28 @@ export function langToggle() {
    each system has its own menu, and its name is the first part of the address (desk/tickets/5). */
 export const APPS = {
   quality: { icon: 'award', pages: (r) => (r === 'none' ? [] : ['chapters', 'standards']) },
+  meetings: { icon: 'users', pages: (r) => (r === 'none' ? [] : ['committees', 'calendar']) },
   docs: { icon: 'file', pages: (r) => (r === 'admin' ? ['dashboard', 'documents', 'types', 'settings'] : r === 'dept_admin' ? ['dashboard', 'documents'] : r === 'viewer' ? ['documents', 'dashboard'] : []) },
   desk: { icon: 'desk', pages: (r) => (r === 'admin' ? ['tickets', 'categories', 'locations', 'settings'] : r === 'none' ? [] : ['tickets']) },
   assets: { icon: 'box', pages: (r) => (r === 'none' ? [] : ['register', 'pm', 'contracts', 'vendors', 'parts', 'moves', 'requests', 'costs', ...(r === 'viewer' ? [] : ['devtypes'])]) },
   rounds: { icon: 'clipboard', pages: (r) => (r === 'none' ? [] : r === 'inspector' ? ['due', 'rlog', 'scan'] : ['due', 'rlog', 'checklists', 'scan']) },
   reports: { icon: 'chart', pages: (r) => (r === 'admin' ? ['overview', 'compliance'] : []) },
-  admin: { icon: 'shield', pages: (r) => (r === 'admin' ? ['users', 'departments', 'staff', ...(S.user.is_owner ? ['api'] : []), 'logs', ...(S.user.is_owner ? ['health'] : []), 'settings'] : []) },
+  admin: { icon: 'shield', pages: (r) => (r === 'admin' ? ['users', 'departments', 'staff', ...(OFF_APPS.includes('desk') ? ['locations'] : []), ...(S.user.is_owner ? ['api'] : []), 'logs', ...(S.user.is_owner ? ['health'] : []), 'settings'] : []) },
 };
-export const APP_ORDER = ['quality', 'docs', 'desk', 'assets', 'rounds', 'reports', 'admin'];
+export const APP_ORDER = ['quality', 'meetings', 'docs', 'desk', 'assets', 'rounds', 'reports', 'admin'];
 // Both admin roles run the Admin Center; only the super admin changes the user accounts.
 export const isAdminRole = (u) => u.role === 'super_admin' || u.role === 'systems_admin';
 // Systems of the Fikra platform that QMS does not use (they stay in the code, switched off here).
-// Asset Management and spare parts belong to the facilities system (FMS); its evidence comes over the optional link.
-export const OFF_APPS = ['assets'];
+// Asset Management, spare parts and maintenance requests belong to the facilities system (FMS); its evidence
+// comes over the optional link. With Requests off, the places (used by the rounds) move to the Admin Center.
+export const OFF_APPS = ['assets', 'desk'];
 export const access = (app) => OFF_APPS.includes(app) ? 'none' : (app === 'admin' || app === 'reports' ? (isAdminRole(S.user) ? 'admin' : 'none') : S.user[app] || 'none');
 export const appPages = (app) => APPS[app].pages(access(app));
 export const myApps = () => APP_ORDER.filter((a) => appPages(a).length);
 // Pages opened from inside another page, not shown in the menu.
-export const HIDDEN_ROUTES = { categories: 'tickets', locations: 'tickets', scan: 'due', vendors: 'contracts', moves: 'parts', requests: 'parts' };
+export const HIDDEN_ROUTES = { categories: 'tickets', ...(OFF_APPS.includes('desk') ? {} : { locations: 'tickets' }), scan: 'due', vendors: 'contracts', moves: 'parts', requests: 'parts' };
 // Addresses from before the portal (bookmarks, links in emails) still open their page.
-export const PAGE_APP = { dashboard: 'docs', documents: 'docs', types: 'docs', tickets: 'desk', categories: 'desk', locations: 'desk', users: 'admin', departments: 'admin', staff: 'admin', api: 'admin', logs: 'admin', health: 'admin', register: 'assets', pm: 'assets', devtypes: 'assets', contracts: 'assets', vendors: 'assets', parts: 'assets', moves: 'assets', requests: 'assets', costs: 'assets', due: 'rounds', rlog: 'rounds', checklists: 'rounds', scan: 'rounds', overview: 'reports', compliance: 'reports', chapters: 'quality', standards: 'quality' };
+export const PAGE_APP = { dashboard: 'docs', documents: 'docs', types: 'docs', tickets: 'desk', categories: 'desk', locations: 'admin', users: 'admin', departments: 'admin', staff: 'admin', api: 'admin', logs: 'admin', health: 'admin', register: 'assets', pm: 'assets', devtypes: 'assets', contracts: 'assets', vendors: 'assets', parts: 'assets', moves: 'assets', requests: 'assets', costs: 'assets', due: 'rounds', rlog: 'rounds', checklists: 'rounds', scan: 'rounds', overview: 'reports', compliance: 'reports', chapters: 'quality', standards: 'quality', committees: 'meetings', calendar: 'meetings' };
 // A link written as a page name ("tickets/5") goes to that page in the system it belongs to.
 export function fullPath(path) {
   const first = path.split('/')[0];
@@ -163,7 +165,7 @@ export function currentRoute() {
 // Under the name: what the person is in the system open now.
 export function roleLabel(app) {
   if (isAdminRole(S.user)) return t('role.' + S.user.role);
-  if (app === 'docs' || app === 'desk' || app === 'assets' || app === 'rounds' || app === 'quality') return t(app + 'role.' + access(app));
+  if (app === 'docs' || app === 'desk' || app === 'assets' || app === 'rounds' || app === 'quality' || app === 'meetings') return t(app + 'role.' + access(app));
   return '';
 }
 
@@ -204,7 +206,7 @@ export function header(app, active) {
 export const PUSH_OK = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 export const IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 export const standalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
-export const pushFor = (u) => isAdminRole(u) || u.desk === 'supervisor' || u.desk === 'technician';
+export const pushFor = (u) => isAdminRole(u) || u.desk === 'supervisor' || u.desk === 'technician' || (!!u.meetings && u.meetings !== 'none');
 export const keyBytes = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (s.length % 4)) % 4)), (c) => c.charCodeAt(0));
 export async function pushSub() {
   if (!PUSH_OK) return null;
