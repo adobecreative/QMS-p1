@@ -201,6 +201,7 @@ export async function handleQuality(request, env, url, seg, method, user) {
       doc_types: types,
       // Documents come from the Operations system while the link reads them: nothing is added here then.
       can_add: !portalDocsOn(settings) && (user.docs === 'admin' || user.docs === 'dept_admin'),
+      locked: portalDocsOn(settings) && (user.docs === 'admin' || user.docs === 'dept_admin'),
     });
   }
   if (method === 'GET' && seg[0] === 'quality' && seg[1] === 'files' && /^\d+$/.test(seg[2] || '') && seg[3] === 'pdf' && seg.length === 4) {
