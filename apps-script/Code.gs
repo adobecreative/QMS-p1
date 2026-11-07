@@ -33,9 +33,9 @@ function doPost(e) {
         subject: m.subject,
         htmlBody: m.html,
         name: m.fromName || data.fromName || 'Fikra Portal',
-        // The weekly backup copy comes as a ZIP attachment.
+        // The weekly backup copy comes as a ZIP attachment; meeting invitations carry a calendar file (.ics).
         attachments: (m.attachments || []).map(function (a) {
-          return Utilities.newBlob(Utilities.base64Decode(a.content), 'application/zip', a.name);
+          return Utilities.newBlob(Utilities.base64Decode(a.content), a.type || 'application/zip', a.name);
         }),
       });
       sent++;

@@ -1,6 +1,7 @@
+import { handleMeetings, runMeetingJobs } from './systems/meetings.js';
 import { RECOVERY_RE, canEditDept, canSeeDept, checkEmail, checkOrigin, checkPassword, cleanRecovery, createSession, failedLogin, getUser, hashPassword, loginFrom, needs2fa, readJson, requireDocs, requireRole, sessionCookie, totpCheck, userOut, verifyPassword, withAccess } from './lib/auth.js';
 import { AUTO_BACKUP_PREFIX, emailBackup, fullBackupData, isAutoBackupTick, runAutoBackup } from './lib/backup.js';
-import { ADMIN_ROLES, ASSETS_ROLES, CHALLENGE_MINUTES, DEFAULT_SETTINGS, DESK_ROLES, DOCS_ROLES, JOB_TITLES, MAX_LOGO_BYTES, QUALITY_ROLES, ROLES, ROUNDS_ROLES, SESSION_DAYS, SLA_KEYS, TWO_FA_LEVELS, appName, brandOut, logoType } from './lib/config.js';
+import { ADMIN_ROLES, ASSETS_ROLES, CHALLENGE_MINUTES, DEFAULT_SETTINGS, DESK_ROLES, DOCS_ROLES, JOB_TITLES, MAX_LOGO_BYTES, MEETINGS_ROLES, QUALITY_ROLES, ROLES, ROUNDS_ROLES, SESSION_DAYS, SLA_KEYS, TWO_FA_LEVELS, appName, brandOut, logoType } from './lib/config.js';
 import { changes, ensureSchema, getSettings, logStmt, setSettingStmt } from './lib/db.js';
 import { READONLY_OPEN, licenseOut, licenseState } from './lib/license.js';
 import { EMAIL_TEXT, bothLangs, emailHeader, sendMail } from './lib/mail.js';
@@ -650,6 +651,13 @@ async function handleApi(request, env, url, ctx) {
     return handleFmsLink(request, env, seg, method, user, user.id === ownerRow.id);
   }
 
+  /* ---- Committees & meetings: the committees master, members, schedule and invitations ---- */
+  if (seg[0] === 'committees' || seg[0] === 'committee-sessions') {
+    const res = await handleMeetings(request, env, url, seg, method, user);
+    if (res) return res;
+    fail(404, 'not_found');
+  }
+
   if (['quality', 'standards', 'std-chapters'].includes(seg[0])) {
     const res = await handleQuality(request, env, url, seg, method, user);
     if (res) return res;
@@ -685,6 +693,7 @@ async function handleApi(request, env, url, ctx) {
       const assets_role = sup ? 'none' : ASSETS_ROLES.includes(body.assets_role) ? body.assets_role : 'none';
       const rounds_role = sup ? 'none' : ROUNDS_ROLES.includes(body.rounds_role) ? body.rounds_role : 'none';
       const quality_role = sup ? 'none' : QUALITY_ROLES.includes(body.quality_role) ? body.quality_role : 'none';
+      const meetings_role = sup ? 'none' : MEETINGS_ROLES.includes(body.meetings_role) ? body.meetings_role : 'none';
       const teamWork = desk_role === 'technician' || desk_role === 'supervisor';
       // The department is the person's own one: where they manage files, the team they work in, or whose requests they follow.
       let department_id = Number.isInteger(Number(body.department_id)) && body.department_id !== null && body.department_id !== '' ? Number(body.department_id) : null;
@@ -695,7 +704,7 @@ async function handleApi(request, env, url, ctx) {
       if (teamWork && !dept.is_team) fail(400, 'team_required');
       if (sup) department_id = null;
       const job_title = teamWork ? (JOB_TITLES.includes(body.job_title) ? body.job_title : null) : null;
-      return { name, name_en, email, role, docs_role, desk_role, assets_role, rounds_role, quality_role, department_id, job_title };
+      return { name, name_en, email, role, docs_role, desk_role, assets_role, rounds_role, quality_role, meetings_role, department_id, job_title };
     };
     const emailTaken = async (email, exceptId) => {
       const row = await env.DB.prepare('SELECT id FROM users WHERE email = ? AND id <> ?').bind(email, exceptId).first();
@@ -709,7 +718,7 @@ async function handleApi(request, env, url, ctx) {
     const isOwner = user.id === ownerId;
 
     if (route === 'GET /users') {
-      const { results } = await env.DB.prepare('SELECT id, name, name_en, email, role, docs_role, desk_role, assets_role, rounds_role, quality_role, department_id, job_title, totp_on, active, created_at FROM users ORDER BY id').all();
+      const { results } = await env.DB.prepare('SELECT id, name, name_en, email, role, docs_role, desk_role, assets_role, rounds_role, quality_role, meetings_role, department_id, job_title, totp_on, active, created_at FROM users ORDER BY id').all();
       return json({ users: results.filter((u) => isOwner || u.id !== ownerId).map(userOut) });
     }
     // The license may cap the number of active accounts.
@@ -723,10 +732,10 @@ async function handleApi(request, env, url, ctx) {
       await emailTaken(data.email, 0);
       await userCap();
       const hash = await hashPassword(checkPassword(body.password));
-      const res = await env.DB.prepare('INSERT INTO users (name, name_en, email, password_hash, role, docs_role, desk_role, assets_role, rounds_role, quality_role, department_id, job_title, active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)')
-        .bind(data.name, data.name_en, data.email, hash, data.role, data.docs_role, data.desk_role, data.assets_role, data.rounds_role, data.quality_role, data.department_id, data.job_title, nowIso())
+      const res = await env.DB.prepare('INSERT INTO users (name, name_en, email, password_hash, role, docs_role, desk_role, assets_role, rounds_role, quality_role, meetings_role, department_id, job_title, active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)')
+        .bind(data.name, data.name_en, data.email, hash, data.role, data.docs_role, data.desk_role, data.assets_role, data.rounds_role, data.quality_role, data.meetings_role, data.department_id, data.job_title, nowIso())
         .run();
-      await logStmt(env, user, 'create', 'user', res.meta.last_row_id, data.name, { role: [null, data.role], docs_role: [null, data.docs_role], desk_role: [null, data.desk_role], assets_role: [null, data.assets_role], rounds_role: [null, data.rounds_role], quality_role: [null, data.quality_role] }).run();
+      await logStmt(env, user, 'create', 'user', res.meta.last_row_id, data.name, { role: [null, data.role], docs_role: [null, data.docs_role], desk_role: [null, data.desk_role], assets_role: [null, data.assets_role], rounds_role: [null, data.rounds_role], quality_role: [null, data.quality_role], meetings_role: [null, data.meetings_role] }).run();
       return json({ ok: true, id: res.meta.last_row_id });
     }
     if (id === null) fail(404, 'not_found');
@@ -754,10 +763,10 @@ async function handleApi(request, env, url, ctx) {
       // An admin cannot lock themselves out, so at least one super admin always remains.
       if (id === user.id && (data.role !== 'super_admin' || !data.active)) fail(400, 'cannot_change_self');
       await emailTaken(data.email, id);
-      const diff = changes(target, data, ['name', 'name_en', 'email', 'role', 'docs_role', 'desk_role', 'assets_role', 'rounds_role', 'quality_role', 'department_id', 'job_title', 'active']);
+      const diff = changes(target, data, ['name', 'name_en', 'email', 'role', 'docs_role', 'desk_role', 'assets_role', 'rounds_role', 'quality_role', 'meetings_role', 'department_id', 'job_title', 'active']);
       const stmts = [
-        env.DB.prepare('UPDATE users SET name = ?, name_en = ?, email = ?, role = ?, docs_role = ?, desk_role = ?, assets_role = ?, rounds_role = ?, quality_role = ?, department_id = ?, job_title = ?, active = ? WHERE id = ?').bind(
-          data.name, data.name_en, data.email, data.role, data.docs_role, data.desk_role, data.assets_role, data.rounds_role, data.quality_role, data.department_id, data.job_title, data.active, id,
+        env.DB.prepare('UPDATE users SET name = ?, name_en = ?, email = ?, role = ?, docs_role = ?, desk_role = ?, assets_role = ?, rounds_role = ?, quality_role = ?, meetings_role = ?, department_id = ?, job_title = ?, active = ? WHERE id = ?').bind(
+          data.name, data.name_en, data.email, data.role, data.docs_role, data.desk_role, data.assets_role, data.rounds_role, data.quality_role, data.meetings_role, data.department_id, data.job_title, data.active, id,
         ),
       ];
       if (body.password) {
@@ -1078,6 +1087,7 @@ export default {
             console.log('contract reminders', JSON.stringify(await runContractReminders(env)));
             console.log('stock reminders', JSON.stringify(await runStockReminders(env)));
             console.log('monthly report', JSON.stringify(await runMonthlyReport(env, null, false)));
+            console.log('meeting jobs', JSON.stringify(await runMeetingJobs(env)));
           } else if (isAutoBackupTick(new Date(event.scheduledTime))) {
             // One 15-minute run a week goes to the backup instead, so it has the run's whole query allowance.
             console.log('auto backup', JSON.stringify(await runAutoBackup(env)));

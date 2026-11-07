@@ -4,6 +4,7 @@ import { isAdmin } from '../lib/config.js';
 import { getSettings } from '../lib/db.js';
 import { json, nowIso, todayIn } from '../lib/util.js';
 import { statusOf, plusDays } from './docs.js';
+import { meetingsHome } from './meetings.js';
 import { qualityHome } from './quality.js';
 import { aiReady, ticketScope } from './tickets.js';
 
@@ -43,6 +44,7 @@ export async function handleHome(env, user) {
   }
 
   if (has(user.quality)) jobs.push(qualityHome(env).then((r) => (out.quality = r)));
+  jobs.push(meetingsHome(env, user, today).then((r) => r && (out.meetings = r)));
 
   if (has(user.assets)) {
     jobs.push(

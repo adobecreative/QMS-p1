@@ -383,7 +383,7 @@ file form). The chapter page in Quality shows those files as tiles ("Chapter fil
   not met, otherwise partly met; a CBAHI ESR partly met counts as not met. Element rows also go to `std_assessments`
   with `element_id`; the history dialog shows only the standard rows.
 - Setting `std_frameworks` (for example `cbahi,jci`) lists the frameworks shown as tabs, in order; the first opens by
-  default and drives the portal's home card. Managers change it on the Chapters page ("الأطر"). Importing a pack turns
+  default and drives the portal's home card. Managers change it on the Chapters page ("جهات الاعتماد"). Importing a pack turns
   its framework on.
 - Texts come in only through import packs (`POST /api/standards/pack`, parts of up to 40 standards; the screen sends 25).
   A pack is JSON: `{format: 'qms-standards-pack', framework, edition, chapters: [{code, name_ar, name_en, jci?, sort}],
@@ -393,3 +393,28 @@ file form). The chapter page in Quality shows those files as tiles ("Chapter fil
   the project's files (`standards-packs/`), never in this repository. Tests use made-up texts.
 - Chapter files (`files.chapter`) and the Fikra FMS panel belong to CBAHI chapters only.
 - URLs: `#/quality/chapters/jci`, `#/quality/standards/jci.FMS`; CBAHI keeps the old form `#/quality/standards/FMS`.
+
+## Committees & meetings (phase 1)
+
+- New system `meetings` (role `meetings_role`: none / viewer / secretary / manager). Pages `#/meetings/committees`,
+  `#/meetings/committees/5`, `#/meetings/calendar/2026-11`. Server in `src/systems/meetings.js`, screens in
+  `public/js/meetings.js`, tables `committees`, `committee_members`, `committee_files`, `committee_sessions`.
+- Three kinds: `committee` (COM-001), `department` (DEP-001, a department meeting: a secretary in that department runs
+  it, members suggested from the department's staff) and `special` (SPM-001: urgent, RCA, task force).
+- Members are picked by employee number from the staff list (Arabic digits accepted) or typed; roles chair, co_chair,
+  secretary, member, invitee. A member is switched off with a reason, never deleted once used. A substitute gets the
+  same invitations.
+- A secretary runs only the committees where they are an active chair, co-chair or secretary (matched by email) and
+  the department meetings of their own department. A manager runs everything; a viewer reads.
+- The schedule is made from the frequency for 365 days ahead: weekly +7, biweekly +14, monthly kinds on the same nth
+  weekday of the month as the first date. Sessions are numbered in date order (COM-001-S003). Moving, postponing and
+  cancelling need a reason and are logged.
+- Emails (Arabic + English, with an .ics invite) and phone notifications: the invitation 7 days before, reminders 3 days
+  and 1 day before (daily cron `0 5 * * *`, `runMeetingJobs`), and a message on every move, postponement or
+  cancellation. With the Gmail (Apps Script) provider, the script must be redeployed from `apps-script/Code.gs` so the
+  calendar attachment keeps its type.
+- Home page: the Requests & Work Orders system is switched off in QMS (`OFF_APPS`), so the home page has no requests
+  card, AI assistant or "new request" button. It shows the committees card and the upcoming meetings
+  (`meetingsHome`). The places used by the rounds moved to the Admin Center.
+- Next phases: agenda, minutes, actions, approval, QR attendance; then Word/PDF reports, KPIs, import and links to
+  standards.

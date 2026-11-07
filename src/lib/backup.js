@@ -8,10 +8,10 @@ import { escHtml, nowIso } from './util.js';
 // Password hashes, sessions and the mail and push keys are never included.
 export async function fullBackupData(env) {
   const all = (sql) => env.DB.prepare(sql).all().then((r) => r.results);
-  const [departments, docTypes, users, files, acks, logs, settingsRows, staff, categories, locations, tickets, ticketEvents, assets, pmPlans, pmDone, assetTypes, roundForms, roundItems, roundPlaces, rounds, roundAnswers, vendors, vendorDocs, contracts, contractAssets, contractVisits, stores, parts, stock, stockMoves, partRequests, stdChapters, standards, stdAssessments, stdElements, fmsSnapshots] = await Promise.all([
+  const [departments, docTypes, users, files, acks, logs, settingsRows, staff, categories, locations, tickets, ticketEvents, assets, pmPlans, pmDone, assetTypes, roundForms, roundItems, roundPlaces, rounds, roundAnswers, vendors, vendorDocs, contracts, contractAssets, contractVisits, stores, parts, stock, stockMoves, partRequests, stdChapters, standards, stdAssessments, stdElements, fmsSnapshots, committees, committeeMembers, committeeFiles, committeeSessions] = await Promise.all([
     all('SELECT * FROM departments ORDER BY id'),
     all('SELECT * FROM doc_types ORDER BY id'),
-    all('SELECT id, name, name_en, email, role, docs_role, desk_role, assets_role, rounds_role, quality_role, department_id, job_title, active, created_at FROM users ORDER BY id'),
+    all('SELECT id, name, name_en, email, role, docs_role, desk_role, assets_role, rounds_role, quality_role, meetings_role, department_id, job_title, active, created_at FROM users ORDER BY id'),
     all('SELECT * FROM files ORDER BY id'),
     all('SELECT * FROM acks ORDER BY file_id, user_id'),
     all('SELECT * FROM logs ORDER BY id'),
@@ -47,6 +47,10 @@ export async function fullBackupData(env) {
     all('SELECT * FROM std_assessments ORDER BY id'),
     all('SELECT * FROM std_elements ORDER BY id'),
     all('SELECT * FROM fms_snapshots ORDER BY day'),
+    all('SELECT * FROM committees ORDER BY id'),
+    all('SELECT * FROM committee_members ORDER BY id'),
+    all('SELECT * FROM committee_files ORDER BY id'),
+    all('SELECT * FROM committee_sessions ORDER BY id'),
   ]);
   return {
     departments, doc_types: docTypes, users, files, acks, logs, settings: Object.fromEntries(settingsRows.map((r) => [r.key, r.value])),
@@ -54,7 +58,8 @@ export async function fullBackupData(env) {
     round_forms: roundForms, round_items: roundItems, round_places: roundPlaces, rounds, round_answers: roundAnswers,
     vendors, vendor_docs: vendorDocs, contracts, contract_assets: contractAssets, contract_visits: contractVisits,
     stores, parts, stock, stock_moves: stockMoves, part_requests: partRequests,
-    std_chapters: stdChapters, standards, std_assessments: stdAssessments, std_elements: stdElements, fms_snapshots: fmsSnapshots,
+    std_chapters: stdChapters, standards, std_assessments: stdAssessments, fms_snapshots: fmsSnapshots,
+    committees, committee_members: committeeMembers, committee_files: committeeFiles, committee_sessions: committeeSessions,
   };
 }
 

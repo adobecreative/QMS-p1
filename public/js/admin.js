@@ -52,7 +52,7 @@ export async function usersPage(root, _param, alive) {
                     : h(
                         'dl',
                         { class: 'perm-list' },
-                        ['quality', 'docs', 'desk', 'assets', 'rounds'].filter((app) => !OFF_APPS.includes(app)).map((app) => {
+                        ['quality', 'meetings', 'docs', 'desk', 'assets', 'rounds'].filter((app) => !OFF_APPS.includes(app)).map((app) => {
                           const r = u[app + '_role'] || 'none';
                           return h('div', {}, h('dt', {}, t('app.' + app)), h('dd', r === 'none' ? { class: 'muted' } : {}, t(app + 'role.' + r)));
                         }),
@@ -101,6 +101,7 @@ export function userDialog(u) {
   const assetsRole = select(['none', 'viewer', 'manager'].map((r) => [r, t('assetsrole.' + r)]), u ? u.assets_role || 'none' : 'none', {});
   const roundsRole = select(['none', 'inspector', 'manager'].map((r) => [r, t('roundsrole.' + r)]), u ? u.rounds_role || 'none' : 'none', {});
   const qualityRole = select(['none', 'viewer', 'assessor', 'manager'].map((r) => [r, t('qualityrole.' + r)]), u ? u.quality_role || 'none' : 'none', {});
+  const meetingsRole = select(['none', 'viewer', 'secretary', 'manager'].map((r) => [r, t('meetingsrole.' + r)]), u ? u.meetings_role || 'none' : 'none', {});
   const job = select([['', t('common.none')], ...['technician', 'engineer', 'supervisor', 'specialist'].map((j) => [j, t('job.' + j)])], u ? u.job_title || '' : '', {});
   const jobField = field(t('user.job_title'), job);
   const password = input({ type: 'password', minlength: 8, required: !u, autocomplete: 'new-password', dir: 'ltr' });
@@ -111,7 +112,7 @@ export function userDialog(u) {
     'fieldset',
     { class: 'app-roles' },
     h('legend', {}, t('user.app_roles')),
-    h('div', { class: 'form-grid' }, field(t('app.quality'), qualityRole, t('user.quality_hint')), field(t('app.docs'), docs, t('user.docs_hint')), field(t('app.desk'), desk, t('user.desk_hint')), OFF_APPS.includes('assets') ? null : field(t('app.assets'), assetsRole, t('user.assets_hint')), field(t('app.rounds'), roundsRole, t('user.rounds_hint'))),
+    h('div', { class: 'form-grid' }, field(t('app.quality'), qualityRole, t('user.quality_hint')), field(t('app.meetings'), meetingsRole, t('user.meetings_hint')), field(t('app.docs'), docs, t('user.docs_hint')), OFF_APPS.includes('desk') ? null : field(t('app.desk'), desk, t('user.desk_hint')), OFF_APPS.includes('assets') ? null : field(t('app.assets'), assetsRole, t('user.assets_hint')), field(t('app.rounds'), roundsRole, t('user.rounds_hint'))),
     teamNote,
     jobField,
   );
@@ -151,6 +152,7 @@ export function userDialog(u) {
         assets_role: assetsRole.value,
         rounds_role: roundsRole.value,
         quality_role: qualityRole.value,
+        meetings_role: meetingsRole.value,
         department_id: level.value !== 'user' || !dept.value ? null : Number(dept.value),
         job_title: job.value || null,
         active: active.checked,
@@ -203,7 +205,7 @@ export function logValue(key, v) {
   if (key === 'priority') return 'P' + v;
   if (key === 'score' && has('qa.score.' + v)) return t('qa.score.' + v);
   if (key === 'esr') return t(v ? 'common.yes' : 'common.no');
-  if (key === 'docs_role' || key === 'desk_role' || key === 'assets_role' || key === 'rounds_role' || key === 'quality_role') {
+  if (key === 'docs_role' || key === 'desk_role' || key === 'assets_role' || key === 'rounds_role' || key === 'quality_role' || key === 'meetings_role') {
     const k = key.replace('_role', 'role.') + v;
     return has(k) ? t(k) : String(v);
   }

@@ -112,6 +112,7 @@ export async function ensureSchema(env) {
   if (!userCols.some((c) => c.name === 'assets_role')) await env.DB.prepare("ALTER TABLE users ADD COLUMN assets_role TEXT NOT NULL DEFAULT 'none'").run();
   if (!userCols.some((c) => c.name === 'rounds_role')) await env.DB.prepare("ALTER TABLE users ADD COLUMN rounds_role TEXT NOT NULL DEFAULT 'none'").run();
   if (!userCols.some((c) => c.name === 'quality_role')) await env.DB.prepare("ALTER TABLE users ADD COLUMN quality_role TEXT NOT NULL DEFAULT 'none'").run();
+  if (!userCols.some((c) => c.name === 'meetings_role')) await env.DB.prepare("ALTER TABLE users ADD COLUMN meetings_role TEXT NOT NULL DEFAULT 'none'").run();
   const { results: roundCols } = await env.DB.prepare('PRAGMA table_info(rounds)').all();
   if (!roundCols.some((c) => c.name === 'scanned')) await env.DB.prepare('ALTER TABLE rounds ADD COLUMN scanned INTEGER NOT NULL DEFAULT 0').run();
   const { results: staffCols } = await env.DB.prepare('PRAGMA table_info(staff)').all();
