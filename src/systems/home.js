@@ -4,6 +4,7 @@ import { isAdmin } from '../lib/config.js';
 import { getSettings } from '../lib/db.js';
 import { json, nowIso, todayIn } from '../lib/util.js';
 import { statusOf, plusDays } from './docs.js';
+import { portalDocsOn } from './fmslink.js';
 import { meetingsHome } from './meetings.js';
 import { qualityHome } from './quality.js';
 import { aiReady, ticketScope } from './tickets.js';
@@ -72,7 +73,14 @@ export async function handleHome(env, user) {
     );
   }
 
-  if (has(user.docs)) {
+  // With the link reading the Operations system's register, documents live there: its numbers show here.
+  if (has(user.docs) && portalDocsOn(settings)) {
+    jobs.push(
+      env.DB.prepare("SELECT COUNT(*) AS total, COALESCE(SUM(status = 'near'), 0) AS near, COALESCE(SUM(status = 'expired'), 0) AS expired FROM portal_docs")
+        .first()
+        .then((r) => (out.docs = { total: r.total || 0, near: r.near, expired: r.expired })),
+    );
+  } else if (has(user.docs)) {
     const deptOnly = user.docs === 'dept_admin';
     const stmt = env.DB.prepare(`SELECT expiry_date, near_days, under_review FROM files ${deptOnly ? 'WHERE department_id = ?' : ''}`);
     jobs.push(

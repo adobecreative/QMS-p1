@@ -431,6 +431,10 @@ file form). The chapter page in Quality shows those files as tiles ("Chapter fil
 - Staff: the portal's list is merged into `staff` (departments matched by Arabic or English name), only when it
   changed (`link_staff_hash`). Nobody is switched off here who is not off in the portal.
 - Needs the portal change that adds `docs_read` (Portal-p2, `GET /api/v1/documents` and `/documents/{id}/pdf`).
+- Documents live in the Operations system only. While the link reads them (`S.user.portal_docs`), Document Control
+  here has one page, الوثائق (`#/docs/pdocs`): read only, with status cards and department/type/chapter filters.
+  The local pages (dashboard, documents, types, settings) and adding files to a chapter come back when the link is off.
+  The home card counts the portal documents.
 
 ## Quality rounds and corrective actions (CAPA)
 

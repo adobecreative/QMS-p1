@@ -118,7 +118,8 @@ export function langToggle() {
 export const APPS = {
   quality: { icon: 'award', pages: (r) => (r === 'none' ? [] : ['chapters', 'standards', 'capa']) },
   meetings: { icon: 'users', pages: (r) => (r === 'none' ? [] : ['committees', 'calendar']) },
-  docs: { icon: 'file', pages: (r) => [...(r === 'admin' ? ['dashboard', 'documents', 'types', 'settings'] : r === 'dept_admin' ? ['dashboard', 'documents'] : r === 'viewer' ? ['documents', 'dashboard'] : []), ...(r !== 'none' && S.user.portal_docs ? ['pdocs'] : [])] },
+  // With the link reading the Operations system's register, Document Control shows those documents only (read only).
+  docs: { icon: 'file', pages: (r) => (r === 'none' ? [] : S.user.portal_docs ? ['pdocs'] : r === 'admin' ? ['dashboard', 'documents', 'types', 'settings'] : r === 'dept_admin' ? ['dashboard', 'documents'] : ['documents', 'dashboard']) },
   desk: { icon: 'desk', pages: (r) => (r === 'admin' ? ['tickets', 'categories', 'locations', 'settings'] : r === 'none' ? [] : ['tickets']) },
   assets: { icon: 'box', pages: (r) => (r === 'none' ? [] : ['register', 'pm', 'contracts', 'vendors', 'parts', 'moves', 'requests', 'costs', ...(r === 'viewer' ? [] : ['devtypes'])]) },
   rounds: { icon: 'clipboard', pages: (r) => (r === 'none' ? [] : r === 'inspector' ? ['due', 'rlog', 'scan'] : ['due', 'rlog', 'checklists', 'scan']) },

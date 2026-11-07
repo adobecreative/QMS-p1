@@ -199,7 +199,8 @@ export async function handleQuality(request, env, url, seg, method, user) {
     return json({
       files: [...results.map((f) => ({ ...fileOut(f, today, settings), dept_ar: f.dept_ar, dept_en: f.dept_en, pdf_url: '/api/quality/files/' + f.id + '/pdf' })), ...fromPortal],
       doc_types: types,
-      can_add: user.docs === 'admin' || user.docs === 'dept_admin',
+      // Documents come from the Operations system while the link reads them: nothing is added here then.
+      can_add: !portalDocsOn(settings) && (user.docs === 'admin' || user.docs === 'dept_admin'),
     });
   }
   if (method === 'GET' && seg[0] === 'quality' && seg[1] === 'files' && /^\d+$/.test(seg[2] || '') && seg[3] === 'pdf' && seg.length === 4) {
