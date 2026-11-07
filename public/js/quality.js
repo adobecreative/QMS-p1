@@ -747,7 +747,11 @@ export async function portalDocsPage(root, _param, alive) {
     return;
   }
   if (!alive()) return;
-  const f = (S.pdocF = S.pdocF || { q: '', chapter: '' });
+  const f = (S.pdocF = S.pdocF || { q: '', chapter: '', status: '', type: '', dept: '' });
+  const uniq = (key, en) => [...new Map(d.docs.filter((x) => x[key]).map((x) => [x[key], pick(x[key], x[en])])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  const pickType = select([['', t('pdoc.all_types')], ...uniq('type_ar', 'type_en')], f.type, { 'aria-label': t('pdoc.all_types') });
+  const pickDept = select([['', t('pdoc.all_depts')], ...uniq('department_ar', 'department_en')], f.dept, { 'aria-label': t('pdoc.all_depts') });
+  const cards = h('section', { class: 'cards', 'aria-label': t('dash.summary') });
   const chName = (c) => c.code + ' · ' + pick(c.name_ar, c.name_en);
   const search = input({ type: 'search', class: 'doc-search-input', value: f.q, placeholder: t('pdoc.search_ph'), 'aria-label': t('qa.search'), autocomplete: 'off' });
   const pickCh = select([['', t('qa.all_chapters')], ['-', t('pdoc.unfiled')], ...d.chapters.map((c) => [c.code, chName(c)])], f.chapter, { 'aria-label': t('qa.chapter') });
@@ -775,7 +779,34 @@ export async function portalDocsPage(root, _param, alive) {
   };
   const draw = () => {
     const q = norm(f.q.trim());
-    const rows = d.docs.filter((x) => (!f.chapter || (f.chapter === '-' ? !x.chapter : x.chapter === f.chapter)) && (!q || [x.name_ar, x.name_en, x.file_number, x.department_ar, x.department_en].some((v) => norm(v).includes(q))));
+    const base = d.docs.filter(
+      (x) =>
+        (!f.chapter || (f.chapter === '-' ? !x.chapter : x.chapter === f.chapter)) &&
+        (!f.type || x.type_ar === f.type) &&
+        (!f.dept || x.department_ar === f.dept) &&
+        (!q || [x.name_ar, x.name_en, x.file_number, x.department_ar, x.department_en].some((v) => norm(v).includes(q))),
+    );
+    const rows = base.filter((x) => !f.status || (x.status || 'none') === f.status);
+    const counts = { valid: 0, near: 0, expired: 0, review: 0 };
+    base.forEach((x) => x.status in counts && counts[x.status]++);
+    cards.replaceChildren(
+      ...['valid', 'near', 'expired', 'review'].map((st) =>
+        h(
+          'button',
+          {
+            type: 'button',
+            class: 'card card-' + st,
+            'aria-pressed': String(f.status === st),
+            onclick: () => {
+              f.status = f.status === st ? '' : st;
+              draw();
+            },
+          },
+          h('span', { class: 'card-label' }, h('span', { class: 'dot', 'aria-hidden': 'true' }), t('status.' + st)),
+          h('span', { class: 'card-num' }, String(counts[st])),
+        ),
+      ),
+    );
     box.replaceChildren(
       h(
         'section',
@@ -824,11 +855,20 @@ export async function portalDocsPage(root, _param, alive) {
     f.chapter = pickCh.value;
     draw();
   });
+  pickType.addEventListener('change', () => {
+    f.type = pickType.value;
+    draw();
+  });
+  pickDept.addEventListener('change', () => {
+    f.dept = pickDept.value;
+    draw();
+  });
   const filed = d.docs.filter((x) => x.chapter).length;
   root.replaceChildren(
     h('div', { class: 'page-head' }, h('div', {}, h('h1', {}, t('nav.pdocs')), h('p', { class: 'muted' }, t('pdoc.sub', { n: d.docs.length, filed })))),
     !d.on ? h('p', { class: 'notice notice-warn' }, t('pdoc.off')) : d.error ? h('p', { class: 'notice notice-warn' }, t('qa.fms.error', { err: linkError(d.error) })) : '',
-    h('div', { class: 'filters' }, h('div', { class: 'doc-search', role: 'search' }, icon('search'), search), pickCh),
+    cards,
+    h('div', { class: 'filters' }, h('div', { class: 'doc-search', role: 'search' }, icon('search'), search), pickDept, pickType, pickCh),
     box,
   );
   draw();

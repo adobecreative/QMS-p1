@@ -203,6 +203,9 @@ check((await qv('/quality')).j.fms === null, 'and the evidence leaves the FMS ch
   const tile = r.j.files.find((x) => x.portal);
   check(tile && tile.file_number === 'FMS-PL-01' && tile.pdf_url === '/api/portal-docs/' + fire.id + '/pdf', 'it shows with the chapter files', r.j.files);
   check((await owner('/quality')).j.chapters.find((c) => c.code === 'LD').files >= 1, 'the chapter card counts it');
+  check((await owner('/quality/files?chapter=LD')).j.can_add === false, 'with portal documents on, nothing is added to a chapter here');
+  r = await owner('/home');
+  check(r.j.docs && r.j.docs.total >= 1, 'the home page counts the portal documents', r.j.docs);
   const pdf = await qv.raw('/portal-docs/' + fire.id + '/pdf');
   check(pdf.status === 200 && pdf.headers.get('content-type') === 'application/pdf' && (await pdf.text()).startsWith('%PDF-'), 'its PDF opens through this server');
   check((await qv.raw('/portal-docs/999999/pdf')).status === 404, 'an unknown document is 404');
