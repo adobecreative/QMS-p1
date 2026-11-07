@@ -93,6 +93,8 @@ export const DEFAULT_SETTINGS = {
   inventory_mode: 'standalone',
   // Quality & Accreditation: the starter CBAHI chapters are added once, so a chapter renamed or switched off stays so.
   std_chapters_seeded: '',
+  // The standards frameworks this hospital works with, in order: cbahi, jci, chi. Importing a pack turns its framework on.
+  std_frameworks: 'cbahi',
   // The optional link to the Fikra portal (see src/systems/fmslink.js). The key never leaves the server.
   link_on: '0',
   link_url: '',

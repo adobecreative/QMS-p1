@@ -41,7 +41,7 @@ export function fileOut(f, today, settings) {
 }
 
 export async function checkChapter(env, chapter) {
-  if (chapter && !(await env.DB.prepare('SELECT 1 FROM std_chapters WHERE code = ?').bind(chapter).first())) fail(400, 'std_bad_chapter');
+  if (chapter && !(await env.DB.prepare("SELECT 1 FROM std_chapters WHERE framework = 'cbahi' AND code = ?").bind(chapter).first())) fail(400, 'std_bad_chapter');
 }
 
 export function readFileFields(form) {

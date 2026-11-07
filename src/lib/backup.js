@@ -8,7 +8,7 @@ import { escHtml, nowIso } from './util.js';
 // Password hashes, sessions and the mail and push keys are never included.
 export async function fullBackupData(env) {
   const all = (sql) => env.DB.prepare(sql).all().then((r) => r.results);
-  const [departments, docTypes, users, files, acks, logs, settingsRows, staff, categories, locations, tickets, ticketEvents, assets, pmPlans, pmDone, assetTypes, roundForms, roundItems, roundPlaces, rounds, roundAnswers, vendors, vendorDocs, contracts, contractAssets, contractVisits, stores, parts, stock, stockMoves, partRequests, stdChapters, standards, stdAssessments, fmsSnapshots] = await Promise.all([
+  const [departments, docTypes, users, files, acks, logs, settingsRows, staff, categories, locations, tickets, ticketEvents, assets, pmPlans, pmDone, assetTypes, roundForms, roundItems, roundPlaces, rounds, roundAnswers, vendors, vendorDocs, contracts, contractAssets, contractVisits, stores, parts, stock, stockMoves, partRequests, stdChapters, standards, stdAssessments, stdElements, fmsSnapshots] = await Promise.all([
     all('SELECT * FROM departments ORDER BY id'),
     all('SELECT * FROM doc_types ORDER BY id'),
     all('SELECT id, name, name_en, email, role, docs_role, desk_role, assets_role, rounds_role, quality_role, department_id, job_title, active, created_at FROM users ORDER BY id'),
@@ -45,6 +45,7 @@ export async function fullBackupData(env) {
     all('SELECT * FROM std_chapters ORDER BY sort, code'),
     all('SELECT * FROM standards ORDER BY id'),
     all('SELECT * FROM std_assessments ORDER BY id'),
+    all('SELECT * FROM std_elements ORDER BY id'),
     all('SELECT * FROM fms_snapshots ORDER BY day'),
   ]);
   return {
@@ -53,7 +54,7 @@ export async function fullBackupData(env) {
     round_forms: roundForms, round_items: roundItems, round_places: roundPlaces, rounds, round_answers: roundAnswers,
     vendors, vendor_docs: vendorDocs, contracts, contract_assets: contractAssets, contract_visits: contractVisits,
     stores, parts, stock, stock_moves: stockMoves, part_requests: partRequests,
-    std_chapters: stdChapters, standards, std_assessments: stdAssessments, fms_snapshots: fmsSnapshots,
+    std_chapters: stdChapters, standards, std_assessments: stdAssessments, std_elements: stdElements, fms_snapshots: fmsSnapshots,
   };
 }
 

@@ -184,6 +184,84 @@ check((await qv('/quality')).j.fms === null, 'and the evidence leaves the FMS ch
   check(r.j.logs.some((l) => l.entity === 'file' && l.details && l.details.includes('"chapter"')), 'the chapter change is in the activity log');
 }
 
+// Frameworks: a JCI pack beside CBAHI. FMS is a chapter in both, kept apart by framework. The texts here are
+// made up: real packs are built from the hospital's licensed copy and never kept in this repository.
+{
+  const jciPack = {
+    framework: 'jci',
+    edition: 'test',
+    first: true,
+    chapters: [
+      { code: 'FMS', name_ar: 'إدارة المرافق والسلامة', name_en: 'Facility Management and Safety', sort: 1 },
+      { code: 'IPSG', name_ar: '', name_en: 'Patient Safety Goals', sort: 2 },
+    ],
+    standards: [
+      { code: 'FMS.01.00', title_en: 'Test standard one.', elements: [{ num: '1', text: 'First element.', doc: 1 }, { num: '2', text: 'Second element.', is_new: 1 }] },
+      { code: 'IPSG.01.00', title_en: 'Test standard two.', elements: [{ num: '1', text: 'Only element.' }] },
+      { code: 'ZZZ.01.00', title_en: 'Unknown chapter.' },
+    ],
+  };
+  check((await qa('/standards/pack', 'POST', jciPack)).s === 403, 'an assessor cannot import a pack');
+  check((await owner('/standards/pack', 'POST', { ...jciPack, framework: 'xyz' })).s === 400, 'an unknown framework is refused');
+  r = await owner('/standards/pack', 'POST', jciPack);
+  check(r.s === 200 && r.j.saved === 2 && r.j.errors.length === 1 && r.j.errors[0].error === 'std_bad_chapter', 'a JCI pack part saves its standards and reports the bad one', r.j);
+  r = await owner('/quality?framework=jci');
+  check(r.s === 200 && r.j.framework === 'jci' && r.j.chapters.length === 2 && r.j.total.n === 2 && r.j.has_esr === false, 'the JCI chapters stand on their own', r.j);
+  check(r.j.frameworks.find((f) => f.key === 'jci').on === true && r.j.frameworks[0].key === 'cbahi', 'the import turned JCI on, after CBAHI', r.j.frameworks);
+  check(r.j.chapters.find((c) => c.code === 'IPSG').name_ar === '', 'a chapter with no Arabic name keeps it empty until edited');
+  r = await owner('/quality');
+  check(r.j.framework === 'cbahi' && !r.j.chapters.some((c) => c.code === 'IPSG') && r.j.chapters.find((c) => c.code === 'FMS').jci === 'FMS', 'CBAHI is unchanged, its FMS chapter too', r.j.chapters.map((c) => c.code));
+  r = await qv('/standards?framework=jci&chapter=FMS');
+  const fms1 = r.j.standards[0];
+  check(r.s === 200 && r.j.standards.length === 1 && fms1.framework === 'jci' && fms1.elements.length === 2 && fms1.elements[0].doc === 1 && fms1.elements[1].is_new === 1 && fms1.title_ar === '', 'JCI standards come with their MEs, D and New flags', fms1);
+  check((await owner('/standards?framework=cbahi&chapter=FMS')).j.standards.every((x) => x.framework === 'cbahi'), 'the CBAHI FMS list does not mix in JCI');
+  // The same code may exist in another framework.
+  check((await owner('/standards', 'POST', { framework: 'cbahi', code: 'FMS.01.00', title_ar: 'معيار سباهي بنفس الرمز', title_en: 'Same code in CBAHI' })).s === 200, 'a CBAHI standard can share a code with JCI');
+
+  // Scoring element by element: every ME needs a score, the standard's score is worked out.
+  const [e1, e2] = fms1.elements;
+  check((await qa('/standards/' + fms1.id + '/score', 'PUT', { elements: [{ id: e1.id, score: 'met' }] })).j.error === 'std_elements_open', 'every element needs a score');
+  check((await qa('/standards/' + fms1.id + '/score', 'PUT', { elements: [{ id: e1.id, score: 'met' }, { id: e2.id, score: 'partial' }] })).j.error === 'std_gap_note', 'a mixed result needs a note');
+  r = await qa('/standards/' + fms1.id + '/score', 'PUT', { elements: [{ id: e1.id, score: 'met' }, { id: e2.id, score: 'partial', note: 'Policy not approved yet' }], note: 'One ME still partial' });
+  check(r.s === 200 && r.j.score === 'partial', 'met + partial makes the standard partly met', r.j);
+  r = await owner('/standards?framework=jci&chapter=FMS');
+  check(r.j.standards[0].score === 'partial' && r.j.standards[0].elements[1].note === 'Policy not approved yet', 'the scores and notes are saved', r.j.standards[0]);
+  r = await qa('/standards/' + fms1.id + '/score', 'PUT', { elements: [{ id: e1.id, score: 'na' }, { id: e2.id, score: 'met' }] });
+  check(r.j.score === 'met', 'n/a is left out: met + n/a is met', r.j);
+  r = await owner('/standards/' + fms1.id + '/history');
+  check(r.j.history.length === 2 && r.j.history.every((x) => x.score), 'the history shows the standard, not each element', r.j.history);
+
+  // Sending the pack again updates texts and keeps scores; an element the new text dropped goes if unscored.
+  r = await owner('/standards/pack', 'POST', { framework: 'jci', standards: [{ code: 'FMS.01.00', title_en: 'Test standard one, revised.', elements: [{ num: '1', text: 'First element, revised.' }, { num: '2', text: 'Second element.' }] }, { code: 'IPSG.01.00', title_en: 'Test standard two.', elements: [{ num: '2', text: 'Replaced element.' }] }], last: true });
+  check(r.s === 200 && r.j.saved === 2, 'a second part is imported', r.j);
+  r = await owner('/standards?framework=jci');
+  const again = r.j.standards.find((x) => x.code === 'FMS.01.00');
+  const ipsg = r.j.standards.find((x) => x.code === 'IPSG.01.00');
+  check(again.score === 'met' && again.elements[0].text === 'First element, revised.' && again.elements[0].score === 'na' && /revised/.test(again.title_en), 're-import updates the texts and keeps the scores', again);
+  check(ipsg.elements.length === 1 && ipsg.elements[0].num === '2', 'an unscored element no longer in the pack is removed', ipsg.elements);
+
+  // CBAHI: an ESR is all or nothing, so a partly met sub-standard makes it not met.
+  r = await owner('/standards/pack', 'POST', { framework: 'cbahi', standards: [{ code: 'IPC.9', title_en: 'Test ESR.', esr: 1, elements: [{ num: '1', text: 'Sub one.' }, { num: '2', text: 'Sub two.' }] }] });
+  check(r.s === 200 && r.j.saved === 1, 'a CBAHI pack part with an ESR', r.j);
+  const esr9 = (await owner('/standards?chapter=IPC')).j.standards.find((x) => x.code === 'IPC.9');
+  r = await owner('/standards/' + esr9.id + '/score', 'PUT', { elements: esr9.elements.map((e, i) => ({ id: e.id, score: i ? 'partial' : 'met' })), note: 'Gap' });
+  check(r.j.score === 'not_met', 'an ESR partly met counts as not met', r.j);
+  // An imported standard can be edited before it has its Arabic wording.
+  check((await owner('/standards/' + esr9.id, 'PUT', { code: 'IPC.9', title_ar: '', title_en: 'Test ESR.', esr: 1 })).s === 200, 'an imported standard can be edited without Arabic yet');
+
+  // Which frameworks show.
+  check((await qa('/quality/frameworks', 'PUT', { on: ['jci'] })).s === 403, 'an assessor cannot change the frameworks');
+  check((await owner('/quality/frameworks', 'PUT', { on: [] })).s === 400, 'at least one framework stays on');
+  r = await owner('/quality/frameworks', 'PUT', { on: ['jci', 'cbahi'] });
+  check(r.s === 200, 'owner puts JCI first', r.j);
+  r = await owner('/quality');
+  check(r.j.framework === 'jci', 'the first framework opens by default', r.j.framework);
+  await owner('/quality/frameworks', 'PUT', { on: ['cbahi', 'jci'] });
+  // A chapter in JCI is edited through its framework.
+  check((await owner('/std-chapters/IPSG?framework=jci', 'PUT', { name_ar: 'أهداف سلامة المرضى', name_en: 'Patient Safety Goals' })).s === 200, 'a JCI chapter gets its Arabic name');
+  check((await owner('/std-chapters/IPSG', 'PUT', { name_ar: 'أهداف', name_en: 'Goals' })).s === 404, 'without the framework it is looked for in CBAHI');
+}
+
 // Activity log and backup.
 r = await owner('/logs');
 check(r.s === 200 && r.j.logs.some((l) => l.action === 'assess' && l.entity === 'standard'), 'assessments are in the activity log');

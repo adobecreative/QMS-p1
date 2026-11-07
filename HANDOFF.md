@@ -371,3 +371,25 @@ file form). The chapter page in Quality shows those files as tiles ("Chapter fil
 - `GET /api/quality/files/:id/pdf`: the PDF, only while the file has a chapter.
 - Adding and changing files stays in the documents system (`POST/PUT /api/files`), which now takes `chapter`.
 - `GET /api/doc-types` also returns the active chapters, for the file form.
+
+## Standards frameworks (CBAHI, JCI, CHI)
+
+- Every chapter and standard belongs to a framework: `cbahi`, `jci` or `chi` (`FRAMEWORKS` in `src/systems/quality.js`).
+  The key is (framework, code), because FMS and MOI exist in both CBAHI and JCI. Older databases are copied into this
+  shape once by `ensureSchema` (src/lib/db.js); every existing row becomes CBAHI and keeps its id and score.
+- `std_elements` holds what a standard is scored by: CBAHI/CHI sub-standards (shown as LD.1.3) and JCI measurable
+  elements (ME 3, `doc` = D, `is_new` = new in the 8th edition). When a standard has elements, the self-assessment
+  scores each one and the standard's score is worked out by `rollup()`: all n/a → n/a, all met → met, all not met →
+  not met, otherwise partly met; a CBAHI ESR partly met counts as not met. Element rows also go to `std_assessments`
+  with `element_id`; the history dialog shows only the standard rows.
+- Setting `std_frameworks` (for example `cbahi,jci`) lists the frameworks shown as tabs, in order; the first opens by
+  default and drives the portal's home card. Managers change it on the Chapters page ("الأطر"). Importing a pack turns
+  its framework on.
+- Texts come in only through import packs (`POST /api/standards/pack`, parts of up to 40 standards; the screen sends 25).
+  A pack is JSON: `{format: 'qms-standards-pack', framework, edition, chapters: [{code, name_ar, name_en, jci?, sort}],
+  standards: [{code, chapter, title_en, title_ar, esr, elements: [{num, text, doc, is_new}]}]}`. Upsert by code keeps
+  scores and the hospital's Arabic wording; an element the new text dropped is removed unless it was scored.
+- The manuals are licensed to the hospital (JCI copyright, CBAHI licensed copy, CHI "Restricted"): the packs live in
+  the project's files (`standards-packs/`), never in this repository. Tests use made-up texts.
+- Chapter files (`files.chapter`) and the Fikra FMS panel belong to CBAHI chapters only.
+- URLs: `#/quality/chapters/jci`, `#/quality/standards/jci.FMS`; CBAHI keeps the old form `#/quality/standards/FMS`.

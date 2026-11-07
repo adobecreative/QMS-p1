@@ -23,22 +23,42 @@ const counts = (s) =>
     ['met', 'partial', 'not_met', 'open'].map((k) => h('span', { class: 'qa-count qa-' + k }, h('b', {}, String(s[k] || 0)), ' ' + t('qa.score.' + k))),
   );
 const chapterName = (c) => pick(c.name_ar, c.name_en);
+// The framework a page shows: cbahi, jci or chi. CBAHI links stay as they were (quality/standards/LD);
+// the others carry the framework (quality/standards/jci.FMS, or quality/standards/jci for all of JCI).
+const FW = ['cbahi', 'jci', 'chi'];
+const fwName = (f) => pick(f.name_ar, f.name_en);
+const stdLink = (fw, code) => 'quality/standards' + (fw === 'cbahi' ? (code ? '/' + code : '') : '/' + fw + (code ? '.' + code : ''));
+const fwQuery = (fw) => 'framework=' + encodeURIComponent(fw);
+// How an element is named: JCI "ME 3", CBAHI and CHI the sub-standard code (LD.1.3).
+const elLabel = (s, e) => (s.framework === 'jci' ? 'ME ' + e.num : s.code + '.' + e.num);
+function fwTabs(d, here) {
+  const on = d.frameworks.filter((f) => f.on);
+  if (on.length < 2) return '';
+  return h(
+    'nav',
+    { class: 'qa-fw-tabs', 'aria-label': t('qa.frameworks') },
+    on.map((f) => link(here(f.key), { class: 'qa-fw-tab' + (f.key === d.framework ? ' is-active' : ''), 'aria-current': f.key === d.framework ? 'page' : null }, fwName(f), h('span', { class: 'qa-fw-n' }, String(f.n)))),
+  );
+}
 
 /* ------------------------------ the chapters ------------------------------ */
 
-export async function chaptersPage(root, _param, alive) {
+export async function chaptersPage(root, param, alive) {
   let d;
+  const want = FW.includes(String(param || '')) ? param : S.qaFw || '';
   try {
-    d = await api('/quality');
+    d = await api('/quality' + (want ? '?' + fwQuery(want) : ''));
   } catch (e) {
     if (alive()) root.replaceChildren(errorBox(e));
     return;
   }
   if (!alive()) return;
   S.quality = d;
+  S.qaFw = d.framework;
+  const fw = d.framework;
   const card = (code, name, sub, stats, extra, cls, files) =>
     link(
-      'quality/standards/' + code,
+      stdLink(fw, code),
       { class: 'qa-card' + (cls ? ' ' + cls : '') },
       h('div', { class: 'qa-card-head' }, h('span', { class: 'qa-code', dir: 'ltr' }, code), h('span', { class: 'qa-pct ' + band(stats.pct), dir: 'ltr' }, pctText(stats.pct))),
       h('span', { class: 'qa-name' }, name),
@@ -48,7 +68,7 @@ export async function chaptersPage(root, _param, alive) {
       stats.n ? counts(stats) : null,
       extra,
     );
-  const esrCard = card(
+  const esrCard = !d.has_esr ? '' : card(
     'ESR',
     t('qa.esr'),
     t('qa.esr_sub'),
@@ -60,9 +80,9 @@ export async function chaptersPage(root, _param, alive) {
     .filter((c) => c.active)
     .map((c) => {
       const linked = c.code === 'FMS' && d.fms ? h('span', { class: 'qa-linked' + (d.fms.error ? ' is-error' : '') }, t(d.fms.error ? 'qa.fms.badge_error' : 'qa.fms.badge')) : null;
-      const el = card(c.code, chapterName(c), c.jci ? 'JCI: ' + c.jci : '', c.stats, [c.stats.esr_gap ? h('span', { class: 'qa-alert' }, t('qa.esr_gap', { n: c.stats.esr_gap })) : null, linked], '', c.files);
+      const el = card(c.code, chapterName(c), fw === 'cbahi' && c.jci ? 'JCI: ' + c.jci : '', c.stats, [c.stats.esr_gap ? h('span', { class: 'qa-alert' }, t('qa.esr_gap', { n: c.stats.esr_gap })) : null, linked], '', c.files);
       if (!d.can_manage) return el;
-      return h('div', { class: 'qa-card-wrap' }, el, h('button', { type: 'button', class: 'btn btn-icon qa-edit', title: t('common.edit'), 'aria-label': t('common.edit') + ': ' + chapterName(c), onclick: () => chapterDialog(c) }, icon('edit')));
+      return h('div', { class: 'qa-card-wrap' }, el, h('button', { type: 'button', class: 'btn btn-icon qa-edit', title: t('common.edit'), 'aria-label': t('common.edit') + ': ' + chapterName(c), onclick: () => chapterDialog(c, fw) }, icon('edit')));
     });
   const depts = d.departments.length
     ? h(
@@ -99,21 +119,24 @@ export async function chaptersPage(root, _param, alive) {
     h(
       'div',
       { class: 'page-head' },
-      h('div', {}, h('h1', {}, t('nav.chapters')), h('p', { class: 'muted' }, t('qa.chapters_sub'))),
+      h('div', {}, h('h1', {}, t('nav.chapters')), h('p', { class: 'muted' }, t('qa.chapters_sub_fw', { fw: fwName(d.frameworks.find((f) => f.key === fw)) }))),
       h(
         'div',
         { class: 'actions' },
-        link('quality/standards', { class: 'btn' }, t('qa.all_standards')),
-        d.can_manage ? h('button', { type: 'button', class: 'btn btn-primary', onclick: () => chapterDialog(null) }, icon('plus'), t('qa.chapter_add')) : null,
+        link(stdLink(fw), { class: 'btn' }, t('qa.all_standards')),
+        d.can_manage ? h('button', { type: 'button', class: 'btn', onclick: () => frameworksDialog(d) }, icon('grid'), t('qa.frameworks')) : null,
+        d.can_manage ? h('button', { type: 'button', class: 'btn', onclick: () => packDialog() }, icon('download'), t('qa.pack')) : null,
+        d.can_manage ? h('button', { type: 'button', class: 'btn btn-primary', onclick: () => chapterDialog(null, fw) }, icon('plus'), t('qa.chapter_add')) : null,
       ),
     ),
+    fwTabs(d, (k) => 'quality/chapters/' + k),
     kpiRow([
       ['qa.k_readiness', pctText(d.total.pct)],
       ['qa.k_standards', d.total.n || 0],
       ['qa.k_met', d.total.met || 0],
       ['qa.k_gaps', (d.total.partial || 0) + (d.total.not_met || 0)],
       ['qa.k_open', d.total.open || 0],
-      ['qa.k_esr', d.total.esr_gap || 0],
+      ...(d.has_esr ? [['qa.k_esr', d.total.esr_gap || 0]] : []),
     ]),
     d.total.n ? '' : h('p', { class: 'notice' }, t(d.can_manage ? 'qa.empty_manager' : 'qa.empty')),
     h('section', { class: 'qa-grid', 'aria-label': t('nav.chapters') }, esrCard, cards),
@@ -122,8 +145,8 @@ export async function chaptersPage(root, _param, alive) {
   );
 }
 
-function chapterDialog(c) {
-  const code = input({ type: 'text', required: true, maxlength: 6, dir: 'ltr', pattern: '[A-Za-z]{2,6}', value: c ? c.code : '', disabled: !!c });
+function chapterDialog(c, fw) {
+  const code = input({ type: 'text', required: true, maxlength: 6, dir: 'ltr', pattern: '[A-Za-z&]{2,6}', value: c ? c.code : '', disabled: !!c });
   const nameAr = input({ type: 'text', required: true, maxlength: 120, dir: 'rtl', value: c ? c.name_ar : '' });
   const nameEn = input({ type: 'text', required: true, maxlength: 120, dir: 'ltr', value: c ? c.name_en : '' });
   const jci = input({ type: 'text', maxlength: 60, dir: 'ltr', value: c ? c.jci || '' : '', placeholder: 'GLD, QPS' });
@@ -135,13 +158,13 @@ function chapterDialog(c) {
       { class: 'stack' },
       field(t('qa.chapter_code'), code, c ? null : t('qa.chapter_code_hint')),
       h('div', { class: 'form-grid' }, field(t('user.name_ar'), nameAr), field(t('user.name_en'), nameEn)),
-      field(t('qa.jci_chapters'), jci, t('qa.jci_chapters_hint')),
+      fw === 'cbahi' ? field(t('qa.jci_chapters'), jci, t('qa.jci_chapters_hint')) : null,
       c ? checkField(t('field.active'), active) : null,
     ),
     onSubmit: async () => {
       const body = { name_ar: nameAr.value, name_en: nameEn.value, jci: jci.value, active: active.checked };
-      if (c) await api('/std-chapters/' + c.code, { method: 'PUT', body });
-      else await api('/std-chapters', { method: 'POST', body: { ...body, code: code.value } });
+      if (c) await api('/std-chapters/' + encodeURIComponent(c.code) + '?' + fwQuery(fw), { method: 'PUT', body });
+      else await api('/std-chapters?' + fwQuery(fw), { method: 'POST', body: { ...body, code: code.value } });
       toast(t('qa.chapter_saved'));
       render();
     },
@@ -152,17 +175,25 @@ function chapterDialog(c) {
 
 // quality/standards/LD: one chapter; quality/standards/ESR: every ESR; quality/standards: all of them.
 export async function standardsPage(root, param, alive) {
-  const ch = String(param || '').toUpperCase();
+  const raw = String(param || '');
+  const m = /^(cbahi|jci|chi)(?:\.(.*))?$/.exec(raw);
+  const fw = m ? m[1] : 'cbahi';
+  const ch = String(m ? m[2] || '' : raw).toUpperCase();
   let d, list, files;
   const real = ch && ch !== 'ESR';
   try {
-    [d, list, files] = await Promise.all([api('/quality'), api('/standards' + (ch ? '?chapter=' + encodeURIComponent(ch) : '')), real ? api('/quality/files?chapter=' + encodeURIComponent(ch)) : null]);
+    [d, list, files] = await Promise.all([
+      api('/quality?' + fwQuery(fw)),
+      api('/standards?' + fwQuery(fw) + (ch ? '&chapter=' + encodeURIComponent(ch) : '')),
+      real && fw === 'cbahi' ? api('/quality/files?chapter=' + encodeURIComponent(ch)) : null,
+    ]);
   } catch (e) {
     if (alive()) root.replaceChildren(errorBox(e));
     return;
   }
   if (!alive()) return;
   S.quality = d;
+  S.qaFw = fw;
   const chapters = d.chapters;
   const chapter = chapters.find((c) => c.code === ch);
   const stds = list.standards;
@@ -170,15 +201,15 @@ export async function standardsPage(root, param, alive) {
   const title = ch === 'ESR' ? t('qa.esr') : chapter ? chapter.code + ' · ' + chapterName(chapter) : t('qa.all_standards');
   const stats = ch === 'ESR' ? d.esr : chapter ? chapter.stats : d.total;
 
-  const pickCh = select([['', t('qa.all_chapters')], ['ESR', 'ESR · ' + t('qa.esr')], ...chapters.map((c) => [c.code, c.code + ' · ' + chapterName(c)])], ch, { 'aria-label': t('qa.chapter') });
-  pickCh.addEventListener('change', () => navigate('quality/standards' + (pickCh.value ? '/' + pickCh.value : '')));
+  const pickCh = select([['', t('qa.all_chapters')], ...(d.has_esr ? [['ESR', 'ESR · ' + t('qa.esr')]] : []), ...chapters.map((c) => [c.code, c.code + ' · ' + chapterName(c)])], ch, { 'aria-label': t('qa.chapter') });
+  pickCh.addEventListener('change', () => navigate(stdLink(fw, pickCh.value)));
   const score = select([['', t('qa.all_scores')], ['open', t('qa.score.open')], ...STD_SCORES.map((s) => [s, t('qa.score.' + s)])], f.score, { 'aria-label': t('qa.score') });
   const search = input({ type: 'search', class: 'doc-search-input', value: f.q, placeholder: t('qa.search_ph'), 'aria-label': t('qa.search'), autocomplete: 'off' });
   const box = h('div', {});
   const norm = (s) => String(s || '').toLowerCase();
   const draw = () => {
     const q = norm(f.q.trim());
-    const rows = stds.filter((s) => (!f.score || (f.score === 'open' ? !s.score : s.score === f.score)) && (!q || [s.code, s.title_ar, s.title_en, s.jci].some((v) => norm(v).includes(q))));
+    const rows = stds.filter((s) => (!f.score || (f.score === 'open' ? !s.score : s.score === f.score)) && (!q || [s.code, s.title_ar, s.title_en, s.jci, ...s.elements.map((e) => e.text)].some((v) => norm(v).includes(q))));
     box.replaceChildren(
       h(
         'section',
@@ -190,7 +221,7 @@ export async function standardsPage(root, param, alive) {
               h(
                 'table',
                 { class: 'qa-table' },
-                h('thead', {}, h('tr', {}, ['qa.code', 'qa.standard', 'qa.jci', 'user.department', 'qa.score', 'common.actions'].map((c) => h('th', { scope: 'col' }, t(c))))),
+                h('thead', {}, h('tr', {}, ['qa.code', 'qa.standard', ...(fw === 'cbahi' ? ['qa.jci'] : []), 'user.department', 'qa.score', 'common.actions'].map((c) => h('th', { scope: 'col' }, t(c))))),
                 h('tbody', {}, rows.map((s) => stdRow(s, d.can_manage, chapters))),
               ),
             )
@@ -210,19 +241,20 @@ export async function standardsPage(root, param, alive) {
     h(
       'div',
       { class: 'page-head' },
-      h('div', {}, link('quality/chapters', { class: 'back-link' }, t('nav.chapters')), h('h1', {}, title), h('p', { class: 'muted' }, ch === 'ESR' ? t('qa.esr_sub') : chapter && chapter.jci ? t('qa.maps_to', { jci: chapter.jci }) : t('qa.standards_sub'))),
+      h('div', {}, link('quality/chapters/' + fw, { class: 'back-link' }, t('nav.chapters')), h('h1', {}, title), h('p', { class: 'muted' }, ch === 'ESR' ? t('qa.esr_sub') : chapter && chapter.jci && fw === 'cbahi' ? t('qa.maps_to', { jci: chapter.jci }) : t('qa.standards_sub'))),
       d.can_manage
         ? h(
             'div',
             { class: 'actions' },
-            h('button', { type: 'button', class: 'btn', onclick: () => importDialog(chapters, ch) }, icon('download'), t('qa.import')),
-            h('button', { type: 'button', class: 'btn btn-primary', onclick: () => standardDialog(null, chapters, ch) }, icon('plus'), t('qa.std_add')),
+            h('button', { type: 'button', class: 'btn', onclick: () => importDialog(chapters, ch, fw) }, icon('download'), t('qa.import')),
+            h('button', { type: 'button', class: 'btn btn-primary', onclick: () => standardDialog(null, chapters, ch, fw) }, icon('plus'), t('qa.std_add')),
           )
         : null,
     ),
+    fwTabs(d, (k) => stdLink(k)),
     h('section', { class: 'panel qa-summary' }, h('div', { class: 'qa-summary-pct' }, h('b', { class: band(stats.pct), dir: 'ltr' }, pctText(stats.pct)), h('span', { class: 'muted' }, t('qa.readiness'))), h('div', { class: 'qa-summary-body' }, meter(stats.pct, t('qa.readiness')), counts(stats))),
     chapter && files ? filesPanel(chapter, files) : '',
-    ch === 'FMS' ? fmsPanel(d.fms) : '',
+    ch === 'FMS' && fw === 'cbahi' ? fmsPanel(d.fms) : '',
     chapter ? h('h2', { class: 'qa-section-title' }, t('qa.chapter_standards')) : '',
     h('div', { class: 'filters' }, h('div', { class: 'doc-search', role: 'search' }, icon('search'), search), pickCh, score),
     box,
@@ -299,14 +331,41 @@ function fileViewer(f, typeLabel) {
   dlg.showModal();
 }
 
+// The element badges: D = a document is needed (JCI), New = added in JCI's 8th edition.
+const elBadges = (e) => [e.doc ? h('span', { class: 'chip chip-review qa-badge', title: t('qa.el_doc') }, 'D') : null, e.is_new ? h('span', { class: 'chip chip-near qa-badge', title: t('qa.el_new') }, t('qa.new')) : null];
+// The standard's text: the hospital's Arabic wording, or the manual's English until it has one.
+const stdText = (s) => (s.title_ar ? pick(s.title_ar, s.title_en) : h('span', { dir: 'ltr', lang: 'en' }, s.title_en));
+function elementsList(s) {
+  if (!s.elements.length) return null;
+  const done = s.elements.filter((e) => e.score).length;
+  return h(
+    'details',
+    { class: 'qa-els' },
+    h('summary', {}, t(s.framework === 'jci' ? 'qa.els_me' : 'qa.els_sub', { n: s.elements.length }), done ? ' · ' + t('qa.els_done', { n: done }) : ''),
+    h(
+      'ol',
+      { class: 'qa-el-list' },
+      s.elements.map((e) =>
+        h(
+          'li',
+          {},
+          h('div', { class: 'qa-el-head' }, h('span', { class: 'mono small strong', dir: 'ltr' }, elLabel(s, e)), elBadges(e), e.score ? scoreChip(e.score) : null),
+          h('p', { class: 'qa-el-text', dir: 'ltr', lang: 'en' }, e.text),
+          e.note && e.score !== 'met' ? h('p', { class: 'small muted qa-note' }, e.note) : null,
+        ),
+      ),
+    ),
+  );
+}
+
 function stdRow(s, canManage, chapters) {
-  const title = pick(s.title_ar, s.title_en);
+  const newEls = s.elements.filter((e) => e.is_new).length;
   return h(
     'tr',
     {},
-    h('td', { class: 'nowrap' }, h('span', { class: 'mono strong', dir: 'ltr' }, s.code), s.esr ? [' ', h('span', { class: 'chip chip-expired qa-esr', title: t('qa.esr') }, 'ESR')] : null),
-    h('td', { class: 'wrap-cell' }, title, s.note && s.score !== 'met' ? h('p', { class: 'small muted qa-note' }, s.note) : null),
-    h('td', { class: 'nowrap' }, s.jci ? h('span', { class: 'mono', dir: 'ltr' }, s.jci) : h('span', { class: 'muted' }, t('common.none'))),
+    h('td', { class: 'nowrap' }, h('span', { class: 'mono strong', dir: 'ltr' }, s.code), s.esr ? [' ', h('span', { class: 'chip chip-expired qa-esr', title: t('qa.esr') }, 'ESR')] : null, newEls ? [' ', h('span', { class: 'chip chip-near qa-badge', title: t('qa.el_new') }, t('qa.new'))] : null),
+    h('td', { class: 'wrap-cell' }, stdText(s), s.note && s.score !== 'met' ? h('p', { class: 'small muted qa-note' }, s.note) : null, elementsList(s)),
+    s.framework === 'cbahi' ? h('td', { class: 'nowrap' }, s.jci ? h('span', { class: 'mono', dir: 'ltr' }, s.jci) : h('span', { class: 'muted' }, t('common.none'))) : null,
     h('td', {}, s.department_id ? pick(s.dept_ar, s.dept_en) : h('span', { class: 'muted' }, t('common.none'))),
     h('td', { class: 'nowrap' }, scoreChip(s.score), s.assessed_at ? h('div', { class: 'small muted' }, fmtDate(s.assessed_at.slice(0, 10))) : null),
     h(
@@ -317,23 +376,23 @@ function stdRow(s, canManage, chapters) {
         { class: 'row-actions' },
         s.can_score ? h('button', { type: 'button', class: 'btn btn-small', onclick: () => assessDialog(s) }, icon('check'), t('qa.assess')) : null,
         s.assessed_at ? h('button', { type: 'button', class: 'btn btn-icon', title: t('qa.history'), 'aria-label': t('qa.history') + ': ' + s.code, onclick: () => historyDialog(s) }, icon('clipboard')) : null,
-        canManage ? h('button', { type: 'button', class: 'btn btn-icon', title: t('common.edit'), 'aria-label': t('common.edit') + ': ' + s.code, onclick: () => standardDialog(s, chapters) }, icon('edit')) : null,
+        canManage ? h('button', { type: 'button', class: 'btn btn-icon', title: t('common.edit'), 'aria-label': t('common.edit') + ': ' + s.code, onclick: () => standardDialog(s, chapters, null, s.framework) }, icon('edit')) : null,
         canManage ? h('button', { type: 'button', class: 'btn btn-icon', title: t('common.delete'), 'aria-label': t('common.delete') + ': ' + s.code, onclick: () => simpleDelete(t('qa.std_delete_q', { code: s.code }), '/standards/' + s.id, t('qa.std_deleted')) }, icon('trash')) : null,
       ),
     ),
   );
 }
 
-function standardDialog(s, chapters, ch) {
+function standardDialog(s, chapters, ch, fw) {
   const code = input({ type: 'text', required: true, maxlength: 30, dir: 'ltr', value: s ? s.code : ch && ch !== 'ESR' ? ch + '.' : '', placeholder: 'LD.1' });
   const chapter = select(chapters.map((c) => [c.code, c.code + ' · ' + chapterName(c)]), s ? s.chapter : ch && ch !== 'ESR' ? ch : chapters[0] && chapters[0].code, {});
-  const titleAr = h('textarea', { rows: 3, required: true, maxlength: 1000, dir: 'rtl' }, s ? s.title_ar : '');
+  const titleAr = h('textarea', { rows: 3, required: !s || !!s.title_ar, maxlength: 1000, dir: 'rtl' }, s ? s.title_ar : '');
   const titleEn = h('textarea', { rows: 3, required: true, maxlength: 1000, dir: 'ltr' }, s ? s.title_en : '');
   const jci = input({ type: 'text', maxlength: 200, dir: 'ltr', value: s ? s.jci || '' : '', placeholder: 'GLD.1, GLD.3' });
   const esr = input({ type: 'checkbox', checked: s ? !!s.esr : ch === 'ESR' });
   const dept = select([['', t('common.none')], ...(S.quality.dept_list || []).map((x) => [x.id, pick(x.name_ar, x.name_en)])], s ? s.department_id ?? '' : '', {});
   code.addEventListener('input', () => {
-    const m = /^([A-Za-z]{2,6})/.exec(code.value);
+    const m = /^([A-Za-z&]{2,6})/.exec(code.value);
     if (m && chapters.some((c) => c.code === m[1].toUpperCase())) chapter.value = m[1].toUpperCase();
   });
   openDialog({
@@ -344,11 +403,11 @@ function standardDialog(s, chapters, ch) {
       h('div', { class: 'form-grid' }, field(t('qa.code'), code), field(t('qa.chapter'), chapter)),
       field(t('qa.title_ar'), titleAr, t('qa.title_hint')),
       field(t('qa.title_en'), titleEn),
-      h('div', { class: 'form-grid' }, field(t('qa.jci'), jci, t('qa.jci_hint')), field(t('qa.owner_dept'), dept, t('qa.owner_dept_hint'))),
-      checkField(t('qa.esr_check'), esr),
+      h('div', { class: 'form-grid' }, fw === 'cbahi' ? field(t('qa.jci'), jci, t('qa.jci_hint')) : null, field(t('qa.owner_dept'), dept, t('qa.owner_dept_hint'))),
+      fw === 'cbahi' ? checkField(t('qa.esr_check'), esr) : null,
     ),
     onSubmit: async () => {
-      const body = { code: code.value, chapter: chapter.value, title_ar: titleAr.value, title_en: titleEn.value, jci: jci.value, esr: esr.checked, department_id: dept.value ? Number(dept.value) : null };
+      const body = { framework: fw, code: code.value, chapter: chapter.value, title_ar: titleAr.value, title_en: titleEn.value, jci: jci.value, esr: esr.checked, department_id: dept.value ? Number(dept.value) : null };
       await api(s ? '/standards/' + s.id : '/standards', { method: s ? 'PUT' : 'POST', body });
       toast(t('qa.std_saved'));
       render();
@@ -357,6 +416,7 @@ function standardDialog(s, chapters, ch) {
 }
 
 function assessDialog(s) {
+  if (s.elements.length) return assessElements(s);
   const choice = h(
     'div',
     { class: 'qa-choices', role: 'radiogroup', 'aria-label': t('qa.score') },
@@ -388,6 +448,59 @@ function assessDialog(s) {
   });
 }
 
+// A standard with sub-standards or MEs: each one gets a score, the standard's own comes from them.
+function assessElements(s) {
+  const rows = s.elements.map((e) => {
+    const name = 'qa-el-' + e.id;
+    const radios = STD_SCORES.map((v) => {
+      const r = input({ type: 'radio', name, value: v, checked: e.score === v, required: true });
+      return h('label', { class: 'qa-choice qa-choice-sm qa-' + v }, r, h('span', {}, t('qa.score.' + v)));
+    });
+    const note = input({ type: 'text', maxlength: 1000, value: e.note || '', placeholder: t('qa.el_note_ph'), 'aria-label': t('qa.note') + ': ' + elLabel(s, e) });
+    const box = h('div', { class: 'qa-choices qa-choices-sm', role: 'radiogroup', 'aria-label': t('qa.score') + ': ' + elLabel(s, e) }, radios);
+    const li = h('li', { class: 'qa-el-assess' }, h('div', { class: 'qa-el-head' }, h('span', { class: 'mono small strong', dir: 'ltr' }, elLabel(s, e)), elBadges(e)), h('p', { class: 'qa-el-text', dir: 'ltr', lang: 'en' }, e.text), box, note);
+    return { e, box, note, li };
+  });
+  const result = h('p', { class: 'small', role: 'status' });
+  const show = () => {
+    const picked = rows.map((r) => (r.box.querySelector('input:checked') || {}).value || null);
+    const sc = rollupUi(picked, s.framework === 'cbahi' && s.esr);
+    result.replaceChildren(t('qa.el_result') + ': ', sc ? scoreChip(sc) : h('span', { class: 'muted' }, t('qa.els_left', { n: picked.filter((x) => !x).length })));
+  };
+  rows.forEach((r) => r.box.addEventListener('change', show));
+  const note = h('textarea', { rows: 3, maxlength: 2000 }, s.note || '');
+  const evidence = input({ type: 'text', maxlength: 1000, value: s.evidence || '', placeholder: t('qa.evidence_ph') });
+  openDialog({
+    title: t('qa.assess') + ': ' + s.code,
+    body: h(
+      'div',
+      { class: 'stack' },
+      h('p', { class: 'qa-std-text' }, stdText(s)),
+      s.esr && s.framework === 'cbahi' ? h('p', { class: 'notice notice-warn' }, t('qa.esr_note')) : null,
+      h('ol', { class: 'qa-el-list' }, rows.map((r) => r.li)),
+      result,
+      field(t('qa.note'), note, t('qa.note_hint')),
+      field(t('qa.evidence'), evidence, t('qa.evidence_hint')),
+    ),
+    onSubmit: async () => {
+      const elements = rows.map((r) => ({ id: r.e.id, score: (r.box.querySelector('input:checked') || {}).value || '', note: r.note.value }));
+      await api('/standards/' + s.id + '/score', { method: 'PUT', body: { elements, note: note.value, evidence: evidence.value } });
+      toast(t('qa.assessed'));
+      render();
+    },
+  });
+  show();
+}
+// The same rule as the server (rollup in src/systems/quality.js), to show the result while scoring.
+function rollupUi(scores, esr) {
+  if (!scores.length || scores.some((x) => !x)) return null;
+  const live = scores.filter((x) => x !== 'na');
+  if (!live.length) return 'na';
+  if (live.every((x) => x === 'met')) return 'met';
+  if (live.every((x) => x === 'not_met')) return 'not_met';
+  return esr ? 'not_met' : 'partial';
+}
+
 async function historyDialog(s) {
   let d;
   try {
@@ -417,7 +530,7 @@ async function historyDialog(s) {
 const importLines = (text) => text.split(/\r?\n/).filter((l) => l.split('\t')[0].trim() && !/^(code|الرمز|رمز)$/i.test(l.split('\t')[0].trim()));
 
 // Paste rows straight from Excel: code, Arabic text, English text, ESR, JCI (the chapter comes from the code).
-function importDialog(chapters, ch) {
+function importDialog(chapters, ch, fw) {
   const area = h('textarea', { rows: 10, dir: 'auto', class: 'mono', placeholder: 'LD.1\tنص المعيار\tStandard text\tESR\tGLD.1' });
   const result = h('div', { class: 'small', role: 'status' });
   openDialog({
@@ -430,7 +543,7 @@ function importDialog(chapters, ch) {
         .map((c) => c.split('\t').map((x) => x.trim()))
         .map(([code, title_ar, title_en, esr, jci]) => ({ code, title_ar, title_en, esr: /^(1|y|yes|esr|نعم|✓)$/i.test(esr || '') ? 1 : 0, jci: jci || '' }));
       if (!rows.length) throw new Error(t('qa.import_empty'));
-      const r = await api('/standards/import', { method: 'POST', body: { rows } });
+      const r = await api('/standards/import', { method: 'POST', body: { framework: fw, rows } });
       toast(t('qa.import_done', { n: r.saved }) + (r.errors.length ? ' · ' + t('qa.import_errors', { n: r.errors.length }) : ''), !!r.errors.length);
       if (r.errors.length) {
         // Keep the dialog open on the rows that failed, so they can be fixed and sent again.
@@ -444,6 +557,80 @@ function importDialog(chapters, ch) {
     },
   });
   if (ch) area.focus();
+}
+
+/* ----------------------- frameworks and import packs ----------------------- */
+
+// Which frameworks the hospital works with; the first one opens by default.
+function frameworksDialog(d) {
+  const boxes = d.frameworks.map((f) => ({ f, box: input({ type: 'checkbox', checked: f.on }) }));
+  openDialog({
+    title: t('qa.frameworks'),
+    body: h('div', { class: 'stack' }, h('p', { class: 'muted' }, t('qa.frameworks_help')), boxes.map(({ f, box }) => checkField(fwName(f) + ' (' + t('qa.n_standards', { n: f.n }) + ')', box))),
+    onSubmit: async () => {
+      const on = boxes.filter((b) => b.box.checked).map((b) => b.f.key);
+      if (!on.length) throw new Error(t('qa.frameworks_one'));
+      await api('/quality/frameworks', { method: 'PUT', body: { on } });
+      toast(t('qa.frameworks_saved'));
+      render();
+    },
+  });
+}
+
+// An import pack: a JSON file built from the hospital's own copy of a manual (CBAHI, JCI, CHI). It is sent in
+// small parts so each request stays light; sending the same pack again updates the texts and keeps the scores.
+export const PACK_PART = 25;
+export function packParts(pack) {
+  const list = pack.standards || [];
+  const parts = [];
+  for (let i = 0; i < list.length; i += PACK_PART) parts.push(list.slice(i, i + PACK_PART));
+  return parts.length ? parts : [[]];
+}
+function packDialog() {
+  const file = input({ type: 'file', accept: '.json,application/json', required: true });
+  const info = h('div', { class: 'small', role: 'status' });
+  const bar = h('progress', { max: 100, value: 0, hidden: true, class: 'qa-progress' });
+  let pack = null;
+  file.addEventListener('change', async () => {
+    pack = null;
+    info.replaceChildren();
+    const f = file.files[0];
+    if (!f) return;
+    try {
+      const p = JSON.parse(await f.text());
+      if (p.format !== 'qms-standards-pack' || !FW.includes(p.framework) || !Array.isArray(p.standards)) throw new Error();
+      pack = p;
+      const els = p.standards.reduce((n, s) => n + (s.elements ? s.elements.length : 0), 0);
+      info.replaceChildren(h('p', {}, h('b', {}, p.title || p.framework.toUpperCase()), ' · ', t('qa.pack_counts', { c: (p.chapters || []).length, s: p.standards.length, e: els })));
+    } catch {
+      info.replaceChildren(h('p', { class: 'form-error' }, t('qa.pack_bad')));
+    }
+  });
+  openDialog({
+    title: t('qa.pack'),
+    submitLabel: t('qa.import_go'),
+    body: h('div', { class: 'stack' }, h('p', { class: 'muted' }, t('qa.pack_help')), field(t('qa.pack_file'), file), info, bar),
+    onSubmit: async () => {
+      if (!pack) throw new Error(t('qa.pack_bad'));
+      const parts = packParts(pack);
+      bar.hidden = false;
+      let saved = 0;
+      const errors = [];
+      for (let i = 0; i < parts.length; i++) {
+        const r = await api('/standards/pack', {
+          method: 'POST',
+          body: { framework: pack.framework, edition: pack.edition || '', chapters: i === 0 ? pack.chapters || [] : [], standards: parts[i], first: i === 0, last: i === parts.length - 1 },
+        });
+        saved += r.saved;
+        errors.push(...r.errors);
+        bar.value = Math.round(((i + 1) / parts.length) * 100);
+      }
+      toast(t('qa.import_done', { n: saved }) + (errors.length ? ' · ' + t('qa.import_errors', { n: errors.length }) : ''), !!errors.length);
+      S.qaFw = pack.framework;
+      navigate('quality/chapters/' + pack.framework);
+      render();
+    },
+  });
 }
 
 /* ------------------- the optional link to the Fikra portal ------------------ */

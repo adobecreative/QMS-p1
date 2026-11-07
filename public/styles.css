@@ -3312,3 +3312,94 @@ a.qa-card:hover {
   align-items: flex-start;
   gap: 12px;
 }
+
+/* Standards frameworks: the tabs (CBAHI / JCI / CHI), the elements under a standard, the import pack. */
+.qa-fw-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 16px;
+  border-bottom: 1px solid var(--line);
+}
+.qa-fw-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  margin-bottom: -1px;
+  border: 1px solid transparent;
+  border-radius: 8px 8px 0 0;
+  color: var(--muted);
+  font-weight: 600;
+  text-decoration: none;
+}
+.qa-fw-tab:hover {
+  color: var(--accent);
+}
+.qa-fw-tab.is-active {
+  color: var(--accent);
+  background: var(--surface);
+  border-color: var(--line);
+  border-bottom-color: var(--surface);
+}
+.qa-fw-n {
+  font-size: 0.75rem;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--line-soft);
+  color: var(--muted);
+}
+.qa-els {
+  margin-top: 8px;
+}
+.qa-els > summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.qa-el-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.qa-el-list > li {
+  padding: 10px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+}
+.qa-el-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.qa-el-text {
+  margin: 0;
+  font-size: 0.875rem;
+  white-space: pre-line;
+  text-align: start;
+}
+.qa-badge {
+  font-size: 0.7rem;
+  padding: 1px 6px;
+}
+.qa-choices-sm {
+  grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+  margin: 8px 0 6px;
+}
+.qa-choice-sm {
+  padding: 6px 10px;
+  font-size: 0.85rem;
+}
+.qa-el-assess input[type='text'] {
+  width: 100%;
+}
+.qa-progress {
+  width: 100%;
+  accent-color: var(--accent);
+}

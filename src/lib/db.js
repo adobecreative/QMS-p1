@@ -17,6 +17,36 @@ export async function ensureSchema(env) {
   if (!cols.some((c) => c.name === 'name_en')) await env.DB.prepare('ALTER TABLE files ADD COLUMN name_en TEXT').run();
   // The CBAHI chapter a file belongs to (std_chapters.code), so it shows on that chapter's page. Optional.
   if (!cols.some((c) => c.name === 'chapter')) await env.DB.prepare('ALTER TABLE files ADD COLUMN chapter TEXT').run();
+  // Standards frameworks: older databases had CBAHI only, with the chapter code as the key. SQLite cannot
+  // change a key in place, so both tables are copied once into the new shape (every row becomes CBAHI).
+  const { results: chCols } = await env.DB.prepare('PRAGMA table_info(std_chapters)').all();
+  if (!chCols.some((c) => c.name === 'framework')) {
+    await env.DB.batch([
+      env.DB.prepare(
+        `CREATE TABLE std_chapters_v2 (framework TEXT NOT NULL DEFAULT 'cbahi', code TEXT NOT NULL, name_ar TEXT NOT NULL, name_en TEXT NOT NULL,
+          jci TEXT, sort INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1, PRIMARY KEY (framework, code))`,
+      ),
+      env.DB.prepare(`INSERT INTO std_chapters_v2 (framework, code, name_ar, name_en, jci, sort, active) SELECT 'cbahi', code, name_ar, name_en, jci, sort, active FROM std_chapters`),
+      env.DB.prepare('DROP TABLE std_chapters'),
+      env.DB.prepare('ALTER TABLE std_chapters_v2 RENAME TO std_chapters'),
+      env.DB.prepare(
+        `CREATE TABLE standards_v2 (id INTEGER PRIMARY KEY AUTOINCREMENT, framework TEXT NOT NULL DEFAULT 'cbahi', chapter TEXT NOT NULL, code TEXT NOT NULL,
+          title_ar TEXT NOT NULL, title_en TEXT NOT NULL, esr INTEGER NOT NULL DEFAULT 0, jci TEXT, department_id INTEGER, active INTEGER NOT NULL DEFAULT 1,
+          score TEXT, note TEXT, evidence TEXT, assessed_at TEXT, assessed_by TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE (framework, code))`,
+      ),
+      env.DB.prepare(
+        `INSERT INTO standards_v2 (id, framework, chapter, code, title_ar, title_en, esr, jci, department_id, active, score, note, evidence, assessed_at, assessed_by, created_at, updated_at)
+          SELECT id, 'cbahi', chapter, code, title_ar, title_en, esr, jci, department_id, active, score, note, evidence, assessed_at, assessed_by, created_at, updated_at FROM standards`,
+      ),
+      env.DB.prepare('DROP TABLE standards'),
+      env.DB.prepare('ALTER TABLE standards_v2 RENAME TO standards'),
+      env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_standards_chapter ON standards(chapter, active)'),
+    ]);
+  }
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_standards_fw ON standards(framework, chapter, active)').run();
+  // An assessment row can be about one element of the standard (std_elements.id).
+  const { results: saCols } = await env.DB.prepare('PRAGMA table_info(std_assessments)').all();
+  if (!saCols.some((c) => c.name === 'element_id')) await env.DB.prepare('ALTER TABLE std_assessments ADD COLUMN element_id INTEGER').run();
   // A technical department (IT, biomedical, maintenance) receives tickets. Technicians carry a job title.
   const { results: deptCols } = await env.DB.prepare('PRAGMA table_info(departments)').all();
   if (!deptCols.some((c) => c.name === 'is_team')) await env.DB.prepare('ALTER TABLE departments ADD COLUMN is_team INTEGER NOT NULL DEFAULT 0').run();
