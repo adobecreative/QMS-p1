@@ -184,6 +184,38 @@ check((await qv('/quality')).j.fms === null, 'and the evidence leaves the FMS ch
   check(r.j.logs.some((l) => l.entity === 'file' && l.details && l.details.includes('"chapter"')), 'the chapter change is in the activity log');
 }
 
+// The portal's documents and staff over the link (the test site reads its own /api/v1 again).
+{
+  r = await owner('/api-keys', 'POST', { name_ar: 'وثائق الجودة', name_en: 'QMS docs', scopes: ['docs_read', 'staff'] });
+  const docsKey = r.j.key;
+  check((await owner('/staff')).s === 200, 'the staff list opens');
+  r = await owner('/fms-link', 'PUT', { on: true, url: B, key: docsKey });
+  check(r.s === 200 && r.j.sync && r.j.sync.ok && r.j.snapshot.docs && r.j.snapshot.docs.total >= 1 && r.j.snapshot.staff && r.j.snapshot.scopes.includes('docs_read'), 'the link reads the documents and the staff', r.j);
+  check((await owner('/bootstrap')).j.user.portal_docs === true, 'the menu knows portal documents are on');
+  r = await qv('/portal-docs');
+  const fire = r.j && r.j.docs.find((x) => x.file_number === 'FMS-PL-01');
+  check(r.s === 200 && r.j.on && fire && fire.has_pdf && fire.chapter === null && r.j.can_file === false, 'a quality viewer sees the portal documents, read only', r.j);
+  check((await tech('/portal-docs')).s === 403, 'someone without a documents or quality role cannot see them');
+  check((await qv('/portal-docs/' + fire.id, 'PUT', { chapter: 'FMS' })).s === 403, 'a viewer cannot file a document');
+  check((await owner('/portal-docs/' + fire.id, 'PUT', { chapter: 'ZZZ' })).s === 400, 'an unknown chapter is refused');
+  check((await owner('/portal-docs/' + fire.id, 'PUT', { chapter: 'ld' })).s === 200, 'a manager files a portal document under a chapter');
+  r = await qv('/quality/files?chapter=LD');
+  const tile = r.j.files.find((x) => x.portal);
+  check(tile && tile.file_number === 'FMS-PL-01' && tile.pdf_url === '/api/portal-docs/' + fire.id + '/pdf', 'it shows with the chapter files', r.j.files);
+  check((await owner('/quality')).j.chapters.find((c) => c.code === 'LD').files >= 1, 'the chapter card counts it');
+  const pdf = await qv.raw('/portal-docs/' + fire.id + '/pdf');
+  check(pdf.status === 200 && pdf.headers.get('content-type') === 'application/pdf' && (await pdf.text()).startsWith('%PDF-'), 'its PDF opens through this server');
+  check((await qv.raw('/portal-docs/999999/pdf')).status === 404, 'an unknown document is 404');
+  // A second sync keeps the chapter.
+  check((await owner('/fms-link/sync', 'POST')).j.ok, 'a second read works');
+  check((await owner('/portal-docs')).j.docs.find((x) => x.id === fire.id).chapter === 'LD', 'and keeps the chapter');
+  r = await owner('/backup');
+  if (r.s === 200) check(((r.j.data || r.j).portal_docs || []).some((x) => x.chapter === 'LD'), 'the backup keeps the filing');
+  r = await owner('/fms-link', 'PUT', { on: false });
+  check(r.s === 200 && (await owner('/portal-docs')).j.docs.length === 0, 'switching the link off removes the portal documents');
+  check((await qv('/quality/files?chapter=LD')).j.files.every((x) => !x.portal), 'and they leave the chapter');
+}
+
 // Frameworks: a JCI pack beside CBAHI. FMS is a chapter in both, kept apart by framework. The texts here are
 // made up: real packs are built from the hospital's licensed copy and never kept in this repository.
 {

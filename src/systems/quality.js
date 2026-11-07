@@ -8,7 +8,7 @@ import { getSettings, logStmt, setSettingStmt } from '../lib/db.js';
 import { ARABIC_RE, fail, json, nowIso, str, todayIn } from '../lib/util.js';
 import { route2 } from './assets.js';
 import { fileOut } from './docs.js';
-import { fmsEvidence } from './fmslink.js';
+import { fmsEvidence, portalDocUrl, portalDocsOn } from './fmslink.js';
 
 // met = fully met, partial = partially met, not_met, na = not applicable to this hospital.
 export const STD_SCORES = ['met', 'partial', 'not_met', 'na'];
@@ -136,7 +136,11 @@ export async function handleQuality(request, env, url, seg, method, user) {
       ).bind(fw).all(),
       env.DB.prepare('SELECT id, name_ar, name_en FROM departments ORDER BY name_ar').all(),
       // Files are filed under CBAHI chapters.
-      fw === 'cbahi' ? env.DB.prepare('SELECT chapter, COUNT(*) AS n FROM files WHERE chapter IS NOT NULL GROUP BY chapter').all() : { results: [] },
+      fw === 'cbahi'
+        ? env.DB.prepare(
+            `SELECT chapter, COUNT(*) AS n FROM (SELECT chapter FROM files WHERE chapter IS NOT NULL ${portalDocsOn(settings) ? 'UNION ALL SELECT chapter FROM portal_docs WHERE chapter IS NOT NULL' : ''}) GROUP BY chapter`,
+          ).all()
+        : { results: [] },
       env.DB.prepare(`SELECT ${STATS} FROM standards WHERE active = 1 AND esr = 1 AND framework = ?`).bind(fw).first(),
       frameworks(),
     ]);
@@ -173,16 +177,22 @@ export async function handleQuality(request, env, url, seg, method, user) {
   if (r2 === 'GET /quality/files') {
     const ch = str(url.searchParams.get('chapter') || '', 6).toUpperCase();
     if (!ch) fail(400, 'std_bad_chapter');
-    const [{ results }, { results: types }] = await Promise.all([
+    const [{ results }, { results: types }, { results: portal }] = await Promise.all([
       env.DB.prepare(
         `SELECT f.*, d.name_ar AS dept_ar, d.name_en AS dept_en FROM files f LEFT JOIN departments d ON d.id = f.department_id
           WHERE f.chapter = ? ORDER BY f.doc_type, f.name LIMIT 1000`,
       ).bind(ch).all(),
       env.DB.prepare('SELECT key, name_ar, name_en FROM doc_types ORDER BY id').all(),
+      // The portal's documents filed under this chapter, when the link reads them.
+      portalDocsOn(settings) ? env.DB.prepare('SELECT * FROM portal_docs WHERE chapter = ? ORDER BY doc_type, name_ar LIMIT 1000').bind(ch).all() : { results: [] },
     ]);
     const today = todayIn(settings.timezone);
+    const fromPortal = portal.map((p) => ({
+      id: 'p' + p.id, portal: true, name: p.name_ar, name_en: p.name_en || '', file_number: p.file_number, doc_type: p.doc_type, type_ar: p.type_ar, type_en: p.type_en,
+      issue_date: p.issue_date, expiry_date: p.expiry_date, status: p.status || 'none', has_pdf: !!p.has_pdf, dept_ar: p.department_ar, dept_en: p.department_en, pdf_url: portalDocUrl(p.id),
+    }));
     return json({
-      files: results.map((f) => ({ ...fileOut(f, today, settings), dept_ar: f.dept_ar, dept_en: f.dept_en, pdf_url: '/api/quality/files/' + f.id + '/pdf' })),
+      files: [...results.map((f) => ({ ...fileOut(f, today, settings), dept_ar: f.dept_ar, dept_en: f.dept_en, pdf_url: '/api/quality/files/' + f.id + '/pdf' })), ...fromPortal],
       doc_types: types,
       can_add: user.docs === 'admin' || user.docs === 'dept_admin',
     });

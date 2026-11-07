@@ -118,7 +118,7 @@ export function langToggle() {
 export const APPS = {
   quality: { icon: 'award', pages: (r) => (r === 'none' ? [] : ['chapters', 'standards']) },
   meetings: { icon: 'users', pages: (r) => (r === 'none' ? [] : ['committees', 'calendar']) },
-  docs: { icon: 'file', pages: (r) => (r === 'admin' ? ['dashboard', 'documents', 'types', 'settings'] : r === 'dept_admin' ? ['dashboard', 'documents'] : r === 'viewer' ? ['documents', 'dashboard'] : []) },
+  docs: { icon: 'file', pages: (r) => [...(r === 'admin' ? ['dashboard', 'documents', 'types', 'settings'] : r === 'dept_admin' ? ['dashboard', 'documents'] : r === 'viewer' ? ['documents', 'dashboard'] : []), ...(r !== 'none' && S.user.portal_docs ? ['pdocs'] : [])] },
   desk: { icon: 'desk', pages: (r) => (r === 'admin' ? ['tickets', 'categories', 'locations', 'settings'] : r === 'none' ? [] : ['tickets']) },
   assets: { icon: 'box', pages: (r) => (r === 'none' ? [] : ['register', 'pm', 'contracts', 'vendors', 'parts', 'moves', 'requests', 'costs', ...(r === 'viewer' ? [] : ['devtypes'])]) },
   rounds: { icon: 'clipboard', pages: (r) => (r === 'none' ? [] : r === 'inspector' ? ['due', 'rlog', 'scan'] : ['due', 'rlog', 'checklists', 'scan']) },
@@ -138,7 +138,7 @@ export const myApps = () => APP_ORDER.filter((a) => appPages(a).length);
 // Pages opened from inside another page, not shown in the menu.
 export const HIDDEN_ROUTES = { categories: 'tickets', ...(OFF_APPS.includes('desk') ? {} : { locations: 'tickets' }), scan: 'due', vendors: 'contracts', moves: 'parts', requests: 'parts' };
 // Addresses from before the portal (bookmarks, links in emails) still open their page.
-export const PAGE_APP = { dashboard: 'docs', documents: 'docs', types: 'docs', tickets: 'desk', categories: 'desk', locations: 'admin', users: 'admin', departments: 'admin', staff: 'admin', api: 'admin', logs: 'admin', health: 'admin', register: 'assets', pm: 'assets', devtypes: 'assets', contracts: 'assets', vendors: 'assets', parts: 'assets', moves: 'assets', requests: 'assets', costs: 'assets', due: 'rounds', rlog: 'rounds', checklists: 'rounds', scan: 'rounds', overview: 'reports', compliance: 'reports', chapters: 'quality', standards: 'quality', committees: 'meetings', calendar: 'meetings' };
+export const PAGE_APP = { dashboard: 'docs', documents: 'docs', types: 'docs', pdocs: 'docs', tickets: 'desk', categories: 'desk', locations: 'admin', users: 'admin', departments: 'admin', staff: 'admin', api: 'admin', logs: 'admin', health: 'admin', register: 'assets', pm: 'assets', devtypes: 'assets', contracts: 'assets', vendors: 'assets', parts: 'assets', moves: 'assets', requests: 'assets', costs: 'assets', due: 'rounds', rlog: 'rounds', checklists: 'rounds', scan: 'rounds', overview: 'reports', compliance: 'reports', chapters: 'quality', standards: 'quality', committees: 'meetings', calendar: 'meetings' };
 // A link written as a page name ("tickets/5") goes to that page in the system it belongs to.
 export function fullPath(path) {
   const first = path.split('/')[0];

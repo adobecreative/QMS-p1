@@ -16,7 +16,7 @@ import { handleHealth, logServerError } from './systems/health.js';
 import { handleInventory, runStockReminders } from './systems/inventory.js';
 import { handleCompliance, handleReportMail, handleReports, runMonthlyReport } from './systems/reports.js';
 import { handleHome } from './systems/home.js';
-import { handleFmsLink, runFmsSync } from './systems/fmslink.js';
+import { handleFmsLink, handlePortalDocs, portalDocsOn, runFmsSync } from './systems/fmslink.js';
 import { handleQuality, seedChapters } from './systems/quality.js';
 import { handleRounds, runRoundReminders } from './systems/rounds.js';
 import { handlePublicTickets, handleTickets, runTicketAlerts } from './systems/tickets.js';
@@ -47,7 +47,7 @@ async function handleApi(request, env, url, ctx) {
     const isOwnerUser = user ? user.id === (await env.DB.prepare('SELECT MIN(id) AS id FROM users').first()).id : false;
     return json({
       needsSetup: count.n === 0,
-      user: user ? Object.assign(userOut(user), isOwnerUser ? { is_owner: true } : {}) : null,
+      user: user ? Object.assign(userOut(user), isOwnerUser ? { is_owner: true } : {}, portalDocsOn(settings) ? { portal_docs: true } : {}) : null,
       defaults: { near_days: settings.near_days },
       today: todayIn(settings.timezone),
       brand: brandOut(settings),
@@ -650,6 +650,7 @@ async function handleApi(request, env, url, ctx) {
     const ownerRow = await env.DB.prepare('SELECT MIN(id) AS id FROM users').first();
     return handleFmsLink(request, env, seg, method, user, user.id === ownerRow.id);
   }
+  if (seg[0] === 'portal-docs') return handlePortalDocs(request, env, seg, method, user);
 
   /* ---- Committees & meetings: the committees master, members, schedule and invitations ---- */
   if (seg[0] === 'committees' || seg[0] === 'committee-sessions') {

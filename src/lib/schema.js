@@ -635,4 +635,25 @@ export const MIGRATIONS = [
      updated_at TEXT NOT NULL,
      UNIQUE (committee_id, num))`,
   `CREATE INDEX IF NOT EXISTS idx_committee_sessions_date ON committee_sessions(date, status)`,
+  // The Fikra portal's document register, read over the optional link (the PDFs stay in the portal and are
+  // opened through this server). id is the portal's id. chapter is filed here, by quality, so a portal
+  // document shows as evidence on that chapter; it survives every sync.
+  `CREATE TABLE IF NOT EXISTS portal_docs (
+     id INTEGER PRIMARY KEY,
+     file_number TEXT,
+     name_ar TEXT NOT NULL,
+     name_en TEXT,
+     doc_type TEXT,
+     type_ar TEXT,
+     type_en TEXT,
+     department_ar TEXT,
+     department_en TEXT,
+     issue_date TEXT,
+     expiry_date TEXT,
+     status TEXT,
+     has_pdf INTEGER NOT NULL DEFAULT 0,
+     updated_at TEXT,
+     chapter TEXT,
+     synced_at TEXT NOT NULL)`,
+  `CREATE INDEX IF NOT EXISTS idx_portal_docs_chapter ON portal_docs(chapter)`,
 ];

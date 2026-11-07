@@ -4,6 +4,7 @@ import { ADMIN_ROLES } from '../lib/config.js';
 import { changes, getSettings, logStmt } from '../lib/db.js';
 import { HttpError, checkLang, fail, json, nowIso, sha256Hex, str, toHex, todayIn } from '../lib/util.js';
 import { ASSET_SELECT, ASSET_STATUSES } from './assets.js';
+import { statusOf } from './docs.js';
 import { DOC_RE, PART_ROWS_MAX, RECEIPT_KINDS, REQUEST_SELECT, REQUEST_STATUSES, codeOf, costOf, costReport, erpIssueStmts, invMode, isConstraint, qtyOf, readPart, realertStmt, receiptLines, receiptStmts, reportRange } from './inventory.js';
 import { MAX_STAFF_ROWS, TICKET_SELECT, addMinutes, afterNewTicket, eventStmt, importStaff, slaFor, ticketOut, ticketPriority, toInt } from './tickets.js';
 
@@ -11,7 +12,7 @@ import { MAX_STAFF_ROWS, TICKET_SELECT, addMinutes, afterNewTicket, eventStmt, i
 
 // Other systems (HR, the hospital information system) call /api/v1 with a key made in Admin Center.
 // Each key has its own scopes, and is counted per hour so one busy system never slows the rest.
-export const API_SCOPES = ['staff', 'tickets_read', 'tickets_write', 'assets_read', 'inventory', 'costs_read'];
+export const API_SCOPES = ['staff', 'tickets_read', 'tickets_write', 'assets_read', 'inventory', 'costs_read', 'docs_read'];
 export const API_PER_HOUR = 1000; // calls per key and hour
 export const API_KEYS_MAX = 20;
 export const API_LIST_MAX = 200; // rows per call on the list routes
@@ -246,6 +247,39 @@ export async function handleIntegration(request, env, url, seg, method, ctx) {
       "SELECT at, actor, kind, note FROM ticket_events WHERE ticket_id = ? AND kind IN ('created', 'received', 'assigned', 'hold', 'resume', 'closed', 'reopened', 'feedback') ORDER BY id",
     ).bind(id).all();
     return json({ ticket: apiTicketOut(t, now), events: events.map((e) => ({ at: e.at, kind: e.kind, actor: e.actor, note: e.kind === 'hold' || e.kind === 'closed' ? e.note : null })) });
+  }
+
+  /* documents: the register and its PDFs, for a system that shows them as evidence (the quality system) */
+
+  if (route === 'GET /documents') {
+    need('docs_read');
+    const settings = await getSettings(env);
+    const today = todayIn(settings.timezone);
+    const after = toInt(url.searchParams.get('after_id'));
+    const { results } = await env.DB.prepare(
+      `SELECT f.*, d.name_ar AS dept_ar, d.name_en AS dept_en, t.name_ar AS type_ar, t.name_en AS type_en
+         FROM files f LEFT JOIN departments d ON d.id = f.department_id LEFT JOIN doc_types t ON t.key = f.doc_type
+        ${after ? 'WHERE f.id > ?' : ''} ORDER BY f.id LIMIT ${limit + 1}`,
+    )
+      .bind(...(after ? [after] : []))
+      .all();
+    const out = (f) => {
+      const st = statusOf(f, today, settings.near_days);
+      return {
+        id: f.id, file_number: f.file_number, name_ar: f.name, name_en: f.name_en || '', doc_type: f.doc_type, type_ar: f.type_ar, type_en: f.type_en,
+        department_id: f.department_id, department_ar: f.dept_ar, department_en: f.dept_en, issue_date: f.issue_date, expiry_date: f.expiry_date,
+        status: st.status, days_left: st.days, has_pdf: !!f.pdf_key, pdf_size: f.pdf_size, updated_at: f.updated_at,
+      };
+    };
+    return json({ documents: results.slice(0, limit).map(out), more: results.length > limit });
+  }
+  if (method === 'GET' && rest[0] === 'documents' && rest.length === 3 && /^\d+$/.test(rest[1]) && rest[2] === 'pdf') {
+    need('docs_read');
+    const f = await env.DB.prepare('SELECT pdf_key, pdf_name FROM files WHERE id = ?').bind(Number(rest[1])).first();
+    if (!f || !f.pdf_key) fail(404, 'not_found');
+    const obj = await env.FILES.get(f.pdf_key);
+    if (!obj) fail(404, 'not_found');
+    return new Response(obj.body, { headers: { 'content-type': 'application/pdf', 'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff' } });
   }
 
   /* assets: the register, for the systems that show a device's state */
