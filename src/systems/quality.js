@@ -7,6 +7,7 @@ import { isAdmin } from '../lib/config.js';
 import { getSettings, logStmt, setSettingStmt } from '../lib/db.js';
 import { ARABIC_RE, fail, json, nowIso, str, todayIn } from '../lib/util.js';
 import { route2 } from './assets.js';
+import { capaHome } from './capa.js';
 import { fileOut } from './docs.js';
 import { fmsEvidence, portalDocUrl, portalDocsOn } from './fmslink.js';
 
@@ -81,9 +82,13 @@ export async function seedChapters(env, settings) {
 
 // The numbers on the portal's home card.
 export async function qualityHome(env) {
-  const fw = fwOn(await getSettings(env))[0];
-  const r = await env.DB.prepare(`SELECT ${STATS} FROM standards WHERE active = 1 AND framework = ?`).bind(fw).first();
-  return { pct: readiness(r), esr_gap: r.esr_gap || 0, open: r.open || 0, n: r.n || 0 };
+  const settings = await getSettings(env);
+  const fw = fwOn(settings)[0];
+  const [r, capa] = await Promise.all([
+    env.DB.prepare(`SELECT ${STATS} FROM standards WHERE active = 1 AND framework = ?`).bind(fw).first(),
+    capaHome(env, todayIn(settings.timezone)),
+  ]);
+  return { pct: readiness(r), esr_gap: r.esr_gap || 0, open: r.open || 0, n: r.n || 0, capa_open: capa.open, capa_late: capa.late };
 }
 
 function readStandard(body, chapters, allowNoAr = false) {

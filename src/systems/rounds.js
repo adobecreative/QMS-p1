@@ -1,4 +1,4 @@
-// Inspection rounds: forms, places, rounds and their reminders.
+// Quality rounds: forms, places, rounds and their reminders.
 import { readJson } from '../lib/auth.js';
 import { appName } from '../lib/config.js';
 import { changes, getSettings, logStmt, setSettingStmt } from '../lib/db.js';
@@ -6,33 +6,36 @@ import { bothLangs, emailHeader, mailReady, sendMail } from '../lib/mail.js';
 import { ARABIC_RE, diffDays, escHtml, fail, json, nowIso, optDate, sha256Hex, str, todayIn } from '../lib/util.js';
 import { route2 } from './assets.js';
 import { plusDays } from './docs.js';
+import { CAPA_DAYS, capaFromRoundStmt } from './capa.js';
+import { chapterOf } from './quality.js';
 import { addMinutes, afterNewTicket, eventStmt, slaFor, ticketPriority, toInt } from './tickets.js';
 
 /* --------------------------------- rounds -------------------------------- */
 
-// Inspection rounds: a checklist walked at set places every few days. A failed line opens one
-// request for the checklist's problem type, so the team that fixes it hears about it at once.
+// Quality rounds: a checklist walked at set places every few days. Each failed line opens a corrective
+// action (CAPA) tied to the line's standard. A checklist can also name a problem type: then the failed lines
+// open one request too, when the requests system is in use.
 export const ROUND_RESULTS = ['ok', 'fail', 'na'];
 export const ROUND_TEXT = {
   ar: {
     dir: 'rtl',
-    subject: (n, late, app) => `جولات التفتيش المستحقة: ${n}${late ? ` (منها ${late} متأخرة)` : ''} - ${app}`,
+    subject: (n, late, app) => `جولات الجودة المستحقة: ${n}${late ? ` (منها ${late} متأخرة)` : ''} - ${app}`,
     intro: 'الجولات المستحقة اليوم والمتأخرة:',
     cols: ['المكان', 'قائمة الفحص', 'الموعد', 'الحالة'],
     late: (n) => `متأخرة ${n} يوم`,
     today: 'اليوم',
     open: 'فتح الجولات',
-    footer: (app) => `رسالة تلقائية من نظام جولات التفتيش - ${app}. يمكن إيقافها من صفحة قوائم الفحص.`,
+    footer: (app) => `رسالة تلقائية من نظام جولات الجودة - ${app}. يمكن إيقافها من صفحة قوائم الفحص.`,
   },
   en: {
     dir: 'ltr',
-    subject: (n, late, app) => `Inspection rounds today: ${n}${late ? `, ${late} late` : ''} - ${app}`,
+    subject: (n, late, app) => `Quality rounds today: ${n}${late ? `, ${late} late` : ''} - ${app}`,
     intro: 'Rounds due today and late:',
     cols: ['Place', 'Checklist', 'Due', 'Status'],
     late: (n) => `${n} day(s) late`,
     today: 'Today',
     open: 'Open rounds',
-    footer: (app) => `Automatic message from Inspection Rounds - ${app}. It can be turned off on the Checklists page.`,
+    footer: (app) => `Automatic message from Quality Rounds - ${app}. It can be turned off on the Checklists page.`,
   },
 };
 export function buildRoundDigest(places, today, settings) {
@@ -82,6 +85,8 @@ export async function runRoundReminders(env, actor, force) {
   return { ok: true, places: places.length, emails: messages.length };
 }
 export const ROUND_ITEMS_MAX = 60;
+// A standard's code on a checklist line: LD.1.3, FMS.3, IPSG.1 ...
+const STD_REF_RE = /^[A-Z&]{2,6}[A-Z0-9.\-]{0,20}$/;
 export const ROUND_PLACES_MAX = 300;
 
 export async function handleRounds(request, env, url, seg, method, user, ctx) {
@@ -99,7 +104,7 @@ export async function handleRounds(request, env, url, seg, method, user, ctx) {
   if (seg[0] === 'round-forms') {
     needManager();
     if (route2(method, seg) === 'GET /round-forms') {
-      const [{ results: forms }, { results: locations }, { results: categories }] = await Promise.all([
+      const [{ results: forms }, { results: locations }, { results: categories }, { results: chapters }] = await Promise.all([
         env.DB.prepare(
           `SELECT f.*, c.name_ar AS cat_ar, c.name_en AS cat_en,
                   (SELECT COUNT(*) FROM round_items i WHERE i.form_id = f.id) AS item_count,
@@ -112,8 +117,9 @@ export async function handleRounds(request, env, url, seg, method, user, ctx) {
           `SELECT c.id, c.name_ar, c.name_en, d.name_ar AS team_ar, d.name_en AS team_en FROM ticket_categories c
              LEFT JOIN departments d ON d.id = c.team_id WHERE c.active = 1 AND COALESCE(c.pm, 0) = 0 ORDER BY d.name_ar, c.name_ar`,
         ).all(),
+        env.DB.prepare("SELECT code, name_ar, name_en FROM std_chapters WHERE framework = 'cbahi' AND active = 1 ORDER BY sort, code").all(),
       ]);
-      return json({ forms, locations, categories, today, reminders: settings.round_reminders === '1', require_scan: settings.round_require_scan === '1', reminded_on: settings.round_reminded_on || null, mail_ready: mailReady(settings) });
+      return json({ forms, locations, categories, chapters, today, reminders: settings.round_reminders === '1', require_scan: settings.round_require_scan === '1', reminded_on: settings.round_reminded_on || null, mail_ready: mailReady(settings) });
     }
     // The morning email: switch it on or off, or send it now.
     if (route2(method, seg) === 'PUT /round-forms/reminders') {
@@ -132,14 +138,16 @@ export async function handleRounds(request, env, url, seg, method, user, ctx) {
     const readForm = async () => {
       const body = await readJson(request);
       const items = (Array.isArray(body.items) ? body.items : [])
-        .map((x) => ({ a: str(x && x.text_ar, 300), e: str(x && x.text_en, 300) || null }))
+        .map((x) => ({ a: str(x && x.text_ar, 300), e: str(x && x.text_en, 300) || null, s: str(x && x.std_code, 30).replace(/\s+/g, '').toUpperCase() || null }))
         .filter((x) => x.a);
       if (items.some((x) => x.e && ARABIC_RE.test(x.e))) fail(400, 'field_arabic');
+      if (items.some((x) => x.s && !STD_REF_RE.test(x.s))) fail(400, 'std_bad_code');
       const next = {
         name_ar: str(body.name_ar, 150),
         name_en: str(body.name_en, 150),
         every_days: toInt(body.every_days),
-        category_id: toInt(body.category_id),
+        category_id: toInt(body.category_id) || 0,
+        chapter: str(body.chapter, 6).toUpperCase() || null,
         active: body.active === false ? 0 : 1,
         first_due: optDate(body.first_due) || today,
         items,
@@ -150,21 +158,23 @@ export async function handleRounds(request, env, url, seg, method, user, ctx) {
       if (!items.length) fail(400, 'items_required');
       if (items.length > ROUND_ITEMS_MAX || next.location_ids.length > ROUND_PLACES_MAX) fail(400, 'too_many');
       if (!next.location_ids.length) fail(400, 'places_required');
-      if (!next.category_id || !(await env.DB.prepare('SELECT id FROM ticket_categories WHERE id = ? AND COALESCE(pm, 0) = 0').bind(next.category_id).first())) fail(400, 'category_required');
+      // The problem type is optional: without one, failed lines open corrective actions only.
+      if (next.category_id && !(await env.DB.prepare('SELECT id FROM ticket_categories WHERE id = ? AND COALESCE(pm, 0) = 0').bind(next.category_id).first())) fail(400, 'category_required');
+      if (next.chapter && !(await env.DB.prepare("SELECT code FROM std_chapters WHERE framework = 'cbahi' AND code = ?").bind(next.chapter).first())) fail(400, 'std_bad_chapter');
       const known = await env.DB.prepare('SELECT COUNT(*) AS n FROM locations WHERE id IN (SELECT value FROM json_each(?))').bind(JSON.stringify(next.location_ids)).first();
       if (known.n !== next.location_ids.length) fail(400, 'location_required');
       return next;
     };
     const itemsStmt = (formId, items) =>
-      env.DB.prepare("INSERT INTO round_items (form_id, sort, text_ar, text_en) SELECT ?1, key, json_extract(value, '$.a'), json_extract(value, '$.e') FROM json_each(?2)").bind(formId, JSON.stringify(items));
+      env.DB.prepare("INSERT INTO round_items (form_id, sort, text_ar, text_en, std_code) SELECT ?1, key, json_extract(value, '$.a'), json_extract(value, '$.e'), json_extract(value, '$.s') FROM json_each(?2)").bind(formId, JSON.stringify(items));
     const placesStmt = (formId, ids, due) =>
       env.DB.prepare('INSERT OR IGNORE INTO round_places (form_id, location_id, next_due) SELECT ?1, value, ?2 FROM json_each(?3)').bind(formId, due, JSON.stringify(ids));
 
     if (method === 'POST' && seg.length === 1) {
       const next = await readForm();
       const now = nowIso();
-      const res = await env.DB.prepare('INSERT INTO round_forms (name_ar, name_en, every_days, category_id, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        .bind(next.name_ar, next.name_en, next.every_days, next.category_id, next.active, now, now)
+      const res = await env.DB.prepare('INSERT INTO round_forms (name_ar, name_en, every_days, category_id, chapter, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+        .bind(next.name_ar, next.name_en, next.every_days, next.category_id, next.chapter, next.active, now, now)
         .run();
       const formId = res.meta.last_row_id;
       await env.DB.batch([
@@ -178,7 +188,7 @@ export async function handleRounds(request, env, url, seg, method, user, ctx) {
     if (!form) fail(404, 'not_found');
     if (method === 'GET' && seg.length === 2) {
       const [{ results: items }, { results: places }] = await Promise.all([
-        env.DB.prepare('SELECT id, sort, text_ar, text_en FROM round_items WHERE form_id = ? ORDER BY sort, id').bind(id).all(),
+        env.DB.prepare('SELECT id, sort, text_ar, text_en, std_code FROM round_items WHERE form_id = ? ORDER BY sort, id').bind(id).all(),
         env.DB.prepare('SELECT id, location_id, next_due, last_done FROM round_places WHERE form_id = ?').bind(id).all(),
       ]);
       return json({ form, items, places });
@@ -187,13 +197,13 @@ export async function handleRounds(request, env, url, seg, method, user, ctx) {
       const next = await readForm();
       // The lines are written again (past rounds keep their own copy); places keep their dates, new ones start on first_due.
       await env.DB.batch([
-        env.DB.prepare('UPDATE round_forms SET name_ar = ?, name_en = ?, every_days = ?, category_id = ?, active = ?, updated_at = ? WHERE id = ?').bind(
-          next.name_ar, next.name_en, next.every_days, next.category_id, next.active, nowIso(), id),
+        env.DB.prepare('UPDATE round_forms SET name_ar = ?, name_en = ?, every_days = ?, category_id = ?, chapter = ?, active = ?, updated_at = ? WHERE id = ?').bind(
+          next.name_ar, next.name_en, next.every_days, next.category_id, next.chapter, next.active, nowIso(), id),
         env.DB.prepare('DELETE FROM round_items WHERE form_id = ?').bind(id),
         itemsStmt(id, next.items),
         env.DB.prepare('DELETE FROM round_places WHERE form_id = ?1 AND location_id NOT IN (SELECT value FROM json_each(?2))').bind(id, JSON.stringify(next.location_ids)),
         placesStmt(id, next.location_ids, next.first_due),
-        logStmt(env, user, 'update', 'round_form', id, next.name_ar, changes(form, next, ['name_ar', 'name_en', 'every_days', 'category_id', 'active'])),
+        logStmt(env, user, 'update', 'round_form', id, next.name_ar, changes(form, next, ['name_ar', 'name_en', 'every_days', 'category_id', 'chapter', 'active'])),
       ]);
       return json({ ok: true });
     }
@@ -246,27 +256,28 @@ export async function handleRounds(request, env, url, seg, method, user, ctx) {
          FROM round_places p JOIN round_forms f ON f.id = p.form_id JOIN locations l ON l.id = p.location_id WHERE p.id = ?`,
     ).bind(Number(seg[2])).first();
     if (!place || !place.active) fail(404, 'not_found');
-    const { results: items } = await env.DB.prepare('SELECT id, text_ar, text_en FROM round_items WHERE form_id = ? ORDER BY sort, id').bind(place.form_id).all();
+    const { results: items } = await env.DB.prepare('SELECT id, text_ar, text_en, std_code FROM round_items WHERE form_id = ? ORDER BY sort, id').bind(place.form_id).all();
     return json({ place, items, today, require_scan: settings.round_require_scan === '1' });
   }
 
-  // A round done: every line answered. Failed lines become one request; the place moves to its next date.
+  // A round done: every line answered. Each failed line opens a corrective action (and, with a problem type,
+  // one request for them all); the place moves to its next date.
   if (route2(method, seg) === 'POST /rounds') {
     const body = await readJson(request);
     const placeId = toInt(body.place_id);
     const place = placeId
       ? await env.DB.prepare(
-          `SELECT p.*, f.name_ar, f.name_en, f.every_days, f.category_id, f.active, l.name_ar AS loc_ar, l.name_en AS loc_en, l.department_id
+          `SELECT p.*, f.name_ar, f.name_en, f.every_days, f.category_id, f.chapter, f.active, l.name_ar AS loc_ar, l.name_en AS loc_en, l.department_id
              FROM round_places p JOIN round_forms f ON f.id = p.form_id JOIN locations l ON l.id = p.location_id WHERE p.id = ?`,
         ).bind(placeId).first()
       : null;
     if (!place || !place.active) fail(404, 'not_found');
-    const { results: items } = await env.DB.prepare('SELECT id, text_ar, text_en FROM round_items WHERE form_id = ? ORDER BY sort, id').bind(place.form_id).all();
+    const { results: items } = await env.DB.prepare('SELECT id, text_ar, text_en, std_code FROM round_items WHERE form_id = ? ORDER BY sort, id').bind(place.form_id).all();
     const given = new Map((Array.isArray(body.answers) ? body.answers : []).map((a) => [toInt(a && a.item_id), a]));
     const answers = items.map((it) => {
       const a = given.get(it.id);
       if (!a || !ROUND_RESULTS.includes(a.result)) fail(400, 'answers_required');
-      return { a: it.text_ar, e: it.text_en, r: a.result, n: str(a.note, 500) || null };
+      return { a: it.text_ar, e: it.text_en, s: it.std_code || null, r: a.result, n: str(a.note, 500) || null };
     });
     const count = (r) => answers.filter((x) => x.r === r).length;
     const failed = answers.filter((x) => x.r === 'fail');
@@ -287,19 +298,32 @@ export async function handleRounds(request, env, url, seg, method, user, ctx) {
     const roundId = res.meta.last_row_id;
     await env.DB.batch([
       env.DB.prepare(
-        "INSERT INTO round_answers (round_id, text_ar, text_en, result, note) SELECT ?1, json_extract(value, '$.a'), json_extract(value, '$.e'), json_extract(value, '$.r'), json_extract(value, '$.n') FROM json_each(?2)",
+        "INSERT INTO round_answers (round_id, text_ar, text_en, std_code, result, note) SELECT ?1, json_extract(value, '$.a'), json_extract(value, '$.e'), json_extract(value, '$.s'), json_extract(value, '$.r'), json_extract(value, '$.n') FROM json_each(?2)",
       ).bind(roundId, JSON.stringify(answers)),
       env.DB.prepare('UPDATE round_places SET last_done = ?, next_due = ? WHERE id = ?').bind(today, nextDue, place.id),
+      ...(failed.length
+        ? [
+            capaFromRoundStmt(env, {
+              roundId,
+              rows: failed.map((x) => ({ t: x.a, d: x.n, s: x.s, c: place.chapter || (x.s ? chapterOf(x.s) : null) })),
+              location_id: place.location_id,
+              department_id: place.department_id,
+              due: plusDays(today, CAPA_DAYS),
+              by: user.name,
+              now,
+            }),
+          ]
+        : []),
     ]);
 
     let ticketId = null;
-    const cat = failed.length ? await env.DB.prepare('SELECT id, team_id, priority FROM ticket_categories WHERE id = ?').bind(place.category_id).first() : null;
+    const cat = failed.length && place.category_id ? await env.DB.prepare('SELECT id, team_id, priority FROM ticket_categories WHERE id = ?').bind(place.category_id).first() : null;
     if (cat) {
       const priority = ticketPriority(cat.priority, 0);
       const sla = slaFor(settings, priority);
       const description = [
-        `جولة تفتيش: ${place.name_ar} - ${place.loc_ar}`,
-        `Inspection round: ${place.name_en} - ${place.loc_en}`,
+        `جولة جودة: ${place.name_ar} - ${place.loc_ar}`,
+        `Quality round: ${place.name_en} - ${place.loc_en}`,
         '',
         ...failed.map((x) => `- ${x.a}${x.e ? ` / ${x.e}` : ''}${x.n ? `: ${x.n}` : ''}`),
         ...(note ? ['', note] : []),
@@ -316,7 +340,7 @@ export async function handleRounds(request, env, url, seg, method, user, ctx) {
       ]);
       ctx.waitUntil(afterNewTicket(env, 'new', ticketId));
     }
-    return json({ ok: true, id: roundId, scanned, ticket_id: ticketId, ok_n: count('ok'), fail_n: failed.length, na_n: count('na'), next_due: nextDue });
+    return json({ ok: true, id: roundId, scanned, ticket_id: ticketId, capa_n: failed.length, ok_n: count('ok'), fail_n: failed.length, na_n: count('na'), next_due: nextDue });
   }
 
   // Rounds done, newest first, with an optional date range and checklist.
@@ -327,6 +351,7 @@ export async function handleRounds(request, env, url, seg, method, user, ctx) {
     const binds = [from, to];
     const { results: rows } = await env.DB.prepare(
       `SELECT r.id, r.form_id, r.done_at, r.done_on, r.due, r.on_time, r.ok_n, r.fail_n, r.na_n, r.user_name, r.ticket_id, r.scanned,
+              (SELECT COUNT(*) FROM capa c WHERE c.round_id = r.id) AS capa_n, (SELECT COUNT(*) FROM capa c WHERE c.round_id = r.id AND c.status IN ('open', 'doing')) AS capa_open,
               f.name_ar, f.name_en, l.name_ar AS loc_ar, l.name_en AS loc_en
          FROM rounds r JOIN round_forms f ON f.id = r.form_id LEFT JOIN locations l ON l.id = r.location_id
         WHERE r.done_on >= ?1 AND r.done_on <= ?2 ${formId ? `AND r.form_id = ?${binds.push(formId)}` : ''}
@@ -342,8 +367,11 @@ export async function handleRounds(request, env, url, seg, method, user, ctx) {
          FROM rounds r JOIN round_forms f ON f.id = r.form_id LEFT JOIN locations l ON l.id = r.location_id LEFT JOIN tickets t ON t.id = r.ticket_id WHERE r.id = ?`,
     ).bind(id).first();
     if (!round) fail(404, 'not_found');
-    const { results: answers } = await env.DB.prepare('SELECT text_ar, text_en, result, note FROM round_answers WHERE round_id = ? ORDER BY id').bind(id).all();
-    return json({ round, answers });
+    const [{ results: answers }, { results: capa }] = await Promise.all([
+      env.DB.prepare('SELECT text_ar, text_en, std_code, result, note FROM round_answers WHERE round_id = ? ORDER BY id').bind(id).all(),
+      env.DB.prepare('SELECT id, title, std_code, status, due FROM capa WHERE round_id = ? ORDER BY id').bind(id).all(),
+    ]);
+    return json({ round, answers, capa });
   }
   return null;
 }

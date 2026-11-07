@@ -2163,7 +2163,7 @@ a.app-card:hover {
 }
 .round-edit li {
   display: grid;
-  grid-template-columns: 1fr 1fr auto;
+  grid-template-columns: 1fr 1fr 7.5em auto;
   gap: 8px;
   align-items: center;
 }
@@ -2178,7 +2178,8 @@ a.app-card:hover {
   .round-edit li {
     grid-template-columns: 1fr auto;
   }
-  .round-edit li input:nth-child(2) {
+  .round-edit li input:nth-child(2),
+  .round-edit li input:nth-child(3) {
     grid-column: 1;
   }
 }

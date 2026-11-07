@@ -1,12 +1,13 @@
-// Inspection rounds.
+// Quality rounds.
 import { render } from '../app.js';
 import { compliancePct, daysTo, dueChip, kpiRow, tn } from './assets.js';
 import { ApiError, S, h, icon, t } from './core.js';
 import { access, fullPath, link, navigate, setUrl } from './layout.js';
 import { api, checkField, dateEl, errText, errorBox, field, fmtDate, input, openDialog, select, send, toast } from './offline.js';
+import { capaChip } from './capa.js';
 import { pick, simpleDelete, timeEl } from './tickets.js';
 
-/* ---------------------------- Inspection rounds --------------------------- */
+/* ----------------------------- Quality rounds ----------------------------- */
 
 export const ROUND_RESULTS = ['ok', 'fail', 'na'];
 export const roundScore = (r) => (r.ok_n + r.fail_n ? Math.round((r.ok_n / (r.ok_n + r.fail_n)) * 100) + '%' : '-');
@@ -142,7 +143,7 @@ export async function roundRun(root, placeId, alive) {
     const row = h(
       'li',
       { class: 'round-item' },
-      h('div', { class: 'round-text' }, h('span', { class: 'round-num', dir: 'ltr' }, String(i + 1)), h('span', {}, pick(it.text_ar, it.text_en))),
+      h('div', { class: 'round-text' }, h('span', { class: 'round-num', dir: 'ltr' }, String(i + 1)), h('span', {}, pick(it.text_ar, it.text_en)), it.std_code ? h('span', { class: 'mono muted small', dir: 'ltr' }, ' ' + it.std_code) : ''),
       h('div', { class: 'round-picks', role: 'group', 'aria-label': pick(it.text_ar, it.text_en) }, buttons),
       noteBox,
     );
@@ -222,17 +223,16 @@ export async function roundRun(root, placeId, alive) {
 }
 export function roundDone(r, place) {
   const seeDesk = access('desk') !== 'none';
+  const seeCapa = access('quality') !== 'none';
   return h(
     'section',
     { class: 'panel round-done stack' },
     h('h1', {}, icon('check', 28), ' ', t('rnd.saved')),
     h('p', {}, pick(place.loc_ar, place.loc_en), ' · ', pick(place.name_ar, place.name_en)),
     h('p', { class: 'round-score' }, t('rnd.score'), ' ', h('strong', { dir: 'ltr' }, roundScore(r)), ' · ', tn('rnd.fails', r.fail_n)),
-    r.ticket_id
-      ? h('p', { class: 'notice notice-warn' }, t('rnd.ticket_opened'), ' ', seeDesk ? link('desk/tickets/' + r.ticket_id, { class: 'btn btn-small' }, '#' + r.ticket_id) : h('strong', { dir: 'ltr' }, '#' + r.ticket_id))
-      : r.fail_n
-        ? null
-        : h('p', { class: 'notice' }, t('rnd.all_good')),
+    r.capa_n ? h('p', { class: 'notice notice-warn' }, t('rnd.capa_opened', { n: r.capa_n }), ' ', seeCapa ? link('quality/capa', { class: 'btn btn-small' }, t('nav.capa')) : '') : null,
+    r.ticket_id ? h('p', { class: 'notice notice-warn' }, t('rnd.ticket_opened'), ' ', seeDesk ? link('desk/tickets/' + r.ticket_id, { class: 'btn btn-small' }, '#' + r.ticket_id) : h('strong', { dir: 'ltr' }, '#' + r.ticket_id)) : null,
+    r.fail_n ? null : h('p', { class: 'notice' }, t('rnd.all_good')),
     h('p', { class: 'muted' }, t('rnd.next'), ' ', h('span', { dir: 'ltr' }, fmtDate(r.next_due))),
     h('div', { class: 'actions' }, link('rounds/due', { class: 'btn btn-primary' }, t('rnd.more')), link('rounds/rlog/' + r.id, { class: 'btn' }, t('rnd.view'))),
   );
@@ -270,7 +270,7 @@ export async function roundLogPage(root, param, alive) {
       ['rnd.k_done', list.length],
       ['rnd.k_ontime', compliancePct({ n: list.length, ok: onTime })],
       ['rnd.k_with_fail', list.filter((r) => r.fail_n).length],
-      ['rnd.k_tickets', list.filter((r) => r.ticket_id).length],
+      seeDesk ? ['rnd.k_tickets', list.filter((r) => r.ticket_id).length] : ['rnd.k_capa', list.reduce((n, r) => n + (r.capa_n || 0), 0)],
       ['rnd.k_scanned', compliancePct({ n: list.length, ok: list.filter((r) => r.scanned).length })],
     ]),
     h(
@@ -283,7 +283,7 @@ export async function roundLogPage(root, param, alive) {
             h(
               'table',
               {},
-              h('thead', {}, h('tr', {}, ['rnd.when', 'rnd.place', 'rnd.form', 'rnd.by', 'rnd.score', 'rnd.timing', 'rnd.ticket'].map((c) => h('th', { scope: 'col' }, t(c))))),
+              h('thead', {}, h('tr', {}, ['rnd.when', 'rnd.place', 'rnd.form', 'rnd.by', 'rnd.score', 'rnd.timing', seeDesk ? 'rnd.ticket' : 'rnd.capa'].map((c) => h('th', { scope: 'col' }, t(c))))),
               h(
                 'tbody',
                 {},
@@ -297,7 +297,9 @@ export async function roundLogPage(root, param, alive) {
                     h('td', {}, r.user_name || t('common.none')),
                     h('td', {}, h('span', { dir: 'ltr', class: 'mono' }, roundScore(r)), r.fail_n ? h('span', { class: 'note note-expired' }, ' ', tn('rnd.fails', r.fail_n)) : null),
                     h('td', {}, h('span', { class: 'chip ' + (r.on_time ? 'chip-valid' : 'chip-near') }, t(r.on_time ? 'rnd.on_time' : 'rnd.late'))),
-                    h('td', {}, r.ticket_id ? (seeDesk ? link('desk/tickets/' + r.ticket_id, { class: 'btn btn-small' }, '#' + r.ticket_id) : '#' + r.ticket_id) : h('span', { class: 'muted' }, t('common.none'))),
+                    seeDesk
+                      ? h('td', {}, r.ticket_id ? link('desk/tickets/' + r.ticket_id, { class: 'btn btn-small' }, '#' + r.ticket_id) : h('span', { class: 'muted' }, t('common.none')))
+                      : h('td', {}, r.capa_n ? [h('span', { class: 'mono' }, String(r.capa_n)), r.capa_open ? h('span', { class: 'note note-expired' }, ' ', r.capa_open + ' ' + t('capa.k_open')) : ''] : h('span', { class: 'muted' }, t('common.none'))),
                   ),
                 ),
               ),
@@ -316,8 +318,9 @@ export async function roundDetail(root, id, alive) {
     return;
   }
   if (!alive()) return;
-  const { round: r, answers } = d;
+  const { round: r, answers, capa } = d;
   const seeDesk = access('desk') !== 'none';
+  const seeCapa = access('quality') !== 'none';
   const metaRow = (label, value) => h('div', { class: 'meta' }, h('span', { class: 'meta-label' }, label), value);
   root.replaceChildren(
     h('p', {}, link('rounds/rlog', { class: 'back-link' }, t('rnd.back_log'))),
@@ -333,7 +336,7 @@ export async function roundDetail(root, id, alive) {
         metaRow(t('rnd.scan'), h('span', { class: r.scanned ? '' : 'muted' }, t(r.scanned ? 'rnd.scanned' : 'rnd.not_scanned'))),
         metaRow(t('rnd.due_on'), h('span', {}, dateEl(r.due), ' ', h('span', { class: 'chip ' + (r.on_time ? 'chip-valid' : 'chip-near') }, t(r.on_time ? 'rnd.on_time' : 'rnd.late')))),
         metaRow(t('rnd.score'), h('span', {}, h('span', { dir: 'ltr' }, roundScore(r)), ' · ', tn('rnd.fails', r.fail_n), r.na_n ? ' · ' + tn('rnd.nas', r.na_n) : '')),
-        metaRow(t('rnd.ticket'), r.ticket_id ? (seeDesk ? link('desk/tickets/' + r.ticket_id, { class: 'btn btn-small' }, '#' + r.ticket_id) : h('span', {}, '#' + r.ticket_id)) : h('span', { class: 'muted' }, t('common.none'))),
+        r.ticket_id ? metaRow(t('rnd.ticket'), seeDesk ? link('desk/tickets/' + r.ticket_id, { class: 'btn btn-small' }, '#' + r.ticket_id) : h('span', {}, '#' + r.ticket_id)) : '',
       ),
       r.note ? h('p', { class: 'pre' }, r.note) : '',
     ),
@@ -344,10 +347,30 @@ export async function roundDetail(root, id, alive) {
         'ol',
         { class: 'round-list' },
         answers.map((a) =>
-          h('li', { class: 'round-item', 'data-result': a.result }, h('div', { class: 'round-text' }, h('span', {}, pick(a.text_ar, a.text_en))), resultChip(a.result), a.note ? h('p', { class: 'muted small' }, a.note) : ''),
+          h(
+            'li',
+            { class: 'round-item', 'data-result': a.result },
+            h('div', { class: 'round-text' }, h('span', {}, pick(a.text_ar, a.text_en)), a.std_code ? h('span', { class: 'mono muted small', dir: 'ltr' }, ' ' + a.std_code) : ''),
+            resultChip(a.result),
+            a.note ? h('p', { class: 'muted small' }, a.note) : '',
+          ),
         ),
       ),
     ),
+    capa && capa.length
+      ? h(
+          'section',
+          { class: 'panel' },
+          h('h2', {}, t('rnd.capa')),
+          h(
+            'ul',
+            { class: 'home-list' },
+            capa.map((c) =>
+              h('li', {}, seeCapa ? link('quality/capa/' + c.id, {}, c.title) : h('span', {}, c.title), c.std_code ? h('span', { class: 'mono muted small', dir: 'ltr' }, ' ' + c.std_code) : '', ' ', capaChip(c.status)),
+            ),
+          ),
+        )
+      : '',
   );
 }
 
@@ -362,6 +385,7 @@ export async function checklistsPage(root, _param, alive) {
   }
   if (!alive()) return;
   const label = (f) => pick(f.name_ar, f.name_en);
+  const seeDesk = access('desk') !== 'none';
   root.replaceChildren(
     h(
       'div',
@@ -370,7 +394,6 @@ export async function checklistsPage(root, _param, alive) {
       h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn btn-primary', onclick: () => roundFormDialog(null, d) }, icon('plus'), t('rnd.form_add'))),
     ),
     roundReminders(d),
-    d.categories.length ? '' : h('p', { class: 'notice notice-warn' }, t('rnd.no_categories')),
     d.locations.length ? '' : h('p', { class: 'notice notice-warn' }, t('rnd.no_locations')),
     h(
       'section',
@@ -382,7 +405,7 @@ export async function checklistsPage(root, _param, alive) {
             h(
               'table',
               {},
-              h('thead', {}, h('tr', {}, ['rnd.form', 'rnd.every', 'rnd.items', 'rnd.places', 'rnd.category', 'user.status', 'common.actions'].map((c) => h('th', { scope: 'col' }, t(c))))),
+              h('thead', {}, h('tr', {}, ['rnd.form', 'rnd.every', 'rnd.items', 'rnd.places', 'qa.chapter', ...(seeDesk ? ['rnd.category'] : []), 'user.status', 'common.actions'].map((c) => h('th', { scope: 'col' }, t(c))))),
               h(
                 'tbody',
                 {},
@@ -394,7 +417,8 @@ export async function checklistsPage(root, _param, alive) {
                     h('td', {}, tn('rnd.every_n', f.every_days)),
                     h('td', {}, h('span', { class: 'mono' }, String(f.item_count))),
                     h('td', {}, h('span', { class: 'mono' }, String(f.place_count))),
-                    h('td', {}, pick(f.cat_ar, f.cat_en) || t('common.none')),
+                    h('td', {}, f.chapter ? h('span', { class: 'mono' }, f.chapter) : h('span', { class: 'muted' }, t('common.none'))),
+                    seeDesk ? h('td', {}, pick(f.cat_ar, f.cat_en) || t('common.none')) : '',
                     h('td', {}, f.active ? t('field.active') : h('span', { class: 'muted' }, t('user.inactive'))),
                     h(
                       'td',
@@ -488,15 +512,19 @@ export function roundFormDialog(x, meta) {
   const nameAr = input({ type: 'text', required: true, maxlength: 150, dir: 'rtl', value: f ? f.name_ar : '', placeholder: 'جولة السلامة من الحريق' });
   const nameEn = input({ type: 'text', required: true, maxlength: 150, dir: 'ltr', value: f ? f.name_en : '', placeholder: 'Fire safety round' });
   const every = input({ type: 'number', required: true, min: 1, max: 366, value: f ? f.every_days : 30 });
-  const cat = select([['', t('rnd.pick_category')], ...meta.categories.map((c) => [c.id, pick(c.name_ar, c.name_en) + (pick(c.team_ar, c.team_en) ? ' · ' + pick(c.team_ar, c.team_en) : '')])], f ? f.category_id : '', { required: true });
+  // A maintenance request for failed lines only when the requests system is in use; corrective actions always.
+  const seeDesk = access('desk') !== 'none';
+  const cat = select([['', t('rnd.pick_category')], ...meta.categories.map((c) => [c.id, pick(c.name_ar, c.name_en) + (pick(c.team_ar, c.team_en) ? ' · ' + pick(c.team_ar, c.team_en) : '')])], f && f.category_id ? f.category_id : '', {});
+  const chapter = select([['', t('rnd.no_chapter')], ...(meta.chapters || []).map((c) => [c.code, c.code + ' · ' + pick(c.name_ar, c.name_en)])], f ? f.chapter || '' : '', {});
   const first = input({ type: 'date', value: meta.today });
   const active = input({ type: 'checkbox', checked: f ? !!f.active : true });
   const lines = h('ol', { class: 'round-edit' });
   const addLine = (it) => {
     const ar = h('input', { type: 'text', required: true, maxlength: 300, dir: 'rtl', value: it ? it.text_ar : '', placeholder: t('rnd.item_ar'), 'aria-label': t('rnd.item_ar') });
     const en = input({ type: 'text', maxlength: 300, dir: 'ltr', value: it ? it.text_en || '' : '', placeholder: t('rnd.item_en'), 'aria-label': t('rnd.item_en') });
-    const li = h('li', {}, ar, en, h('button', { type: 'button', class: 'btn btn-icon', title: t('common.delete'), 'aria-label': t('common.delete'), onclick: () => li.remove() }, icon('trash')));
-    li.read = () => ({ text_ar: ar.value, text_en: en.value });
+    const std = input({ type: 'text', maxlength: 30, dir: 'ltr', class: 'round-std', value: it ? it.std_code || '' : '', placeholder: 'FMS.3.1', 'aria-label': t('capa.std') });
+    const li = h('li', {}, ar, en, std, h('button', { type: 'button', class: 'btn btn-icon', title: t('common.delete'), 'aria-label': t('common.delete'), onclick: () => li.remove() }, icon('trash')));
+    li.read = () => ({ text_ar: ar.value, text_en: en.value, std_code: std.value });
     lines.append(li);
     return ar;
   };
@@ -524,8 +552,9 @@ export function roundFormDialog(x, meta) {
       { class: 'stack' },
       h('div', { class: 'form-grid' }, field(t('dept.name_ar'), nameAr), field(t('dept.name_en'), nameEn)),
       h('div', { class: 'form-grid' }, field(t('rnd.every_days'), every), field(t(f ? 'rnd.first_due_new' : 'rnd.first_due'), first)),
-      field(t('rnd.category'), cat, t('rnd.category_hint')),
-      h('fieldset', { class: 'app-roles' }, h('legend', {}, t('rnd.items')), h('p', { class: 'hint' }, t('rnd.items_hint')), lines, h('button', { type: 'button', class: 'btn btn-small', onclick: () => addLine(null).focus() }, icon('plus'), t('rnd.add_item'))),
+      field(t('qa.chapter'), chapter),
+      seeDesk ? field(t('rnd.category'), cat, t('rnd.category_hint')) : '',
+      h('fieldset', { class: 'app-roles' }, h('legend', {}, t('rnd.items')), h('p', { class: 'hint' }, t('rnd.items_hint'), ' ', t('rnd.std_hint')), lines, h('button', { type: 'button', class: 'btn btn-small', onclick: () => addLine(null).focus() }, icon('plus'), t('rnd.add_item'))),
       h('fieldset', { class: 'app-roles' }, h('legend', {}, t('rnd.places'), ' ', placeCount), meta.locations.length > 8 ? find : '', h('div', { class: 'place-picks' }, boxes)),
       checkField(t('user.active'), active),
     ),
@@ -533,7 +562,7 @@ export function roundFormDialog(x, meta) {
       const items = [...lines.children].map((li) => li.read()).filter((it) => it.text_ar.trim());
       if (!items.length) throw new ApiError('items_required');
       if (!picked.size) throw new ApiError('places_required');
-      const body = { name_ar: nameAr.value, name_en: nameEn.value, every_days: Number(every.value), category_id: Number(cat.value), first_due: first.value, active: active.checked, items, location_ids: [...picked] };
+      const body = { name_ar: nameAr.value, name_en: nameEn.value, every_days: Number(every.value), category_id: seeDesk ? Number(cat.value) || 0 : f ? f.category_id || 0 : 0, chapter: chapter.value, first_due: first.value, active: active.checked, items, location_ids: [...picked] };
       await api(f ? '/round-forms/' + f.id : '/round-forms', { method: f ? 'PUT' : 'POST', body });
       toast(t(f ? 'rnd.form_saved' : 'rnd.form_added'));
       render();

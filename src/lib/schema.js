@@ -656,4 +656,31 @@ export const MIGRATIONS = [
      chapter TEXT,
      synced_at TEXT NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS idx_portal_docs_chapter ON portal_docs(chapter)`,
+  // Corrective and preventive actions (CAPA). source: round (a failed line of a quality round) or manual.
+  // status: open, doing, done (action taken), verified (quality checked it worked). chapter and std_code tie it
+  // to the standard it serves, so it counts as evidence there.
+  `CREATE TABLE IF NOT EXISTS capa (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     source TEXT NOT NULL DEFAULT 'manual',
+     round_id INTEGER,
+     title TEXT NOT NULL,
+     detail TEXT,
+     location_id INTEGER,
+     department_id INTEGER,
+     chapter TEXT,
+     std_code TEXT,
+     owner TEXT,
+     due TEXT,
+     status TEXT NOT NULL DEFAULT 'open',
+     cause TEXT,
+     action TEXT,
+     done_at TEXT,
+     done_by TEXT,
+     verified_at TEXT,
+     verified_by TEXT,
+     created_by TEXT,
+     created_at TEXT NOT NULL,
+     updated_at TEXT NOT NULL)`,
+  `CREATE INDEX IF NOT EXISTS idx_capa_status ON capa(status, due)`,
+  `CREATE INDEX IF NOT EXISTS idx_capa_round ON capa(round_id)`,
 ];
