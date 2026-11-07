@@ -2,7 +2,7 @@
 // and the readiness score. Each standard can name the JCI standards it matches.
 import { render } from '../app.js';
 import { kpiRow } from './assets.js';
-import { pdfViewer } from './docs.js';
+import { lockedAdd, pdfViewer } from './docs.js';
 import { S, h, has, icon, t } from './core.js';
 import { link, navigate } from './layout.js';
 import { api, checkField, errText, errorBox, field, fmtDate, input, openDialog, select, statusChip, toast } from './offline.js';
@@ -283,7 +283,9 @@ function filesPanel(chapter, data) {
       h('span', { class: 'qa-file-meta' }, h('span', { class: 'tag' }, kind(f)), f.portal ? h('span', { class: 'tag' }, t('pdoc.from_portal')) : null, h('span', { class: 'mono small', dir: 'ltr' }, f.file_number)),
       f.status !== 'none' ? statusChip(f.status) : null,
     );
-  const add = data.can_add
+  const add = data.locked
+    ? lockedAdd(t('qa.file_add'))
+    : data.can_add
     ? h(
         'button',
         {
@@ -738,7 +740,9 @@ export function linkPanel() {
 
 // Document Control → Portal documents: the register read over the optional link. The files stay in the
 // portal; a quality manager or documents admin files each one under a CBAHI chapter, where it shows as evidence.
-export async function portalDocsPage(root, _param, alive) {
+// mode: 'dash' (the dashboard: status cards) or 'list' (the documents page). Old links to pdocs open the list.
+export async function portalDocsPage(root, mode, alive) {
+  const dash = mode === 'dash';
   let d;
   try {
     d = await api('/portal-docs');
@@ -751,7 +755,7 @@ export async function portalDocsPage(root, _param, alive) {
   const uniq = (key, en) => [...new Map(d.docs.filter((x) => x[key]).map((x) => [x[key], pick(x[key], x[en])])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
   const pickType = select([['', t('pdoc.all_types')], ...uniq('type_ar', 'type_en')], f.type, { 'aria-label': t('pdoc.all_types') });
   const pickDept = select([['', t('pdoc.all_depts')], ...uniq('department_ar', 'department_en')], f.dept, { 'aria-label': t('pdoc.all_depts') });
-  const cards = h('section', { class: 'cards', 'aria-label': t('dash.summary') });
+  const cards = dash ? h('section', { class: 'cards', 'aria-label': t('dash.summary') }) : '';
   const chName = (c) => c.code + ' · ' + pick(c.name_ar, c.name_en);
   const search = input({ type: 'search', class: 'doc-search-input', value: f.q, placeholder: t('pdoc.search_ph'), 'aria-label': t('qa.search'), autocomplete: 'off' });
   const pickCh = select([['', t('qa.all_chapters')], ['-', t('pdoc.unfiled')], ...d.chapters.map((c) => [c.code, chName(c)])], f.chapter, { 'aria-label': t('qa.chapter') });
@@ -786,10 +790,10 @@ export async function portalDocsPage(root, _param, alive) {
         (!f.dept || x.department_ar === f.dept) &&
         (!q || [x.name_ar, x.name_en, x.file_number, x.department_ar, x.department_en].some((v) => norm(v).includes(q))),
     );
-    const rows = base.filter((x) => !f.status || (x.status || 'none') === f.status);
+    const rows = base.filter((x) => !dash || !f.status || (x.status || 'none') === f.status);
     const counts = { valid: 0, near: 0, expired: 0, review: 0 };
     base.forEach((x) => x.status in counts && counts[x.status]++);
-    cards.replaceChildren(
+    if (dash) cards.replaceChildren(
       ...['valid', 'near', 'expired', 'review'].map((st) =>
         h(
           'button',
@@ -865,7 +869,12 @@ export async function portalDocsPage(root, _param, alive) {
   });
   const filed = d.docs.filter((x) => x.chapter).length;
   root.replaceChildren(
-    h('div', { class: 'page-head' }, h('div', {}, h('h1', {}, t('nav.pdocs')), h('p', { class: 'muted' }, t('pdoc.sub', { n: d.docs.length, filed })))),
+    h(
+      'div',
+      { class: 'page-head' },
+      h('div', {}, h('h1', {}, t(dash ? 'nav.dashboard' : 'nav.documents')), h('p', { class: 'muted' }, t('pdoc.sub', { n: d.docs.length, filed }))),
+      S.user.docs === 'admin' || S.user.docs === 'dept_admin' ? h('div', { class: 'actions' }, lockedAdd(t('file.add'))) : '',
+    ),
     !d.on ? h('p', { class: 'notice notice-warn' }, t('pdoc.off')) : d.error ? h('p', { class: 'notice notice-warn' }, t('qa.fms.error', { err: linkError(d.error) })) : '',
     cards,
     h('div', { class: 'filters' }, h('div', { class: 'doc-search', role: 'search' }, icon('search'), search), pickDept, pickType, pickCh),

@@ -27,7 +27,12 @@ export async function loadFiles() {
   return f.files;
 }
 
+// The Operations system's documents, read only, while the link reads them; adding stays switched off.
+const portalView = async (root, mode, alive) => (await import('./quality.js')).portalDocsPage(root, mode, alive);
+export const lockedAdd = (label) => h('button', { type: 'button', class: 'btn btn-primary', disabled: true, title: t('pdoc.locked') }, icon('plus'), label);
+
 export async function dashboardPage(root, _param, alive) {
+  if (S.user.portal_docs) return portalView(root, 'dash', alive);
   let files;
   try {
     files = await loadFiles();
@@ -243,6 +248,7 @@ export async function ackDialog(f) {
 /* --------------------------- documents (reader) ------------------------- */
 
 export async function documentsPage(root, param, alive) {
+  if (S.user.portal_docs) return portalView(root, 'list', alive);
   let files;
   try {
     files = await loadFiles();
@@ -739,7 +745,7 @@ export async function typesPage(root, _param, alive) {
   if (!alive()) return;
   S.docTypes = list;
   root.replaceChildren(
-    h('div', { class: 'page-head' }, h('h1', {}, t('nav.types')), h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn btn-primary', onclick: () => typeDialog(null) }, icon('plus'), t('dtype.add')))),
+    h('div', { class: 'page-head' }, h('h1', {}, t('nav.types')), h('div', { class: 'actions' }, S.user.portal_docs ? lockedAdd(t('dtype.add')) : h('button', { type: 'button', class: 'btn btn-primary', onclick: () => typeDialog(null) }, icon('plus'), t('dtype.add')))),
     h(
       'section',
       { class: 'panel' },
