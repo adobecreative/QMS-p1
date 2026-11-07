@@ -272,13 +272,15 @@ function filesPanel(chapter, data) {
     const x = data.doc_types.find((y) => y.key === k);
     return x ? pick(x.name_ar, x.name_en) : k;
   };
+  // A portal document carries its own type names (the portal has its own list of types).
+  const kind = (f) => (f.portal && (f.type_ar || f.type_en) ? pick(f.type_ar, f.type_en) : typeName(f.doc_type));
   const tile = (f) =>
     h(
       'button',
-      { type: 'button', class: 'qa-file', onclick: () => fileViewer(f, typeName(f.doc_type)), disabled: !f.has_pdf, title: pick(f.name, f.name_en) },
+      { type: 'button', class: 'qa-file', onclick: () => fileViewer(f, kind(f)), disabled: !f.has_pdf, title: pick(f.name, f.name_en) },
       h('span', { class: 'qa-file-icon' }, icon(TYPE_ICON[f.doc_type] || 'file', 26)),
       h('span', { class: 'qa-file-name' }, pick(f.name, f.name_en)),
-      h('span', { class: 'qa-file-meta' }, h('span', { class: 'tag' }, typeName(f.doc_type)), h('span', { class: 'mono small', dir: 'ltr' }, f.file_number)),
+      h('span', { class: 'qa-file-meta' }, h('span', { class: 'tag' }, kind(f)), f.portal ? h('span', { class: 'tag' }, t('pdoc.from_portal')) : null, h('span', { class: 'mono small', dir: 'ltr' }, f.file_number)),
       f.status !== 'none' ? statusChip(f.status) : null,
     );
   const add = data.can_add
@@ -312,7 +314,7 @@ function filesPanel(chapter, data) {
   );
 }
 
-function fileViewer(f, typeLabel) {
+export function fileViewer(f, typeLabel) {
   const dlg = h(
     'dialog',
     { class: 'dialog dialog-wide' },
@@ -706,7 +708,12 @@ export function linkPanel() {
           sync.disabled = false;
         }
       });
-    const form = h('form', { class: 'stack' }, checkField(t('link.on'), on), fields, status, err, h('div', { class: 'actions' }, save, sync));
+    // What the key lets this system read, from the last sync (the portal decides it on the key).
+    const scopes = (d.snapshot && d.snapshot.scopes) || [];
+    const reads = d.on && d.snapshot
+      ? h('p', { class: 'small' }, t('link.reads') + ': ', ['tickets_read', 'assets_read', 'docs_read', 'staff'].flatMap((k) => [h('span', { class: 'chip' + (scopes.includes(k) ? ' chip-valid' : ' muted') }, (scopes.includes(k) ? '✓ ' : '') + t('link.read.' + k)), ' ']))
+      : '';
+    const form = h('form', { class: 'stack' }, checkField(t('link.on'), on), fields, status, reads, err, h('div', { class: 'actions' }, save, sync));
     form.addEventListener('submit', async (ev) => {
       ev.preventDefault();
       err.hidden = true;
@@ -725,4 +732,104 @@ export function linkPanel() {
     box.replaceChildren(h('h2', {}, t('link.title')), h('p', { class: 'muted' }, t('link.help')), form);
   };
   return box;
+}
+
+/* ----------------------- the Fikra portal's documents ---------------------- */
+
+// Document Control → Portal documents: the register read over the optional link. The files stay in the
+// portal; a quality manager or documents admin files each one under a CBAHI chapter, where it shows as evidence.
+export async function portalDocsPage(root, _param, alive) {
+  let d;
+  try {
+    d = await api('/portal-docs');
+  } catch (e) {
+    if (alive()) root.replaceChildren(errorBox(e));
+    return;
+  }
+  if (!alive()) return;
+  const f = (S.pdocF = S.pdocF || { q: '', chapter: '' });
+  const chName = (c) => c.code + ' · ' + pick(c.name_ar, c.name_en);
+  const search = input({ type: 'search', class: 'doc-search-input', value: f.q, placeholder: t('pdoc.search_ph'), 'aria-label': t('qa.search'), autocomplete: 'off' });
+  const pickCh = select([['', t('qa.all_chapters')], ['-', t('pdoc.unfiled')], ...d.chapters.map((c) => [c.code, chName(c)])], f.chapter, { 'aria-label': t('qa.chapter') });
+  const box = h('div', {});
+  const norm = (v) => String(v || '').toLowerCase();
+  const chapterCell = (doc) => {
+    if (!d.can_file) {
+      const c = d.chapters.find((x) => x.code === doc.chapter);
+      return c ? chName(c) : h('span', { class: 'muted' }, '-');
+    }
+    const sel = select([['', t('pdoc.no_chapter')], ...d.chapters.map((c) => [c.code, chName(c)])], doc.chapter || '', { 'aria-label': t('qa.chapter') + ': ' + doc.name_ar });
+    sel.addEventListener('change', async () => {
+      sel.disabled = true;
+      try {
+        await api('/portal-docs/' + doc.id, { method: 'PUT', body: { chapter: sel.value } });
+        doc.chapter = sel.value || null;
+        toast(t('pdoc.filed'));
+      } catch (e) {
+        toast(errText(e), true);
+        sel.value = doc.chapter || '';
+      }
+      sel.disabled = false;
+    });
+    return sel;
+  };
+  const draw = () => {
+    const q = norm(f.q.trim());
+    const rows = d.docs.filter((x) => (!f.chapter || (f.chapter === '-' ? !x.chapter : x.chapter === f.chapter)) && (!q || [x.name_ar, x.name_en, x.file_number, x.department_ar, x.department_en].some((v) => norm(v).includes(q))));
+    box.replaceChildren(
+      h(
+        'section',
+        { class: 'panel' },
+        rows.length
+          ? h(
+              'div',
+              { class: 'table-scroll' },
+              h(
+                'table',
+                {},
+                h('thead', {}, h('tr', {}, ['pdoc.name', 'user.department', 'pdoc.expiry', 'pdoc.status', 'qa.chapter'].map((c) => h('th', { scope: 'col' }, t(c))))),
+                h(
+                  'tbody',
+                  {},
+                  rows.map((x) =>
+                    h(
+                      'tr',
+                      {},
+                      h(
+                        'td',
+                        { class: 'wrap-cell' },
+                        x.has_pdf
+                          ? h('button', { type: 'button', class: 'btn-link strong', onclick: () => fileViewer({ ...x, name: x.name_ar, dept_ar: x.department_ar, dept_en: x.department_en }, pick(x.type_ar, x.type_en) || x.doc_type) }, pick(x.name_ar, x.name_en))
+                          : h('span', { class: 'strong' }, pick(x.name_ar, x.name_en)),
+                        h('div', { class: 'small muted' }, [pick(x.type_ar, x.type_en), x.file_number].filter(Boolean).join(' · ')),
+                      ),
+                      h('td', {}, pick(x.department_ar, x.department_en) || '-'),
+                      h('td', {}, x.expiry_date ? h('span', { dir: 'ltr' }, fmtDate(x.expiry_date)) : h('span', { class: 'muted' }, '-')),
+                      h('td', {}, statusChip(x.status || 'none')),
+                      h('td', {}, chapterCell(x)),
+                    ),
+                  ),
+                ),
+              ),
+            )
+          : h('p', { class: 'empty' }, d.docs.length ? t('qa.no_match') : t('pdoc.empty')),
+      ),
+    );
+  };
+  search.addEventListener('input', () => {
+    f.q = search.value;
+    draw();
+  });
+  pickCh.addEventListener('change', () => {
+    f.chapter = pickCh.value;
+    draw();
+  });
+  const filed = d.docs.filter((x) => x.chapter).length;
+  root.replaceChildren(
+    h('div', { class: 'page-head' }, h('div', {}, h('h1', {}, t('nav.pdocs')), h('p', { class: 'muted' }, t('pdoc.sub', { n: d.docs.length, filed })))),
+    !d.on ? h('p', { class: 'notice notice-warn' }, t('pdoc.off')) : d.error ? h('p', { class: 'notice notice-warn' }, t('qa.fms.error', { err: linkError(d.error) })) : '',
+    h('div', { class: 'filters' }, h('div', { class: 'doc-search', role: 'search' }, icon('search'), search), pickCh),
+    box,
+  );
+  draw();
 }

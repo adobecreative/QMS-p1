@@ -29,6 +29,8 @@ export const API_DOCS = [
   ['POST', '/part-requests/{id}', 'inventory', 'api.ep.request_post'],
   ['POST', '/part-requests/{id}/issue', 'inventory', 'api.ep.request_issue'],
   ['GET', '/costs?from=…&to=…', 'costs_read', 'api.ep.costs_get'],
+  ['GET', '/documents?after_id=…', 'docs_read', 'api.ep.documents_get'],
+  ['GET', '/documents/{id}/pdf', 'docs_read', 'api.ep.document_pdf'],
 ];
 export const keyName = (k) => (S.lang === 'ar' ? k.name_ar : k.name_en);
 export async function apiPage(root, _param, alive) {

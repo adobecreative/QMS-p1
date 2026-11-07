@@ -418,3 +418,16 @@ file form). The chapter page in Quality shows those files as tiles ("Chapter fil
   (`meetingsHome`). The places used by the rounds moved to the Admin Center.
 - Next phases: agenda, minutes, actions, approval, QR attendance; then Word/PDF reports, KPIs, import and links to
   standards.
+
+## Portal documents and staff over the link
+
+- The link reads whatever the portal key allows (the portal decides it on the key): `tickets_read` and `assets_read`
+  for the FMS evidence, `docs_read` for the document register, `staff` for the staff list. The Admin Center shows
+  which ones are on after each read.
+- Documents: copied into `portal_docs` every hour (id = the portal's id). The PDFs stay in the portal and open through
+  `GET /api/portal-docs/{id}/pdf` (the key never leaves the server). A quality manager or documents admin files a
+  document under a CBAHI chapter (page Document Control → وثائق المنصة, `#/docs/pdocs`); it then shows with that
+  chapter's files and counts on its card. Switching the link off removes the register.
+- Staff: the portal's list is merged into `staff` (departments matched by Arabic or English name), only when it
+  changed (`link_staff_hash`). Nobody is switched off here who is not off in the portal.
+- Needs the portal change that adds `docs_read` (Portal-p2, `GET /api/v1/documents` and `/documents/{id}/pdf`).
