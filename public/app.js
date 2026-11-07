@@ -10,6 +10,7 @@ import { APPS, access, appPages, applyBrand, authPage, currentRoute, forgotPage,
 import { IDB, OFF, api, drawOffBar, errText, loading, personName, syncQueue, warmPages } from './js/offline.js';
 import { calendarPage, committeesPage } from './js/meetings.js';
 import { chaptersPage, portalDocsPage, standardsPage } from './js/quality.js';
+import { capaPage } from './js/capa.js';
 import { compliancePage, reportsPage } from './js/reports.js';
 import { checklistsPage, duePage, roundLogPage, roundScanPage } from './js/rounds.js';
 import { categoriesPage, locationsPage, refreshBadge, requestPage, staffPage, ticketsPage, trackPage } from './js/tickets.js';
@@ -21,7 +22,7 @@ let renderSeq = 0;
 // (each with its own few numbers, only from what they may see) and the meetings coming up.
 const HOME_STATS = {
   meetings: (d) => d.meetings && [[d.meetings.today, 'home.meetings_today'], [d.meetings.upcoming, 'home.meetings_upcoming'], [d.meetings.late, 'home.meetings_late', true]],
-  quality: (d) => d.quality && [[d.quality.pct === null ? '-' : d.quality.pct + '%', 'home.quality_pct'], [d.quality.esr_gap, 'home.quality_esr', true], [d.quality.open, 'home.quality_open']],
+  quality: (d) => d.quality && [[d.quality.pct === null ? '-' : d.quality.pct + '%', 'home.quality_pct'], [d.quality.esr_gap, 'home.quality_esr', true], [d.quality.capa_open, 'home.capa_open', d.quality.capa_late > 0]],
   desk: (d) => d.desk && [[d.desk.new, 'home.desk_new'], [d.desk.doing, 'home.desk_doing'], [d.desk.late, 'home.desk_late', true]],
   assets: (d) => d.assets && [[d.assets.total, 'home.assets_total'], [d.assets.pm_week, 'home.assets_pm'], [d.assets.down, 'home.assets_down', true]],
   rounds: (d) => d.rounds && [[d.rounds.due, 'home.rounds_due'], [d.rounds.late, 'home.rounds_late', true], [d.rounds.done, 'home.rounds_done']],
@@ -109,7 +110,7 @@ function portalPage(root, alive) {
 
 /* --------------------------------- start -------------------------------- */
 
-const PAGES = { dashboard: dashboardPage, tickets: ticketsPage, categories: categoriesPage, locations: locationsPage, staff: staffPage, api: apiPage, documents: documentsPage, departments: departmentsPage, types: typesPage, users: usersPage, logs: logsPage, health: healthPage, settings: settingsPage, register: registerPage, pm: pmPage, devtypes: devTypesPage, contracts: contractsPage, vendors: vendorsPage, parts: partsPage, moves: movesPage, requests: requestsPage, costs: costsPage, due: duePage, rlog: roundLogPage, checklists: checklistsPage, scan: roundScanPage, overview: reportsPage, compliance: compliancePage, chapters: chaptersPage, standards: standardsPage, committees: committeesPage, calendar: calendarPage, pdocs: portalDocsPage };
+const PAGES = { dashboard: dashboardPage, tickets: ticketsPage, categories: categoriesPage, locations: locationsPage, staff: staffPage, api: apiPage, documents: documentsPage, departments: departmentsPage, types: typesPage, users: usersPage, logs: logsPage, health: healthPage, settings: settingsPage, register: registerPage, pm: pmPage, devtypes: devTypesPage, contracts: contractsPage, vendors: vendorsPage, parts: partsPage, moves: movesPage, requests: requestsPage, costs: costsPage, due: duePage, rlog: roundLogPage, checklists: checklistsPage, scan: roundScanPage, overview: reportsPage, compliance: compliancePage, chapters: chaptersPage, standards: standardsPage, committees: committeesPage, calendar: calendarPage, pdocs: portalDocsPage, capa: capaPage };
 
 export function render() {
   const seq = ++renderSeq;

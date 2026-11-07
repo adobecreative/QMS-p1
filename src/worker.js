@@ -18,6 +18,7 @@ import { handleCompliance, handleReportMail, handleReports, runMonthlyReport } f
 import { handleHome } from './systems/home.js';
 import { handleFmsLink, handlePortalDocs, portalDocsOn, runFmsSync } from './systems/fmslink.js';
 import { handleQuality, seedChapters } from './systems/quality.js';
+import { handleCapa } from './systems/capa.js';
 import { handleRounds, runRoundReminders } from './systems/rounds.js';
 import { handlePublicTickets, handleTickets, runTicketAlerts } from './systems/tickets.js';
 
@@ -664,6 +665,9 @@ async function handleApi(request, env, url, ctx) {
     if (res) return res;
     fail(404, 'not_found');
   }
+
+  // Corrective actions (CAPA), from failed round lines or added by hand.
+  if (seg[0] === 'capa') return handleCapa(request, env, url, seg, method, user);
 
   if (['rounds', 'round-forms'].includes(seg[0])) {
     const res = await handleRounds(request, env, url, seg, method, user, ctx);

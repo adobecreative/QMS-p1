@@ -118,11 +118,11 @@ const [a, b] = start.items;
 check((await owner('/rounds', 'POST', { place_id: due.id, answers: [{ item_id: a.id, result: 'ok' }] })).s === 400, 'every line must be answered');
 
 r = await owner('/rounds', 'POST', { place_id: due.id, answers: [{ item_id: a.id, result: 'ok' }, { item_id: b.id, result: 'fail', note: 'رائحة حريق' }] });
-check(r.s === 200 && r.j.fail_n === 1 && r.j.ticket_id > 0, 'a failed line opens a request', r);
+check(r.s === 200 && r.j.fail_n === 1 && r.j.ticket_id > 0 && r.j.capa_n === 1, 'a failed line opens a request and a corrective action', r);
 const roundTicket = r.j.ticket_id;
 check(r.j.next_due > start.today, 'the place moves to its next date', r.j.next_due);
 r = await owner('/tickets/' + roundTicket);
-check(r.s === 200 && /Inspection round/.test(r.j.ticket.description) && /رائحة حريق/.test(r.j.ticket.description), 'the request names the round and the failed line', r.j && r.j.ticket);
+check(r.s === 200 && /Quality round/.test(r.j.ticket.description) && /رائحة حريق/.test(r.j.ticket.description), 'the request names the round and the failed line', r.j && r.j.ticket);
 
 r = await owner('/rounds', 'POST', { place_id: due.id, answers: [{ item_id: a.id, result: 'ok' }, { item_id: b.id, result: 'na' }] });
 check(r.s === 200 && r.j.ticket_id === null, 'a round with no failed line opens nothing', r);

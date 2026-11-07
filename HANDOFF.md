@@ -431,3 +431,18 @@ file form). The chapter page in Quality shows those files as tiles ("Chapter fil
 - Staff: the portal's list is merged into `staff` (departments matched by Arabic or English name), only when it
   changed (`link_staff_hash`). Nobody is switched off here who is not off in the portal.
 - Needs the portal change that adds `docs_read` (Portal-p2, `GET /api/v1/documents` and `/documents/{id}/pdf`).
+
+## Quality rounds and corrective actions (CAPA)
+
+- The rounds system is now "جولات الجودة / Quality Rounds". A checklist can belong to a CBAHI chapter
+  (`round_forms.chapter`) and each line can name the standard it checks (`round_items.std_code`, kept on the answer too).
+- Every failed line opens one row in `capa` (source `round`, the line's text, note, place, department, chapter and
+  standard, due in `CAPA_DAYS` = 14 days). The maintenance request is optional now: only when the checklist has a
+  problem type and the requests system is on (`category_id` = 0 means none; the field is hidden while desk is off).
+- CAPA register: Quality → الإجراءات التصحيحية (`#/quality/capa`, `#/quality/capa/12` opens one). API `/api/capa`
+  (`src/systems/capa.js`). Statuses: open → doing → done (needs the action taken) → verified (quality manager only;
+  only a manager reopens a verified one). Viewers read, assessors and managers edit, managers delete. Actions can
+  also be added by hand.
+- Home: the quality card shows open CAPA (red when any is late). Backup includes `capa`.
+- Tests: `tests/ci/quality.mjs` (quality round block), `tests/ci/systems.mjs` (a failed line with a problem type
+  opens a request and a CAPA).

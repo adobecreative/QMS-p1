@@ -115,6 +115,13 @@ export async function ensureSchema(env) {
   if (!userCols.some((c) => c.name === 'meetings_role')) await env.DB.prepare("ALTER TABLE users ADD COLUMN meetings_role TEXT NOT NULL DEFAULT 'none'").run();
   const { results: roundCols } = await env.DB.prepare('PRAGMA table_info(rounds)').all();
   if (!roundCols.some((c) => c.name === 'scanned')) await env.DB.prepare('ALTER TABLE rounds ADD COLUMN scanned INTEGER NOT NULL DEFAULT 0').run();
+  // Quality rounds: a checklist belongs to a chapter, and each line can name the standard it checks.
+  const { results: rfCols } = await env.DB.prepare('PRAGMA table_info(round_forms)').all();
+  if (!rfCols.some((c) => c.name === 'chapter')) await env.DB.prepare('ALTER TABLE round_forms ADD COLUMN chapter TEXT').run();
+  const { results: riCols } = await env.DB.prepare('PRAGMA table_info(round_items)').all();
+  if (!riCols.some((c) => c.name === 'std_code')) await env.DB.prepare('ALTER TABLE round_items ADD COLUMN std_code TEXT').run();
+  const { results: raCols } = await env.DB.prepare('PRAGMA table_info(round_answers)').all();
+  if (!raCols.some((c) => c.name === 'std_code')) await env.DB.prepare('ALTER TABLE round_answers ADD COLUMN std_code TEXT').run();
   const { results: staffCols } = await env.DB.prepare('PRAGMA table_info(staff)').all();
   if (!staffCols.some((c) => c.name === 'name_en')) await env.DB.batch([env.DB.prepare('ALTER TABLE staff ADD COLUMN name_en TEXT'), env.DB.prepare('UPDATE staff SET name_en = name')]);
   // A role per system. Accounts made before the portal keep what they could do: their old single role

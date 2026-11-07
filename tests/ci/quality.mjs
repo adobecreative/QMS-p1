@@ -294,6 +294,61 @@ check((await qv('/quality')).j.fms === null, 'and the evidence leaves the FMS ch
   check((await owner('/std-chapters/IPSG', 'PUT', { name_ar: 'أهداف', name_en: 'Goals' })).s === 404, 'without the framework it is looked for in CBAHI');
 }
 
+// Quality rounds: a checklist in a chapter, lines with their standard, no maintenance request. Failed lines
+// open corrective actions; the CAPA register works them through to verified.
+{
+  const loc = await owner('/locations', 'POST', { name_ar: 'غرفة المولد', name_en: 'Generator room', department_id: deptA.id });
+  check(loc.s === 200, 'owner adds a place for the quality round', loc.j);
+  r = await owner('/round-forms', 'POST', {
+    name_ar: 'جولة سلامة المرافق', name_en: 'Facility safety round', every_days: 30, chapter: 'FMS', location_ids: [loc.j.id],
+    items: [{ text_ar: 'مخارج الطوارئ مفتوحة', text_en: 'Exits clear', std_code: 'fms.3.1' }, { text_ar: 'الطفايات صالحة', std_code: 'FMS.4' }, { text_ar: 'الإضاءة تعمل' }],
+  });
+  check(r.s === 200, 'a quality checklist needs no problem type', r.j);
+  const formId = r.j.id;
+  check((await owner('/round-forms', 'POST', { name_ar: 'س', name_en: 'X', every_days: 7, chapter: 'NOPE', location_ids: [loc.j.id], items: [{ text_ar: 'بند' }] })).s === 400, 'an unknown chapter is refused');
+  check((await owner('/round-forms', 'POST', { name_ar: 'س', name_en: 'X', every_days: 7, location_ids: [loc.j.id], items: [{ text_ar: 'بند', std_code: 'بند' }] })).s === 400, 'a bad standard code is refused');
+  const fm = (await owner('/round-forms/' + formId)).j;
+  check(fm.form.chapter === 'FMS' && fm.items[0].std_code === 'FMS.3.1', 'the chapter and the line standards are kept', fm);
+  const place = (await owner('/rounds')).j.places.find((x) => x.form_id === formId);
+  const st = (await owner('/rounds/start/' + place.id)).j;
+  const [i1, i2, i3] = st.items;
+  r = await owner('/rounds', 'POST', { place_id: place.id, answers: [{ item_id: i1.id, result: 'fail', note: 'مخرج مغلق بصناديق' }, { item_id: i2.id, result: 'fail' }, { item_id: i3.id, result: 'ok' }] });
+  check(r.s === 200 && r.j.ticket_id === null && r.j.capa_n === 2, 'two failed lines open two corrective actions and no request', r.j);
+  const roundId = r.j.id;
+  const det = (await owner('/rounds/' + roundId)).j;
+  check(det.capa.length === 2 && det.answers[0].std_code === 'FMS.3.1', 'the round shows its corrective actions', det);
+  const log = (await owner('/rounds/log')).j.rounds.find((x) => x.id === roundId);
+  check(log.capa_n === 2 && log.capa_open === 2, 'the log counts them', log);
+
+  r = await owner('/capa');
+  const mine = r.j.capa.filter((c) => c.round_id === roundId);
+  check(r.s === 200 && mine.length === 2 && r.j.can_verify, 'the register lists them', r.j);
+  const c1 = mine.find((c) => c.std_code === 'FMS.3.1');
+  check(c1 && c1.chapter === 'FMS' && c1.source === 'round' && c1.status === 'open' && c1.detail === 'مخرج مغلق بصناديق' && c1.loc_en === 'Generator room' && c1.due > st.today, 'an action carries the line, the standard, the place and a due date', c1);
+
+  check((await qv('/capa')).s === 200, 'a quality viewer reads the register');
+  check((await qv('/capa/' + c1.id, 'PUT', { status: 'doing' })).s === 403, 'a viewer cannot change an action');
+  check((await tech('/capa')).s === 403, 'no quality role, no register');
+  check((await qa('/capa/' + c1.id, 'PUT', { status: 'done' })).s === 400, 'closing needs the action taken');
+  r = await qa('/capa/' + c1.id, 'PUT', { owner: 'مشرف السلامة', cause: 'تخزين خاطئ', action: 'نقل الصناديق وتعليم المخرج', status: 'done' });
+  check(r.s === 200, 'the assessor closes it with the action', r.j);
+  check((await qa('/capa/' + c1.id, 'PUT', { status: 'verified' })).s === 403, 'only a quality manager verifies');
+  r = await owner('/capa/' + c1.id, 'PUT', { status: 'verified' });
+  check(r.s === 200, 'the manager verifies it', r.j);
+  r = (await owner('/capa/' + c1.id)).j.capa;
+  check(r.status === 'verified' && r.done_by && r.verified_by && r.owner === 'مشرف السلامة', 'who did and who checked are kept', r);
+  check((await qa('/capa/' + c1.id, 'PUT', { status: 'open' })).s === 403, 'an assessor cannot reopen a verified action');
+
+  r = await qa('/capa', 'POST', { title: 'تحديث خطة الإخلاء', chapter: 'FMS', std_code: 'FMS.2' });
+  check(r.s === 200, 'an assessor adds an action by hand', r.j);
+  const manual = r.j.id;
+  check((await qa('/capa', 'POST', { title: 'x', status: 'nope' })).s === 400, 'an unknown status is refused');
+  r = await owner('/home');
+  check(r.j.quality && r.j.quality.capa_open >= 2, 'the home page counts open actions', r.j.quality);
+  check((await qa('/capa/' + manual, 'DELETE')).s === 403, 'only a manager deletes');
+  check((await owner('/capa/' + manual, 'DELETE')).s === 200, 'the manager deletes it');
+}
+
 // Activity log and backup.
 r = await owner('/logs');
 check(r.s === 200 && r.j.logs.some((l) => l.action === 'assess' && l.entity === 'standard'), 'assessments are in the activity log');
