@@ -11,6 +11,7 @@ import { IDB, OFF, api, drawOffBar, errText, loading, personName, syncQueue, war
 import { calendarPage, committeesPage } from './js/meetings.js';
 import { chaptersPage, portalDocsPage, standardsPage } from './js/quality.js';
 import { capaPage } from './js/capa.js';
+import { kpisPage, readinessPage } from './js/kpis.js';
 import { compliancePage, reportsPage } from './js/reports.js';
 import { checklistsPage, duePage, roundLogPage, roundScanPage } from './js/rounds.js';
 import { categoriesPage, locationsPage, refreshBadge, requestPage, staffPage, ticketsPage, trackPage } from './js/tickets.js';
@@ -110,7 +111,7 @@ function portalPage(root, alive) {
 
 /* --------------------------------- start -------------------------------- */
 
-const PAGES = { dashboard: dashboardPage, tickets: ticketsPage, categories: categoriesPage, locations: locationsPage, staff: staffPage, api: apiPage, documents: documentsPage, departments: departmentsPage, types: typesPage, users: usersPage, logs: logsPage, health: healthPage, settings: settingsPage, register: registerPage, pm: pmPage, devtypes: devTypesPage, contracts: contractsPage, vendors: vendorsPage, parts: partsPage, moves: movesPage, requests: requestsPage, costs: costsPage, due: duePage, rlog: roundLogPage, checklists: checklistsPage, scan: roundScanPage, overview: reportsPage, compliance: compliancePage, chapters: chaptersPage, standards: standardsPage, committees: committeesPage, calendar: calendarPage, pdocs: portalDocsPage, capa: capaPage };
+const PAGES = { dashboard: dashboardPage, tickets: ticketsPage, categories: categoriesPage, locations: locationsPage, staff: staffPage, api: apiPage, documents: documentsPage, departments: departmentsPage, types: typesPage, users: usersPage, logs: logsPage, health: healthPage, settings: settingsPage, register: registerPage, pm: pmPage, devtypes: devTypesPage, contracts: contractsPage, vendors: vendorsPage, parts: partsPage, moves: movesPage, requests: requestsPage, costs: costsPage, due: duePage, rlog: roundLogPage, checklists: checklistsPage, scan: roundScanPage, overview: reportsPage, compliance: compliancePage, chapters: chaptersPage, standards: standardsPage, committees: committeesPage, calendar: calendarPage, pdocs: portalDocsPage, capa: capaPage, kpis: kpisPage, readiness: readinessPage };
 
 export function render() {
   const seq = ++renderSeq;

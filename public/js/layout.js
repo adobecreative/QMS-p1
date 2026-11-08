@@ -123,7 +123,8 @@ export const APPS = {
   desk: { icon: 'desk', pages: (r) => (r === 'admin' ? ['tickets', 'categories', 'locations', 'settings'] : r === 'none' ? [] : ['tickets']) },
   assets: { icon: 'box', pages: (r) => (r === 'none' ? [] : ['register', 'pm', 'contracts', 'vendors', 'parts', 'moves', 'requests', 'costs', ...(r === 'viewer' ? [] : ['devtypes'])]) },
   rounds: { icon: 'clipboard', pages: (r) => (r === 'none' ? [] : r === 'inspector' ? ['due', 'rlog', 'scan'] : ['due', 'rlog', 'checklists', 'scan']) },
-  reports: { icon: 'chart', pages: (r) => (r === 'admin' ? ['overview', 'compliance'] : []) },
+  // Quality indicators and the readiness report, for quality staff and the admins.
+  reports: { icon: 'chart', pages: (r) => (r === 'none' ? [] : ['kpis', 'readiness']) },
   admin: { icon: 'shield', pages: (r) => (r === 'admin' ? ['users', 'departments', 'staff', ...(OFF_APPS.includes('desk') ? ['locations'] : []), ...(S.user.is_owner ? ['api'] : []), 'logs', ...(S.user.is_owner ? ['health'] : []), 'settings'] : []) },
 };
 export const APP_ORDER = ['quality', 'meetings', 'docs', 'desk', 'assets', 'rounds', 'reports', 'admin'];
@@ -133,13 +134,13 @@ export const isAdminRole = (u) => u.role === 'super_admin' || u.role === 'system
 // Asset Management, spare parts and maintenance requests belong to the facilities system (FMS); its evidence
 // comes over the optional link. With Requests off, the places (used by the rounds) move to the Admin Center.
 export const OFF_APPS = ['assets', 'desk'];
-export const access = (app) => OFF_APPS.includes(app) ? 'none' : (app === 'admin' || app === 'reports' ? (isAdminRole(S.user) ? 'admin' : 'none') : S.user[app] || 'none');
+export const access = (app) => OFF_APPS.includes(app) ? 'none' : (app === 'admin' ? (isAdminRole(S.user) ? 'admin' : 'none') : app === 'reports' ? (isAdminRole(S.user) ? 'admin' : S.user.quality || 'none') : S.user[app] || 'none');
 export const appPages = (app) => APPS[app].pages(access(app));
 export const myApps = () => APP_ORDER.filter((a) => appPages(a).length);
 // Pages opened from inside another page, not shown in the menu.
 export const HIDDEN_ROUTES = { categories: 'tickets', ...(OFF_APPS.includes('desk') ? {} : { locations: 'tickets' }), scan: 'due', vendors: 'contracts', moves: 'parts', requests: 'parts' };
 // Addresses from before the portal (bookmarks, links in emails) still open their page.
-export const PAGE_APP = { dashboard: 'docs', documents: 'docs', types: 'docs', pdocs: 'docs', tickets: 'desk', categories: 'desk', locations: 'admin', users: 'admin', departments: 'admin', staff: 'admin', api: 'admin', logs: 'admin', health: 'admin', register: 'assets', pm: 'assets', devtypes: 'assets', contracts: 'assets', vendors: 'assets', parts: 'assets', moves: 'assets', requests: 'assets', costs: 'assets', due: 'rounds', rlog: 'rounds', checklists: 'rounds', scan: 'rounds', overview: 'reports', compliance: 'reports', chapters: 'quality', standards: 'quality', capa: 'quality', committees: 'meetings', calendar: 'meetings' };
+export const PAGE_APP = { dashboard: 'docs', documents: 'docs', types: 'docs', pdocs: 'docs', tickets: 'desk', categories: 'desk', locations: 'admin', users: 'admin', departments: 'admin', staff: 'admin', api: 'admin', logs: 'admin', health: 'admin', register: 'assets', pm: 'assets', devtypes: 'assets', contracts: 'assets', vendors: 'assets', parts: 'assets', moves: 'assets', requests: 'assets', costs: 'assets', due: 'rounds', rlog: 'rounds', checklists: 'rounds', scan: 'rounds', overview: 'reports', compliance: 'reports', kpis: 'reports', readiness: 'reports', chapters: 'quality', standards: 'quality', capa: 'quality', committees: 'meetings', calendar: 'meetings' };
 // A link written as a page name ("tickets/5") goes to that page in the system it belongs to.
 export function fullPath(path) {
   const first = path.split('/')[0];

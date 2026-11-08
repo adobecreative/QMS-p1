@@ -3645,3 +3645,88 @@ tr.is-off td {
     display: none;
   }
 }
+
+/* Quality indicators: the small trend in the table and the detail chart. */
+.kpi-spark {
+  display: block;
+  overflow: visible;
+}
+.kpi-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+.kpi-target {
+  stroke: var(--muted);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+  vector-effect: non-scaling-stroke;
+}
+.kpi-grid {
+  stroke: var(--line-soft);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.kpi-dot {
+  fill: var(--green);
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+.kpi-dot.is-below {
+  fill: var(--red);
+}
+.kpi-axis {
+  fill: var(--muted);
+  font-size: 11px;
+  font-family: var(--sans);
+}
+.kpi-hit {
+  fill: transparent;
+}
+.kpi-chart-box {
+  position: relative;
+}
+.kpi-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 280px;
+}
+.kpi-tip {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 13px;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(31, 26, 18, 0.12);
+}
+.kpi-meter-cell {
+  min-width: 140px;
+}
+.kpi-meter-cell .qa-meter {
+  margin-bottom: 2px;
+}
+.kpi-lib {
+  max-height: 50vh;
+  overflow-y: auto;
+}
+tr.is-off td {
+  opacity: 0.55;
+}
+@media print {
+  .no-print,
+  .topbar,
+  .app-nav {
+    display: none !important;
+  }
+}
+.kpi-body {
+  padding: 16px 20px;
+}
