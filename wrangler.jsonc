@@ -1,7 +1,7 @@
 {
   // QMS — Hospital Quality Management (CBAHI / JCI), built on the Fikra platform structure.
   // Everything here must stay separate from the Fikra / FMS projects: own Worker, database and storage.
-  "name": "qms-p2",
+  "name": "qms-p1",
   "main": "src/worker.js",
   "compatibility_date": "2026-09-01",
 
@@ -19,7 +19,7 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "qms-db-p2"
+      "database_name": "qms-db-p1"
     }
   ],
 
@@ -27,7 +27,7 @@
   "r2_buckets": [
     {
       "binding": "FILES",
-      "bucket_name": "qms-files-p2"
+      "bucket_name": "qms-files-p1"
     }
   ],
 
@@ -66,13 +66,13 @@
     "d1_databases": [
       {
         "binding": "DB",
-        "database_name": "qms-db-p2-preview"
+        "database_name": "qms-db-p1-preview"
       }
     ],
     "r2_buckets": [
       {
         "binding": "FILES",
-        "bucket_name": "qms-files-p2-preview"
+        "bucket_name": "qms-files-p1-preview"
       }
     ],
     "ai": {
