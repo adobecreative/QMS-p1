@@ -6,13 +6,15 @@
 
 | المورد | الاسم |
 |---|---|
-| Worker | `qms-p1` |
-| قاعدة البيانات D1 | `qms-db-p1`، وللمعاينات `qms-db-p1-preview` |
-| التخزين R2 | `qms-files-p1`، وللمعاينات `qms-files-p1-preview` |
+| Worker | `qms-p2` |
+| قاعدة البيانات D1 | `qms-db-p2`، وللمعاينات `qms-db-p2-preview` |
+| التخزين R2 | `qms-files-p2`، وللمعاينات `qms-files-p2-preview` |
+
+> **نقل البيانات من موارد p1 (مرة واحدة):** قبل دمج تغيير الأسماء: `npx wrangler d1 export qms-db-p1 --remote --output qms.sql` ثم `npx wrangler d1 create qms-db-p2` ثم `npx wrangler d1 execute qms-db-p2 --remote --file qms.sql`. وأنشئ `qms-files-p2` وانسخ إليه ملفات `qms-files-p1` (R2 ← Data Migration). احذف موارد p1 بعد التأكد فقط.
 
 إعداد النشر في Cloudflare (Workers & Pages ← المشروع ← Settings ← Build): **Build command فارغ**، و **Deploy command = `npx wrangler deploy`**، والفرع `main`.
 
-**الترخيص:** الترخيص في `wrangler.jsonc` صادر لنطاق **`qms.ai-fikra.com`** (المستشفى العام، ينتهي 2027-11-04). اربط هذا النطاق بالـ Worker من Cloudflare: Workers & Pages ← qms-p1 ← Settings ← Domains & Routes ← Add ← Custom domain. أي نطاق آخر (مثل workers.dev) يظهر عليه «غير مرخّص».
+**الترخيص:** الترخيص في `wrangler.jsonc` صادر لنطاق **`qms.ai-fikra.com`** (المستشفى العام، ينتهي 2027-11-04). اربط هذا النطاق بالـ Worker من Cloudflare: Workers & Pages ← qms-p2 ← Settings ← Domains & Routes ← Add ← Custom domain. أي نطاق آخر (مثل workers.dev) يظهر عليه «غير مرخّص».
 
 **خطة الوحدات:** الأساس (هذه النسخة) ← فصول سباهي والمعايير ونسبة الجاهزية ← بلاغات OVR والشكاوى ← الإجراءات التصحيحية CAPA ← المؤشرات ولوحة الإدارة ← اللجان والاجتماعات. الوثائق والجولات والعقود والتقارير موجودة من المنصة وتُكيَّف للجودة.
 

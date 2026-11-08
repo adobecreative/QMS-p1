@@ -1,7 +1,7 @@
 {
   // QMS — Hospital Quality Management (CBAHI / JCI), built on the Fikra platform structure.
   // Everything here must stay separate from the Fikra / FMS projects: own Worker, database and storage.
-  "name": "qms-p1",
+  "name": "qms-p2",
   "main": "src/worker.js",
   "compatibility_date": "2026-09-01",
 
@@ -19,7 +19,7 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "qms-db-p1"
+      "database_name": "qms-db-p2"
     }
   ],
 
@@ -27,7 +27,7 @@
   "r2_buckets": [
     {
       "binding": "FILES",
-      "bucket_name": "qms-files-p1"
+      "bucket_name": "qms-files-p2"
     }
   ],
 
@@ -54,7 +54,8 @@
   },
 
   // PR preview builds (Workers Builds runs `wrangler preview` for non-main branches).
-  // Previews use their own empty database and storage, never the live data.
+  // Previews use their own empty database and storage, never the live data
+  // (no database_id: like production, it is found by name or created).
   // Cron triggers are not supported in previews. The license is domain-locked,
   // so a preview link opens on the license page; it still proves the build works.
   "previews": {
@@ -64,14 +65,13 @@
     "d1_databases": [
       {
         "binding": "DB",
-        "database_name": "qms-db-p1-preview",
-        "database_id": "74f69887-1414-44af-8f14-184de2f43f34"
+        "database_name": "qms-db-p2-preview"
       }
     ],
     "r2_buckets": [
       {
         "binding": "FILES",
-        "bucket_name": "qms-files-p1-preview"
+        "bucket_name": "qms-files-p2-preview"
       }
     ],
     "ai": {
