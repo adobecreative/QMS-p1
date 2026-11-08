@@ -242,11 +242,8 @@ const server = createServer(async (req, res) => {
   }
 });
 
-// The same schedule as wrangler.jsonc: every 15 minutes, and every day at 05:00 UTC.
-const CRONS = [
-  { cron: '*/15 * * * *', due: (d) => d.getUTCMinutes() % 15 === 0 },
-  { cron: '0 5 * * *', due: (d) => d.getUTCHours() === 5 && d.getUTCMinutes() === 0 },
-];
+// The same schedule as wrangler.jsonc: every 15 minutes (the 05:00 UTC run does the daily jobs).
+const CRONS = [{ cron: '*/15 * * * *', due: (d) => d.getUTCMinutes() % 15 === 0 }];
 let lastTick = Math.floor(Date.now() / 60000);
 setInterval(() => {
   const minute = Math.floor(Date.now() / 60000);

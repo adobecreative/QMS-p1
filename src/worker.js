@@ -1093,7 +1093,9 @@ export default {
         // Daily: files near or past expiry, and the rounds due. Every 15 minutes: planned maintenance due, then late tickets.
         // A job that breaks is kept in the activity log, so it shows on the owner's health page.
         try {
-          if (event.cron === '0 5 * * *') {
+          // One cron only (every 15 minutes): its 05:00 UTC run does the daily jobs. '0 5 * * *' still works when called by hand.
+          const at = new Date(event.scheduledTime);
+          if (event.cron === '0 5 * * *' || (at.getUTCHours() === 5 && at.getUTCMinutes() < 15)) {
             console.log('reminders', JSON.stringify(await runReminders(env, null)));
             console.log('round reminders', JSON.stringify(await runRoundReminders(env, null, false)));
             console.log('contract reminders', JSON.stringify(await runContractReminders(env)));
@@ -1104,7 +1106,7 @@ export default {
             const day = todayIn((await getSettings(env)).timezone);
             console.log('kpis', JSON.stringify(await refreshAutoKpis(env, day)));
             await snapshotReadiness(env, day);
-          } else if (isAutoBackupTick(new Date(event.scheduledTime))) {
+          } else if (isAutoBackupTick(at)) {
             // One 15-minute run a week goes to the backup instead, so it has the run's whole query allowance.
             console.log('auto backup', JSON.stringify(await runAutoBackup(env)));
           } else {
