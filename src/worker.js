@@ -19,6 +19,7 @@ import { handleHome } from './systems/home.js';
 import { handleFmsLink, handlePortalDocs, portalDocsOn, runFmsSync } from './systems/fmslink.js';
 import { handleQuality, seedChapters } from './systems/quality.js';
 import { handleCapa } from './systems/capa.js';
+import { handleKpis, refreshAutoKpis, snapshotReadiness } from './systems/kpis.js';
 import { handleRounds, runRoundReminders } from './systems/rounds.js';
 import { handlePublicTickets, handleTickets, runTicketAlerts } from './systems/tickets.js';
 
@@ -668,6 +669,12 @@ async function handleApi(request, env, url, ctx) {
 
   // Corrective actions (CAPA), from failed round lines or added by hand.
   if (seg[0] === 'capa') return handleCapa(request, env, url, seg, method, user);
+  // Quality indicators and the accreditation readiness report.
+  if (seg[0] === 'kpis' || seg[0] === 'readiness') {
+    const res = await handleKpis(request, env, url, seg, method, user);
+    if (res) return res;
+    fail(404, 'not_found');
+  }
 
   if (['rounds', 'round-forms'].includes(seg[0])) {
     const res = await handleRounds(request, env, url, seg, method, user, ctx);
@@ -1093,6 +1100,10 @@ export default {
             console.log('stock reminders', JSON.stringify(await runStockReminders(env)));
             console.log('monthly report', JSON.stringify(await runMonthlyReport(env, null, false)));
             console.log('meeting jobs', JSON.stringify(await runMeetingJobs(env)));
+            // Indicators worked out from the system, and this month's readiness for the trend.
+            const day = todayIn((await getSettings(env)).timezone);
+            console.log('kpis', JSON.stringify(await refreshAutoKpis(env, day)));
+            await snapshotReadiness(env, day);
           } else if (isAutoBackupTick(new Date(event.scheduledTime))) {
             // One 15-minute run a week goes to the backup instead, so it has the run's whole query allowance.
             console.log('auto backup', JSON.stringify(await runAutoBackup(env)));

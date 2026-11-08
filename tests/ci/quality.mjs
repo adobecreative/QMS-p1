@@ -352,6 +352,49 @@ check((await qv('/quality')).j.fms === null, 'and the evidence leaves the FMS ch
   check((await owner('/capa/' + manual, 'DELETE')).s === 200, 'the manager deletes it');
 }
 
+// Quality indicators: from the library, entered by period, worked out from the system; the readiness report.
+{
+  r = await owner('/kpis');
+  check(r.s === 200 && r.j.kpis.length === 0 && r.j.library.length >= 10 && r.j.can_manage, 'the indicator library is offered', r.j);
+  check((await tech('/kpis')).s === 403, 'no quality role, no indicators');
+  check((await qa('/kpis/library', 'POST', { codes: ['IPC-HH'] })).s === 403, 'only a quality manager adds indicators');
+  r = await owner('/kpis/library', 'POST', { codes: ['IPC-HH', 'QM-ROUNDS', 'QM-CAPA', 'NR-FALL'] });
+  check(r.s === 200 && r.j.added === 4, 'four indicators come from the library', r.j);
+  r = await owner('/kpis');
+  const hh = r.j.kpis.find((k) => k.code === 'IPC-HH');
+  const rounds = r.j.kpis.find((k) => k.code === 'QM-ROUNDS');
+  const fall = r.j.kpis.find((k) => k.code === 'NR-FALL');
+  check(hh && hh.unit === 'pct' && hh.target === 90 && hh.chapter === 'IPC' && hh.can_enter, 'an indicator carries its unit, target and chapter', hh);
+  check(rounds && rounds.source === 'rounds' && rounds.values.some((v) => v.period === rounds.current && v.den >= 1 && v.entered_by === 'system'), 'rounds on time is worked out from the rounds done', rounds);
+  check(!rounds.can_enter && (await owner('/kpis/' + rounds.id + '/values', 'PUT', { period: rounds.current, num: 1, den: 1 })).s === 400, 'an automatic indicator takes no typed numbers');
+  const [y, m] = hh.current.split('-').map(Number);
+  const prev = m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
+  const next = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
+  check((await owner('/kpis/' + hh.id + '/values', 'PUT', { period: next, num: 1, den: 2 })).s === 400, 'a future period is refused');
+  check((await owner('/kpis/' + hh.id + '/values', 'PUT', { period: prev, num: 60, den: 50 })).s === 400, 'a percentage numerator cannot pass the denominator');
+  check((await qv('/kpis/' + hh.id + '/values', 'PUT', { period: prev, num: 45, den: 50 })).s === 403, 'a viewer cannot enter numbers');
+  r = await qa('/kpis/' + hh.id + '/values', 'PUT', { period: prev, num: 45, den: 50, note: 'رصد شهري' });
+  check(r.s === 200 && r.j.value === 90 && r.j.met === true, 'the assessor enters a month: 45 of 50 is 90%, met', r.j);
+  r = await owner('/kpis/' + fall.id + '/values', 'PUT', { period: prev, num: 3, den: 1500 });
+  check(r.s === 200 && r.j.value === 2 && r.j.met === false, 'falls per 1000 days: 2 is above the target of 1, below target', r.j);
+  check((await owner('/kpis', 'POST', { code: 'IPC-HH', name_ar: 'مكرر', name_en: 'Dup' })).s === 409, 'a code is used once');
+  check((await owner('/kpis', 'POST', { code: 'رمز', name_ar: 'س', name_en: 'X' })).s === 400, 'a code is English letters and numbers');
+  r = await owner('/kpis', 'POST', { code: 'ER-WAIT', name_ar: 'متوسط الانتظار في الطوارئ', name_en: 'ER waiting time', unit: 'value', direction: 'down', target: 30, frequency: 'quarterly' });
+  check(r.s === 200, 'a quarterly indicator of plain numbers is added', r.j);
+  const er = r.j.id;
+  const q = (await owner('/kpis')).j.kpis.find((k) => k.id === er);
+  check(/^\d{4}-Q[1-4]$/.test(q.current), 'its period is a quarter', q.current);
+  r = await owner('/kpis/' + er + '/values', 'PUT', { period: q.current, num: 25 });
+  check(r.s === 200 && r.j.value === 25 && r.j.met === true, 'a plain number needs no denominator', r.j);
+  check((await owner('/kpis/' + er, 'DELETE')).s === 200, 'an indicator is deleted with its values');
+
+  r = await owner('/readiness');
+  check(r.s === 200 && r.j.framework === 'cbahi' && r.j.total.n > 0 && Array.isArray(r.j.gaps) && r.j.trend.length >= 1 && r.j.chapters.length > 0, 'the readiness report has totals, chapters, gaps and this month in the trend', r.j);
+  check((await qv('/readiness')).s === 200 && (await tech('/readiness')).s === 403, 'quality staff read the readiness report');
+  r = await owner('/backup');
+  if (r.s === 200) check(((r.j.data || r.j).kpis || []).length >= 4 && ((r.j.data || r.j).kpi_values || []).length >= 2, 'the backup keeps the indicators and their values');
+}
+
 // Activity log and backup.
 r = await owner('/logs');
 check(r.s === 200 && r.j.logs.some((l) => l.action === 'assess' && l.entity === 'standard'), 'assessments are in the activity log');

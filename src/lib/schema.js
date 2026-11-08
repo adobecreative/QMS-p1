@@ -683,4 +683,41 @@ export const MIGRATIONS = [
      updated_at TEXT NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS idx_capa_status ON capa(status, due)`,
   `CREATE INDEX IF NOT EXISTS idx_capa_round ON capa(round_id)`,
+  // Quality indicators. unit: pct (x100), per1000 (x1000), value (the number itself). direction: up or down is better.
+  // frequency: monthly (period 2026-11) or quarterly (2026-Q4). source: manual, or worked out (rounds, capa, docs, meetings).
+  `CREATE TABLE IF NOT EXISTS kpis (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     code TEXT NOT NULL UNIQUE,
+     name_ar TEXT NOT NULL,
+     name_en TEXT NOT NULL,
+     chapter TEXT,
+     std_code TEXT,
+     department_id INTEGER,
+     num_ar TEXT,
+     den_ar TEXT,
+     unit TEXT NOT NULL DEFAULT 'pct',
+     direction TEXT NOT NULL DEFAULT 'up',
+     target REAL,
+     frequency TEXT NOT NULL DEFAULT 'monthly',
+     source TEXT NOT NULL DEFAULT 'manual',
+     active INTEGER NOT NULL DEFAULT 1,
+     created_at TEXT NOT NULL,
+     updated_at TEXT NOT NULL)`,
+  // One period's totals for an indicator (never patient records).
+  `CREATE TABLE IF NOT EXISTS kpi_values (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     kpi_id INTEGER NOT NULL,
+     period TEXT NOT NULL,
+     num REAL,
+     den REAL,
+     note TEXT,
+     entered_by TEXT,
+     entered_at TEXT NOT NULL,
+     UNIQUE (kpi_id, period))`,
+  // Each framework's readiness once a month, for the trend on the readiness report.
+  `CREATE TABLE IF NOT EXISTS std_snapshots (
+     month TEXT NOT NULL,
+     framework TEXT NOT NULL,
+     data TEXT NOT NULL,
+     PRIMARY KEY (month, framework))`,
 ];

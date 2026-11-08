@@ -15,7 +15,7 @@ export const scoreChip = (s) => h('span', { class: 'chip ' + (s ? SCORE_CHIP[s] 
 const pctText = (p) => (p === null || p === undefined ? '-' : p + '%');
 // Green from 80%, yellow from 60%, red below (the usual accreditation-readiness bands).
 const band = (p) => (p === null || p === undefined ? '' : p >= 80 ? 'is-good' : p >= 60 ? 'is-mid' : 'is-low');
-const meter = (p, label) => h('div', { class: 'qa-meter ' + band(p), role: 'img', 'aria-label': label + ': ' + pctText(p) }, h('span', { style: 'width:' + (p || 0) + '%' }));
+export const meter = (p, label) => h('div', { class: 'qa-meter ' + band(p), role: 'img', 'aria-label': label + ': ' + pctText(p) }, h('span', { style: 'width:' + (p || 0) + '%' }));
 const counts = (s) =>
   h(
     'div',

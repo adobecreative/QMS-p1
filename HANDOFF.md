@@ -451,3 +451,16 @@ file form). The chapter page in Quality shows those files as tiles ("Chapter fil
 - Home: the quality card shows open CAPA (red when any is late). Backup includes `capa`.
 - Tests: `tests/ci/quality.mjs` (quality round block), `tests/ci/systems.mjs` (a failed line with a problem type
   opens a request and a CAPA).
+
+## Indicators (KPIs) and accreditation readiness
+
+- The Reports app (التقارير والمؤشرات) now holds المؤشرات (`#/reports/kpis`) and الجاهزية للاعتماد
+  (`#/reports/readiness`). It opens for any quality role and the admins; the old maintenance reports are off the menu.
+- `src/systems/kpis.js`: tables `kpis`, `kpi_values` (one row per indicator and period: totals only, no patient
+  data) and `std_snapshots` (each framework's readiness once a month, for the trend).
+- An indicator: code, names, chapter/standard, department, numerator/denominator wording, unit (pct ×100, per1000,
+  plain value), direction, target, monthly or quarterly. Managers define them (or add from `KPI_LIBRARY`); assessors
+  enter numbers for their department's indicators. Automatic sources (rounds on time, CAPA closed on time,
+  documents in date, meetings held) refill the running and previous period on every open and at 05:00.
+- A below-target period has a button that opens a CAPA tied to the indicator's chapter and standard.
+- Readiness: totals, chapters, departments, the gaps list (ESR first) and the monthly trend; printable.
