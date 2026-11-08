@@ -31,9 +31,10 @@
     }
   ],
 
-  // Daily file reminders (UTC: 05:00 UTC = 08:00 Riyadh), and late-ticket alerts every 15 minutes.
+  // One schedule only (the free plan allows 5 per account): every 15 minutes. The 05:00 UTC run
+  // (08:00 Riyadh) does the daily reminders instead; see scheduled() in src/worker.js.
   "triggers": {
-    "crons": ["0 5 * * *", "*/15 * * * *"]
+    "crons": ["*/15 * * * *"]
   },
 
   // AI assistant (Cloudflare Workers AI): free daily allowance, nothing to create or pay for.
