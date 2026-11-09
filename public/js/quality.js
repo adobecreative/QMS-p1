@@ -353,7 +353,7 @@ function elementsList(s) {
           'li',
           {},
           h('div', { class: 'qa-el-head' }, h('span', { class: 'mono small strong', dir: 'ltr' }, elLabel(s, e)), elBadges(e), e.score ? scoreChip(e.score) : null),
-          h('p', { class: 'qa-el-text', dir: 'ltr', lang: 'en' }, e.text),
+          h('p', { class: 'qa-el-text', dir: 'auto' }, e.text),
           e.note && e.score !== 'met' ? h('p', { class: 'small muted qa-note' }, e.note) : null,
         ),
       ),
@@ -394,6 +394,7 @@ function standardDialog(s, chapters, ch, fw) {
   const jci = input({ type: 'text', maxlength: 200, dir: 'ltr', value: s ? s.jci || '' : '', placeholder: 'GLD.1, GLD.3' });
   const esr = input({ type: 'checkbox', checked: s ? !!s.esr : ch === 'ESR' });
   const dept = select([['', t('common.none')], ...(S.quality.dept_list || []).map((x) => [x.id, pick(x.name_ar, x.name_en)])], s ? s.department_id ?? '' : '', {});
+  const els = elementsEditor(s, fw, code);
   code.addEventListener('input', () => {
     const m = /^([A-Za-z&]{2,6})/.exec(code.value);
     if (m && chapters.some((c) => c.code === m[1].toUpperCase())) chapter.value = m[1].toUpperCase();
@@ -408,14 +409,60 @@ function standardDialog(s, chapters, ch, fw) {
       field(t('qa.title_en'), titleEn),
       h('div', { class: 'form-grid' }, fw === 'cbahi' ? field(t('qa.jci'), jci, t('qa.jci_hint')) : null, field(t('qa.owner_dept'), dept, t('qa.owner_dept_hint'))),
       fw === 'cbahi' ? checkField(t('qa.esr_check'), esr) : null,
+      els.box,
     ),
     onSubmit: async () => {
-      const body = { framework: fw, code: code.value, chapter: chapter.value, title_ar: titleAr.value, title_en: titleEn.value, jci: jci.value, esr: esr.checked, department_id: dept.value ? Number(dept.value) : null };
+      const body = { framework: fw, code: code.value, chapter: chapter.value, title_ar: titleAr.value, title_en: titleEn.value, jci: jci.value, esr: esr.checked, department_id: dept.value ? Number(dept.value) : null, elements: els.value() };
       await api(s ? '/standards/' + s.id : '/standards', { method: s ? 'PUT' : 'POST', body });
       toast(t('qa.std_saved'));
       render();
     },
   });
+}
+
+// The standard's sub-standards (JCI: MEs) in the standard's dialog: number and text, added, changed, removed.
+// One already scored cannot be removed, so its history stays.
+function elementsEditor(s, fw, code) {
+  const rows = (s ? s.elements : []).map((e) => ({ id: e.id, num: e.num, text: e.text, doc: e.doc, locked: !!(e.score || (e.activities || []).some((a) => a.score)) }));
+  const list = h('ol', { class: 'qa-el-edit' });
+  const prefix = () => (fw === 'jci' ? 'ME ' : (code.value.trim() || 'X') + '.');
+  const draw = () =>
+    list.replaceChildren(
+      ...rows.map((r) => {
+        const num = input({ type: 'text', dir: 'ltr', maxlength: 10, required: true, value: r.num, 'aria-label': t('qa.el_num') });
+        num.addEventListener('input', () => (r.num = num.value));
+        const text = h('textarea', { rows: 3, dir: 'auto', maxlength: 4000, required: true, 'aria-label': t('qa.el_text') }, r.text);
+        text.addEventListener('input', () => (r.text = text.value));
+        const del = h('button', {
+          type: 'button',
+          class: 'btn btn-icon btn-small',
+          disabled: r.locked,
+          title: t(r.locked ? 'qa.el_scored' : 'common.delete'),
+          'aria-label': t('common.delete') + ': ' + prefix() + r.num,
+          onclick: () => {
+            rows.splice(rows.indexOf(r), 1);
+            draw();
+          },
+        }, icon('trash', 16));
+        return h('li', {}, h('div', { class: 'qa-el-edit-num' }, h('span', { class: 'mono small muted', dir: 'ltr' }, prefix()), num, del), text);
+      }),
+    );
+  code.addEventListener('input', draw);
+  draw();
+  const add = h('button', {
+    type: 'button',
+    class: 'btn btn-small',
+    onclick: () => {
+      const next = rows.reduce((n, r) => Math.max(n, parseInt(r.num, 10) || 0), 0) + 1;
+      rows.push({ id: null, num: String(next), text: '', doc: 0, locked: false });
+      draw();
+      list.querySelector('li:last-child textarea')?.focus();
+    },
+  }, icon('plus', 16), t(fw === 'jci' ? 'qa.me_add' : 'qa.el_add'));
+  return {
+    box: h('fieldset', { class: 'qa-el-fieldset' }, h('legend', {}, t(fw === 'jci' ? 'qa.els_me_title' : 'qa.els_title')), list, add),
+    value: () => rows.map((r) => ({ id: r.id, num: r.num.trim(), text: r.text.trim(), doc: r.doc })),
+  };
 }
 
 function assessDialog(s) {
@@ -531,7 +578,7 @@ function elBody(s, e) {
   const [lead, ...items] = String(e.text).split(/\n\s*[•▪●◦-]\s*/);
   const label = elLabel(s, e);
   return [
-    h('p', { class: 'qa-el-text', dir: 'ltr', lang: 'en' }, lead.trim()),
+    h('p', { class: 'qa-el-text', dir: 'auto' }, lead.trim()),
     items.length
       ? h(
           'ol',

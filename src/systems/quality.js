@@ -74,6 +74,45 @@ export function rollup(scores, esr) {
   return esr ? 'not_met' : 'partial';
 }
 
+// The sub-standards (or MEs) a manager types in, in their order: each has a number and a text. Rows with an
+// id are updated; rows left out are removed, unless they were already scored (their history stays).
+const EL_NUM_RE = /^[0-9A-Za-z][0-9A-Za-z.\-]{0,9}$/;
+function readElements(list) {
+  if (list === undefined) return null;
+  if (!Array.isArray(list)) fail(400, 'std_bad_element');
+  const seen = new Set();
+  return list.slice(0, 60).map((e, k) => {
+    const num = str(e && String(e.num ?? ''), 10).replace(/\s+/g, '');
+    const text = str(e && e.text, 4000);
+    if (!EL_NUM_RE.test(num) || !text) fail(400, 'std_bad_element');
+    if (seen.has(num)) fail(400, 'std_el_num_taken');
+    seen.add(num);
+    return { id: Number.isInteger(e.id) ? e.id : null, num, text, doc: e.doc ? 1 : 0, sort: k + 1 };
+  });
+}
+async function elementStmts(env, sid, list, esr) {
+  const { results: had } = await env.DB.prepare('SELECT e.*, (SELECT COUNT(*) FROM std_activities a WHERE a.element_id = e.id AND a.score IS NOT NULL) AS acts FROM std_elements e WHERE e.standard_id = ?').bind(sid).all();
+  const old = Object.fromEntries(had.map((e) => [e.id, e]));
+  if (list.some((e) => e.id && !old[e.id])) fail(404, 'not_found');
+  const keep = new Set(list.filter((e) => e.id).map((e) => e.id));
+  const stmts = [];
+  for (const e of had) {
+    if (keep.has(e.id)) continue;
+    if (e.score || e.acts) fail(409, 'std_el_scored');
+    stmts.push(env.DB.prepare('DELETE FROM std_activities WHERE element_id = ?').bind(e.id), env.DB.prepare('DELETE FROM std_elements WHERE id = ?').bind(e.id));
+  }
+  // Numbers move first out of the way, so two rows can swap numbers without breaking UNIQUE (standard_id, num).
+  for (const e of list.filter((x) => x.id)) stmts.push(env.DB.prepare("UPDATE std_elements SET num = '~' || id WHERE id = ?").bind(e.id));
+  for (const e of list) {
+    if (e.id) stmts.push(env.DB.prepare('UPDATE std_elements SET num = ?, text = ?, doc = ?, sort = ? WHERE id = ?').bind(e.num, e.text, e.doc, e.sort, e.id));
+    else stmts.push(env.DB.prepare('INSERT INTO std_elements (standard_id, num, text, doc, is_new, sort) VALUES (?, ?, ?, ?, 0, ?)').bind(sid, e.num, e.text, e.doc, e.sort));
+  }
+  // A new sub-standard is not scored yet, so the standard is open again; with none left it keeps its own score.
+  const score = list.length ? rollup(list.map((e) => (e.id ? old[e.id].score : null)), esr) : undefined;
+  if (score !== undefined) stmts.push(env.DB.prepare('UPDATE standards SET score = ? WHERE id = ?').bind(score, sid));
+  return stmts;
+}
+
 export async function seedChapters(env, settings) {
   if (settings.std_chapters_seeded === '1') return;
   await env.DB.batch([
@@ -396,12 +435,13 @@ export async function handleQuality(request, env, url, seg, method, user) {
     const body = await readJson(request);
     const fw = readFw(body.framework, settings);
     const d = readStandard(body, await chapterSet(fw));
+    const els = readElements(body.elements);
     if (await env.DB.prepare('SELECT 1 FROM standards WHERE framework = ? AND code = ?').bind(fw, d.code).first()) fail(409, 'std_code_taken');
     const now = nowIso();
     const res = await env.DB.prepare('INSERT INTO standards (framework, chapter, code, title_ar, title_en, esr, jci, department_id, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)')
       .bind(fw, d.chapter, d.code, d.title_ar, d.title_en, d.esr, d.jci, d.department_id, now, now)
       .run();
-    await logStmt(env, user, 'create', 'standard', res.meta.last_row_id, d.code).run();
+    await env.DB.batch([...(els && els.length ? await elementStmts(env, res.meta.last_row_id, els, false) : []), logStmt(env, user, 'create', 'standard', res.meta.last_row_id, d.code)]);
     return json({ ok: true, id: res.meta.last_row_id });
   }
 
@@ -526,9 +566,12 @@ export async function handleQuality(request, env, url, seg, method, user) {
 
   if (method === 'PUT' && seg.length === 2) {
     needManager();
-    const d = readStandard(await readJson(request), await chapterSet(std.framework), !std.title_ar);
+    const body = await readJson(request);
+    const d = readStandard(body, await chapterSet(std.framework), !std.title_ar);
+    const els = readElements(body.elements);
     if (d.code !== std.code && (await env.DB.prepare('SELECT 1 FROM standards WHERE framework = ? AND code = ? AND id <> ?').bind(std.framework, d.code, id).first())) fail(409, 'std_code_taken');
     await env.DB.batch([
+      ...(els ? await elementStmts(env, id, els, FRAMEWORKS[std.framework]?.esr && d.esr) : []),
       env.DB.prepare('UPDATE standards SET chapter = ?, code = ?, title_ar = ?, title_en = ?, esr = ?, jci = ?, department_id = ?, updated_at = ? WHERE id = ?').bind(d.chapter, d.code, d.title_ar, d.title_en, d.esr, d.jci, d.department_id, nowIso(), id),
       logStmt(env, user, 'update', 'standard', id, d.code, { code: [std.code, d.code], esr: [std.esr, d.esr], jci: [std.jci, d.jci], department_id: [std.department_id, d.department_id] }),
     ]);

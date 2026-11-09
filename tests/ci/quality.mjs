@@ -312,6 +312,28 @@ check((await qv('/quality')).j.fms === null, 'and the evidence leaves the FMS ch
   r = await owner('/standards/' + s10.id + '/history');
   check(r.j.history.length >= 2 && r.j.history[0].score === 'met', "the standard's history keeps its worked-out scores", r.j.history);
 
+  // Sub-standards typed in by a manager, in the standard's dialog.
+  const base10 = { code: 'IPC.10', title_ar: '', title_en: 'Test activities.' };
+  const cur = (await owner('/standards?chapter=IPC')).j.standards.find((x) => x.code === 'IPC.10');
+  const keepEls = cur.elements.map((e) => ({ id: e.id, num: e.num, text: e.text }));
+  check((await qa('/standards/' + s10.id, 'PUT', { ...base10, elements: keepEls })).s === 403, 'an assessor cannot change sub-standards');
+  check((await owner('/standards/' + s10.id, 'PUT', { ...base10, elements: [...keepEls, { num: '2', text: 'Twice.' }] })).j.error === 'std_el_num_taken', 'a sub-standard number is used once');
+  check((await owner('/standards/' + s10.id, 'PUT', { ...base10, elements: [...keepEls, { num: '3', text: '' }] })).j.error === 'std_bad_element', 'a sub-standard needs a text');
+  check((await owner('/standards/' + s10.id, 'PUT', { ...base10, elements: keepEls.slice(1) })).j.error === 'std_el_scored', 'a scored sub-standard cannot be removed');
+  r = await owner('/standards/' + s10.id, 'PUT', { ...base10, elements: [...keepEls, { num: '3', text: 'سياسة مكتوبة للغازات.' }] });
+  check(r.s === 200, 'a manager adds a sub-standard in Arabic', r.j);
+  let s10b = (await owner('/standards?chapter=IPC')).j.standards.find((x) => x.code === 'IPC.10');
+  check(s10b.elements.length === 3 && s10b.elements[2].num === '3' && s10b.elements[0].activities.length === 1, 'the new sub-standard is added and the scores stay', s10b.elements);
+  r = await owner('/standards/' + s10.id, 'PUT', { ...base10, elements: [{ ...keepEls[0], num: '2' }, { ...keepEls[1], num: '1' }, { id: s10b.elements[2].id, num: '3', text: 'Edited.' }] });
+  check(r.s === 200, 'two sub-standards can swap numbers', r.j);
+  s10b = (await owner('/standards?chapter=IPC')).j.standards.find((x) => x.code === 'IPC.10');
+  check(s10b.elements.find((e) => e.id === keepEls[0].id).num === '2' && s10b.elements[2].text === 'Edited.', 'the numbers and texts are saved', s10b.elements);
+  r = await owner('/standards/' + s10.id, 'PUT', { ...base10, elements: s10b.elements.slice(0, 2).map((e) => ({ id: e.id, num: e.num, text: e.text })) });
+  check(r.s === 200, 'an unscored sub-standard can be removed', r.j);
+  r = await owner('/standards', 'POST', { framework: 'cbahi', code: 'IPC.11', title_ar: 'معيار جديد', title_en: 'A new standard', elements: [{ num: '1', text: 'First.' }, { num: '2', text: 'Second.' }] });
+  check(r.s === 200, 'a new standard comes with its sub-standards', r.j);
+  check((await owner('/standards?chapter=IPC')).j.standards.find((x) => x.code === 'IPC.11').elements.length === 2, 'they are saved with it');
+
   // Which frameworks show.
   check((await qa('/quality/frameworks', 'PUT', { on: ['jci'] })).s === 403, 'an assessor cannot change the frameworks');
   check((await owner('/quality/frameworks', 'PUT', { on: [] })).s === 400, 'at least one framework stays on');
