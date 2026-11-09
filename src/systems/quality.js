@@ -13,6 +13,8 @@ import { fmsEvidence, portalDocUrl, portalDocsOn } from './fmslink.js';
 
 // met = fully met, partial = partially met, not_met, na = not applicable to this hospital.
 export const STD_SCORES = ['met', 'partial', 'not_met', 'na'];
+// How the surveyor checks a sub-standard: reads a document, looks at the place, asks the staff.
+export const STD_ACTIVITIES = ['document', 'observation', 'interview'];
 
 // The chapters a hospital starts with. ESR is not a chapter: it is a flag on standards in any chapter.
 // Names and the JCI mapping can be changed from the Chapters page; new chapters can be added.
@@ -266,15 +268,18 @@ export async function handleQuality(request, env, url, seg, method, user) {
       where.push('s.chapter = ?');
       binds.push(ch);
     }
-    const [{ results }, { results: els }] = await Promise.all([
+    const [{ results }, { results: els }, { results: acts }] = await Promise.all([
       env.DB.prepare(
         `SELECT s.*, d.name_ar AS dept_ar, d.name_en AS dept_en FROM standards s LEFT JOIN departments d ON d.id = s.department_id
           WHERE ${where.join(' AND ')} ORDER BY s.chapter, s.id LIMIT 3000`,
       ).bind(...binds).all(),
       env.DB.prepare(`SELECT e.* FROM std_elements e JOIN standards s ON s.id = e.standard_id WHERE ${where.join(' AND ')} ORDER BY e.standard_id, e.sort, e.id LIMIT 20000`).bind(...binds).all(),
+      env.DB.prepare(`SELECT a.id, a.element_id, a.kind, a.score, a.note, a.assessed_at, a.assessed_by FROM std_activities a JOIN standards s ON s.id = a.standard_id WHERE ${where.join(' AND ')} ORDER BY a.element_id, a.sort, a.id LIMIT 50000`).bind(...binds).all(),
     ]);
+    const byEl = {};
+    for (const a of acts) (byEl[a.element_id] = byEl[a.element_id] || []).push(a);
     const byStd = {};
-    for (const e of els) (byStd[e.standard_id] = byStd[e.standard_id] || []).push(e);
+    for (const e of els) (byStd[e.standard_id] = byStd[e.standard_id] || []).push({ ...e, activities: byEl[e.id] || [] });
     return json({ framework: fw, standards: results.map((s) => ({ ...s, elements: byStd[s.id] || [], can_score: canScore(s) })), can_manage: manager });
   }
 
@@ -343,7 +348,7 @@ export async function handleQuality(request, env, url, seg, method, user) {
           );
         // An element the new edition dropped goes, unless it was already scored.
         if (d.elements.length)
-          stmts.push(env.DB.prepare(`DELETE FROM std_elements WHERE standard_id = ? AND score IS NULL AND num NOT IN (${d.elements.map(() => '?').join(',')})`).bind(sid, ...d.elements.map((e) => e.num)));
+          stmts.push(env.DB.prepare(`DELETE FROM std_elements WHERE standard_id = ? AND score IS NULL AND id NOT IN (SELECT element_id FROM std_activities WHERE standard_id = ?) AND num NOT IN (${d.elements.map(() => '?').join(',')})`).bind(sid, sid, ...d.elements.map((e) => e.num)));
       }
       for (let i = 0; i < stmts.length; i += 100) await env.DB.batch(stmts.slice(i, i + 100));
     }
@@ -457,6 +462,68 @@ export async function handleQuality(request, env, url, seg, method, user) {
     return json({ ok: true, score });
   }
 
+  // The chapter scoring page: one element's activities, saved as they are scored. Each activity has its own
+  // score and comment; an activity left out is removed, one with no score is still open. The element's score
+  // comes from its activities, the standard's from its elements once they are all scored.
+  if (method === 'PUT' && seg[2] === 'elements' && /^\d+$/.test(seg[3] || '') && seg.length === 4) {
+    if (!canScore(std)) fail(403, 'forbidden');
+    const eid = Number(seg[3]);
+    const el = await env.DB.prepare('SELECT * FROM std_elements WHERE id = ? AND standard_id = ?').bind(eid, id).first();
+    if (!el) fail(404, 'not_found');
+    const body = await readJson(request);
+    const list = (Array.isArray(body.activities) ? body.activities : []).slice(0, 10);
+    if (!list.length) fail(400, 'std_no_activity');
+    const want = list.map((a, k) => {
+      const kind = STD_ACTIVITIES.includes(a && a.kind) ? a.kind : fail(400, 'std_bad_activity');
+      const score = a.score === null || a.score === undefined || a.score === '' ? null : STD_SCORES.includes(a.score) ? a.score : fail(400, 'std_bad_score');
+      return { id: Number.isInteger(a.id) ? a.id : null, kind, score, note: str(a.note, 1000) || null, sort: k + 1 };
+    });
+    const { results: had } = await env.DB.prepare('SELECT * FROM std_activities WHERE element_id = ?').bind(eid).all();
+    const old = Object.fromEntries(had.map((a) => [a.id, a]));
+    if (want.some((a) => a.id && !old[a.id])) fail(404, 'not_found');
+    const now = nowIso();
+    const stmts = [];
+    const keep = new Set(want.filter((a) => a.id).map((a) => a.id));
+    for (const a of had) if (!keep.has(a.id)) stmts.push(env.DB.prepare('DELETE FROM std_activities WHERE id = ?').bind(a.id));
+    const history = (aid, a) => (a.score ? [env.DB.prepare('INSERT INTO std_assessments (standard_id, element_id, activity_id, score, note, user_id, user_name, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').bind(id, eid, aid, a.score, a.note, user.id, user.name, now)] : []);
+    // New activities first, so their ids can go back to the page.
+    const added = [];
+    for (const a of want.filter((x) => !x.id)) {
+      const res = await env.DB.prepare('INSERT INTO std_activities (standard_id, element_id, kind, score, note, assessed_at, assessed_by, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+        .bind(id, eid, a.kind, a.score, a.note, a.score ? now : null, a.score ? user.name : null, a.sort)
+        .run();
+      a.id = res.meta.last_row_id;
+      added.push(a);
+      stmts.push(...history(a.id, a));
+    }
+    for (const a of want.filter((x) => !added.includes(x))) {
+      const o = old[a.id];
+      const changed = o.score !== a.score || (o.note || null) !== a.note;
+      if (!changed && o.kind === a.kind && o.sort === a.sort) continue;
+      stmts.push(
+        env.DB.prepare('UPDATE std_activities SET kind = ?, score = ?, note = ?, sort = ?, assessed_at = ?, assessed_by = ? WHERE id = ?').bind(
+          a.kind, a.score, a.note, a.sort, changed ? (a.score ? now : null) : o.assessed_at, changed ? (a.score ? user.name : null) : o.assessed_by, a.id,
+        ),
+      );
+      if (changed) stmts.push(...history(a.id, a));
+    }
+    // The element: open while an activity is open; its note gathers the activities' comments.
+    const escore = rollup(want.map((a) => a.score), false);
+    const enote = want.map((a) => a.note).filter(Boolean).join(' · ').slice(0, 1000) || null;
+    stmts.push(env.DB.prepare('UPDATE std_elements SET score = ?, note = ?, assessed_at = ?, assessed_by = ? WHERE id = ?').bind(escore, enote, escore ? now : null, escore ? user.name : null, eid));
+    const { results: others } = await env.DB.prepare('SELECT id, score FROM std_elements WHERE standard_id = ?').bind(id).all();
+    const score = rollup(others.map((e) => (e.id === eid ? escore : e.score)), FRAMEWORKS[std.framework]?.esr && std.esr);
+    if (score !== std.score) {
+      stmts.push(
+        env.DB.prepare('UPDATE standards SET score = ?, assessed_at = ?, assessed_by = ?, updated_at = ? WHERE id = ?').bind(score, score ? now : null, score ? user.name : null, now, id),
+        logStmt(env, user, 'assess', 'standard', id, std.code, { score: [std.score, score] }),
+      );
+      if (score) stmts.push(env.DB.prepare('INSERT INTO std_assessments (standard_id, score, note, user_id, user_name, at) VALUES (?, ?, ?, ?, ?, ?)').bind(id, score, std.note, user.id, user.name, now));
+    }
+    await env.DB.batch(stmts);
+    return json({ ok: true, element: { id: eid, score: escore, note: enote }, activities: want.map((a) => ({ id: a.id, kind: a.kind, score: a.score, note: a.note })), score });
+  }
+
   if (method === 'PUT' && seg.length === 2) {
     needManager();
     const d = readStandard(await readJson(request), await chapterSet(std.framework), !std.title_ar);
@@ -475,7 +542,7 @@ export async function handleQuality(request, env, url, seg, method, user) {
     await env.DB.batch([
       ...(used.n
         ? [env.DB.prepare('UPDATE standards SET active = 0, updated_at = ? WHERE id = ?').bind(nowIso(), id)]
-        : [env.DB.prepare('DELETE FROM std_elements WHERE standard_id = ?').bind(id), env.DB.prepare('DELETE FROM standards WHERE id = ?').bind(id)]),
+        : [env.DB.prepare('DELETE FROM std_activities WHERE standard_id = ?').bind(id), env.DB.prepare('DELETE FROM std_elements WHERE standard_id = ?').bind(id), env.DB.prepare('DELETE FROM standards WHERE id = ?').bind(id)]),
       logStmt(env, user, used.n ? 'retire' : 'delete', 'standard', id, std.code),
     ]);
     return json({ ok: true, retired: !!used.n });
