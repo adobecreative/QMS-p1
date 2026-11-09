@@ -972,7 +972,7 @@ export function linkPanel() {
     // What the key lets this system read, from the last sync (the portal decides it on the key).
     const scopes = (d.snapshot && d.snapshot.scopes) || [];
     const reads = d.on && d.snapshot
-      ? h('p', { class: 'small' }, t('link.reads') + ': ', ['tickets_read', 'assets_read', 'docs_read', 'staff'].flatMap((k) => [h('span', { class: 'chip' + (scopes.includes(k) ? ' chip-valid' : ' muted') }, (scopes.includes(k) ? '✓ ' : '') + t('link.read.' + k)), ' ']))
+      ? h('p', { class: 'small' }, t('link.reads') + ': ', ['tickets_read', 'assets_read', 'docs_read', 'staff', 'users_read'].flatMap((k) => [h('span', { class: 'chip' + (scopes.includes(k) ? ' chip-valid' : ' muted') }, (scopes.includes(k) ? '✓ ' : '') + t('link.read.' + k)), ' ']))
       : '';
     const form = h('form', { class: 'stack' }, checkField(t('link.on'), on), fields, status, reads, err, h('div', { class: 'actions' }, save, sync));
     form.addEventListener('submit', async (ev) => {

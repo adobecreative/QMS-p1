@@ -16,7 +16,7 @@ import { handleHealth, logServerError } from './systems/health.js';
 import { handleInventory, runStockReminders } from './systems/inventory.js';
 import { handleCompliance, handleReportMail, handleReports, runMonthlyReport } from './systems/reports.js';
 import { handleHome } from './systems/home.js';
-import { handleFmsLink, handlePortalDocs, portalDocsOn, runFmsSync } from './systems/fmslink.js';
+import { handleFmsLink, handlePortalDocs, handlePortalUsers, portalDocsOn, runFmsSync } from './systems/fmslink.js';
 import { handleQuality, seedChapters } from './systems/quality.js';
 import { handleCapa } from './systems/capa.js';
 import { handleKpis, refreshAutoKpis, snapshotReadiness } from './systems/kpis.js';
@@ -653,6 +653,7 @@ async function handleApi(request, env, url, ctx) {
     return handleFmsLink(request, env, seg, method, user, user.id === ownerRow.id);
   }
   if (seg[0] === 'portal-docs') return handlePortalDocs(request, env, seg, method, user);
+  if (route === 'GET /portal-users') return handlePortalUsers(env, method, user);
 
   /* ---- Committees & meetings: the committees master, members, schedule and invitations ---- */
   if (seg[0] === 'committees' || seg[0] === 'committee-sessions') {
@@ -730,7 +731,7 @@ async function handleApi(request, env, url, ctx) {
     const isOwner = user.id === ownerId;
 
     if (route === 'GET /users') {
-      const { results } = await env.DB.prepare('SELECT id, name, name_en, email, role, docs_role, desk_role, assets_role, rounds_role, quality_role, meetings_role, department_id, job_title, totp_on, active, created_at FROM users ORDER BY id').all();
+      const { results } = await env.DB.prepare('SELECT id, name, name_en, email, role, docs_role, desk_role, assets_role, rounds_role, quality_role, meetings_role, department_id, job_title, totp_on, active, portal_id, portal_off, created_at FROM users ORDER BY id').all();
       return json({ users: results.filter((u) => isOwner || u.id !== ownerId).map(userOut) });
     }
     // The license may cap the number of active accounts.
@@ -744,8 +745,16 @@ async function handleApi(request, env, url, ctx) {
       await emailTaken(data.email, 0);
       await userCap();
       const hash = await hashPassword(checkPassword(body.password));
-      const res = await env.DB.prepare('INSERT INTO users (name, name_en, email, password_hash, role, docs_role, desk_role, assets_role, rounds_role, quality_role, meetings_role, department_id, job_title, active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)')
-        .bind(data.name, data.name_en, data.email, hash, data.role, data.docs_role, data.desk_role, data.assets_role, data.rounds_role, data.quality_role, data.meetings_role, data.department_id, data.job_title, nowIso())
+      // Added from the portal's list: linked to that account from the start.
+      let portalId = null;
+      if (body.portal_id !== undefined && body.portal_id !== null) {
+        portalId = Number(body.portal_id);
+        const p = Number.isInteger(portalId) ? await env.DB.prepare('SELECT id FROM portal_users WHERE id = ? AND active = 1').bind(portalId).first() : null;
+        if (!p) fail(400, 'portal_user_unknown');
+        if (await env.DB.prepare('SELECT id FROM users WHERE portal_id = ?').bind(portalId).first()) fail(409, 'portal_user_linked');
+      }
+      const res = await env.DB.prepare('INSERT INTO users (name, name_en, email, password_hash, role, docs_role, desk_role, assets_role, rounds_role, quality_role, meetings_role, department_id, job_title, active, portal_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)')
+        .bind(data.name, data.name_en, data.email, hash, data.role, data.docs_role, data.desk_role, data.assets_role, data.rounds_role, data.quality_role, data.meetings_role, data.department_id, data.job_title, portalId, nowIso())
         .run();
       await logStmt(env, user, 'create', 'user', res.meta.last_row_id, data.name, { role: [null, data.role], docs_role: [null, data.docs_role], desk_role: [null, data.desk_role], assets_role: [null, data.assets_role], rounds_role: [null, data.rounds_role], quality_role: [null, data.quality_role], meetings_role: [null, data.meetings_role] }).run();
       return json({ ok: true, id: res.meta.last_row_id });
@@ -788,6 +797,8 @@ async function handleApi(request, env, url, ctx) {
         diff.password = ['***', '***'];
       }
       if ((body.password || !data.active) && id !== user.id) stmts.push(env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(id));
+      // An admin who switches a portal-linked account on or off here decides for it: the sync no longer switches it back on.
+      if (data.active !== (target.active ? 1 : 0) && target.portal_id) stmts.push(env.DB.prepare('UPDATE users SET portal_off = 0 WHERE id = ?').bind(id));
       stmts.push(logStmt(env, user, 'update', 'user', id, data.name, diff));
       await env.DB.batch(stmts);
       return json({ ok: true });

@@ -11,10 +11,12 @@ import { zipStore } from './xlsx.js';
 
 export async function usersPage(root, _param, alive) {
   let users;
+  let missing = [];
   try {
-    const [d, u] = await Promise.all([api('/departments'), api('/users')]);
+    const [d, u, pu] = await Promise.all([api('/departments'), api('/users'), S.user.role === 'super_admin' ? api('/portal-users').catch(() => null) : null]);
     S.departments = d.departments;
     users = u.users;
+    if (pu && pu.on) missing = pu.users;
   } catch (e) {
     if (alive()) root.replaceChildren(errorBox(e));
     return;
@@ -22,7 +24,7 @@ export async function usersPage(root, _param, alive) {
   if (!alive()) return;
   const manage = S.user.role === 'super_admin';
   root.replaceChildren(
-    h('div', { class: 'page-head' }, h('h1', {}, t('nav.users')), manage ? h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn btn-primary', onclick: () => userDialog(null) }, icon('plus'), t('user.add'))) : ''),
+    h('div', { class: 'page-head' }, h('h1', {}, t('nav.users')), manage ? h('div', { class: 'actions' }, missing.length ? h('button', { type: 'button', class: 'btn', onclick: () => portalUsersDialog(missing) }, icon('users'), t('puser.button', { n: missing.length })) : null, h('button', { type: 'button', class: 'btn btn-primary', onclick: () => userDialog(null) }, icon('plus'), t('user.add'))) : ''),
     manage ? '' : h('p', { class: 'notice' }, t('user.view_only')),
     h(
       'section',
@@ -66,6 +68,7 @@ export async function usersPage(root, _param, alive) {
                     { class: 'chips' },
                     u.active ? h('span', { class: 'chip chip-valid' }, h('span', { class: 'dot', 'aria-hidden': 'true' }), t('field.active')) : h('span', { class: 'chip chip-review' }, t('user.inactive')),
                     u.totp_on ? h('span', { class: 'chip chip-progress', title: t('tfa.title') }, icon('shield', 14), t('tfa.short')) : null,
+                    u.portal ? h('span', { class: 'chip' }, t(u.portal_off ? 'puser.off_chip' : 'puser.chip')) : null,
                   ),
                 ),
                 manage ? h(
@@ -88,12 +91,50 @@ export async function usersPage(root, _param, alive) {
   );
 }
 
+// The portal's people with no account here: the admin adds them one by one, deciding password and roles.
+function portalUsersDialog(list) {
+  const dlg = openDialog({
+    title: t('puser.title'),
+    body: h(
+      'div',
+      { class: 'stack' },
+      h('p', { class: 'hint' }, t('puser.help')),
+      list.length
+        ? h(
+            'div',
+            { class: 'table-scroll' },
+            h(
+              'table',
+              {},
+              h(
+                'tbody',
+                {},
+                list.map((p) =>
+                  h(
+                    'tr',
+                    {},
+                    h('td', {}, h('div', { class: 'strong' }, S.lang === 'ar' ? p.name_ar : p.name_en || p.name_ar), h('div', { class: 'muted user-email' }, h('bdi', { dir: 'ltr' }, p.email))),
+                    h('td', { class: 'muted' }, (S.lang === 'ar' ? p.department_ar : p.department_en || p.department_ar) || ''),
+                    h('td', {}, h('button', { type: 'button', class: 'btn btn-small', onclick: () => (dlg.close(), userDialog(null, p)) }, icon('plus'), t('puser.add'))),
+                  ),
+                ),
+              ),
+            ),
+          )
+        : h('p', { class: 'muted' }, t('puser.empty')),
+    ),
+    submitLabel: t('common.close'),
+    onSubmit: async () => {},
+  });
+}
+
 // One account for every system: the department is the person's own, and each system gets its own role.
-export function userDialog(u) {
+// from: a portal account to add (its names and email come filled in, and the new account is linked to it).
+export function userDialog(u, from) {
   const isSelf = !!u && u.id === S.user.id;
-  const name = input({ type: 'text', required: true, maxlength: 100, dir: 'rtl', value: u ? u.name : '' });
-  const nameEn = input({ type: 'text', required: true, maxlength: 100, dir: 'ltr', value: u ? u.name_en || '' : '' });
-  const email = input({ type: 'email', required: true, dir: 'ltr', value: u ? u.email : '' });
+  const name = input({ type: 'text', required: true, maxlength: 100, dir: 'rtl', value: u ? u.name : from ? from.name_ar : '' });
+  const nameEn = input({ type: 'text', required: true, maxlength: 100, dir: 'ltr', value: u ? u.name_en || '' : from ? from.name_en || '' : '' });
+  const email = input({ type: 'email', required: true, dir: 'ltr', value: u ? u.email : from ? from.email : '' });
   const level = select(['user', 'systems_admin', 'super_admin'].map((r) => [r, t('level.' + r)]), u ? u.role : 'user', { disabled: isSelf });
   const dept = select([['', t('common.none')], ...S.departments.map((d) => [d.id, deptName(d)])], u ? u.department_id ?? '' : '', {});
   const docs = select(['none', 'viewer', 'dept_admin'].map((r) => [r, t('docsrole.' + r)]), u ? u.docs_role : 'viewer', {});
@@ -158,6 +199,7 @@ export function userDialog(u) {
         active: active.checked,
       };
       if (password.value) body.password = password.value;
+      if (from) body.portal_id = from.id;
       await api(u ? '/users/' + u.id : '/users', { method: u ? 'PUT' : 'POST', body });
       if (isSelf) Object.assign(S.user, { name: name.value, name_en: nameEn.value });
       toast(t(u ? 'user.saved' : 'user.added'));

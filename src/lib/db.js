@@ -115,6 +115,14 @@ export async function ensureSchema(env) {
   if (!userCols.some((c) => c.name === 'rounds_role')) await env.DB.prepare("ALTER TABLE users ADD COLUMN rounds_role TEXT NOT NULL DEFAULT 'none'").run();
   if (!userCols.some((c) => c.name === 'quality_role')) await env.DB.prepare("ALTER TABLE users ADD COLUMN quality_role TEXT NOT NULL DEFAULT 'none'").run();
   if (!userCols.some((c) => c.name === 'meetings_role')) await env.DB.prepare("ALTER TABLE users ADD COLUMN meetings_role TEXT NOT NULL DEFAULT 'none'").run();
+  // The portal account this one is kept in step with (one each), and whether the sync is what switched it off.
+  if (!userCols.some((c) => c.name === 'portal_id')) {
+    await env.DB.batch([
+      env.DB.prepare('ALTER TABLE users ADD COLUMN portal_id INTEGER'),
+      env.DB.prepare('ALTER TABLE users ADD COLUMN portal_off INTEGER NOT NULL DEFAULT 0'),
+      env.DB.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_portal ON users(portal_id) WHERE portal_id IS NOT NULL'),
+    ]);
+  }
   const { results: roundCols } = await env.DB.prepare('PRAGMA table_info(rounds)').all();
   if (!roundCols.some((c) => c.name === 'scanned')) await env.DB.prepare('ALTER TABLE rounds ADD COLUMN scanned INTEGER NOT NULL DEFAULT 0').run();
   // Quality rounds: a checklist belongs to a chapter, and each line can name the standard it checks.

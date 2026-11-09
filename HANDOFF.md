@@ -466,3 +466,17 @@ file form). The chapter page in Quality shows those files as tiles ("Chapter fil
   documents in date, meetings held) refill the running and previous period on every open and at 05:00.
 - A below-target period has a button that opens a CAPA tied to the indicator's chapter and standard.
 - Readiness: totals, chapters, departments, the gaps list (ESR first) and the monthly trend; printable.
+
+## Accounts kept in step with the portal (9 November 2026)
+- Owner's decision: **separate accounts, kept in step** (no shared sign-in). Needs the portal's `users_read` permission
+  (Portal-p2 PR #83 / Portal-p1 PR #6: `GET /api/v1/users`, never passwords).
+- With that permission on the link key, the hourly sync (`syncUsers` in `src/systems/fmslink.js`) reads the portal's
+  accounts into `portal_users`, then: links each account here to one portal account (`users.portal_id`, first by email,
+  then by id, so an email change never makes a second account); switches off here, and signs out, anyone switched off
+  or deleted there (`portal_off = 1`); switches back on only accounts the sync itself switched off; copies names and
+  email (email only if free here). The system owner is never switched off. Roles here are never given or taken.
+- An admin switching a linked account on or off here clears `portal_off`, so their choice is not undone by the sync
+  (but a portal account that is still off will switch it off again at the next sync).
+- Admin Center → Users: chip on linked accounts, and a button listing the portal's active people with no account here
+  (`GET /portal-users`, admins). "Add" opens the user form filled in; `POST /users` takes `portal_id` to link it.
+- Switching the link off empties `portal_users` and unlinks every account (the accounts stay).
