@@ -553,6 +553,20 @@ export const MIGRATIONS = [
      at TEXT NOT NULL,
      element_id INTEGER)`,
   `CREATE INDEX IF NOT EXISTS idx_std_assessments ON std_assessments(standard_id, at)`,
+  // How a sub-standard (or ME) is checked: each activity (document review, observation, interview) gets its own
+  // score, like the surveyors' scoring sheet. The element's score is worked out from its activities.
+  `CREATE TABLE IF NOT EXISTS std_activities (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     standard_id INTEGER NOT NULL,
+     element_id INTEGER NOT NULL,
+     kind TEXT NOT NULL,
+     score TEXT,
+     note TEXT,
+     assessed_at TEXT,
+     assessed_by TEXT,
+     sort INTEGER NOT NULL DEFAULT 0)`,
+  `CREATE INDEX IF NOT EXISTS idx_std_activities ON std_activities(element_id, sort)`,
+  `CREATE INDEX IF NOT EXISTS idx_std_activities_std ON std_activities(standard_id)`,
   // The FMS summary read from the Fikra portal, one row a day, for trends.
   `CREATE TABLE IF NOT EXISTS fms_snapshots (
      day TEXT PRIMARY KEY,

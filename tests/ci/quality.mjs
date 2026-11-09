@@ -284,6 +284,34 @@ check((await qv('/quality')).j.fms === null, 'and the evidence leaves the FMS ch
   // An imported standard can be edited before it has its Arabic wording.
   check((await owner('/standards/' + esr9.id, 'PUT', { code: 'IPC.9', title_ar: '', title_en: 'Test ESR.', esr: 1 })).s === 200, 'an imported standard can be edited without Arabic yet');
 
+  // The chapter scoring page: each sub-standard scored by activity, saved one element at a time.
+  r = await owner('/standards/pack', 'POST', { framework: 'cbahi', standards: [{ code: 'IPC.10', title_en: 'Test activities.', elements: [{ num: '1', text: 'A policy on gases, which includes:\n• Storage.\n• Chains.' }, { num: '2', text: 'Exhausts reach the roof.' }] }] });
+  let s10 = (await owner('/standards?chapter=IPC')).j.standards.find((x) => x.code === 'IPC.10');
+  const [a1, a2] = s10.elements;
+  check(Array.isArray(a1.activities) && a1.activities.length === 0, 'a new sub-standard has no activities yet', a1);
+  const elUrl = (e) => '/standards/' + s10.id + '/elements/' + e.id;
+  check((await qv(elUrl(a1), 'PUT', { activities: [{ kind: 'document', score: 'met' }] })).s === 403, 'a viewer cannot score an activity');
+  check((await qa(elUrl(a1), 'PUT', { activities: [] })).j.error === 'std_no_activity', 'an element keeps at least one activity');
+  check((await qa(elUrl(a1), 'PUT', { activities: [{ kind: 'tour', score: 'met' }] })).j.error === 'std_bad_activity', 'an unknown activity is refused');
+  check((await qa(elUrl(a1), 'PUT', { activities: [{ kind: 'document', score: '3' }] })).j.error === 'std_bad_score', 'an unknown activity score is refused');
+  r = await qa(elUrl(a1), 'PUT', { activities: [{ kind: 'document', score: 'met' }, { kind: 'observation', score: null }] });
+  check(r.s === 200 && r.j.activities.every((x) => x.id) && r.j.element.score === null && r.j.score === null, 'an open activity leaves the element and the standard open', r.j);
+  const [d1, o1] = r.j.activities;
+  r = await qa(elUrl(a1), 'PUT', { activities: [{ id: d1.id, kind: 'document', score: 'met' }, { id: o1.id, kind: 'observation', score: 'not_met' }] });
+  check(r.j.element.score === 'partial' && r.j.score === null, 'a met policy and a failed observation make the sub-standard partly met', r.j);
+  r = await qa(elUrl(a2), 'PUT', { activities: [{ kind: 'observation', score: 'met' }] });
+  check(r.j.element.score === 'met' && r.j.score === 'partial', 'the standard is worked out once every sub-standard is scored', r.j);
+  s10 = (await owner('/standards?chapter=IPC')).j.standards.find((x) => x.code === 'IPC.10');
+  check(s10.score === 'partial' && s10.elements[0].activities.length === 2 && s10.elements[0].activities[1].kind === 'observation' && s10.elements[0].activities[1].score === 'not_met', 'the activities come back with the standards', s10.elements[0]);
+  r = await qa(elUrl(a1), 'PUT', { activities: [{ id: o1.id, kind: 'observation', score: 'met', note: 'Chains fixed' }] });
+  check(r.j.activities.length === 1 && r.j.activities[0].id === o1.id && r.j.element.score === 'met' && r.j.element.note === 'Chains fixed' && r.j.score === 'met', 'an activity left out is removed and the scores follow', r.j);
+  check((await qa('/standards/' + s10.id + '/elements/' + esr9.elements[0].id, 'PUT', { activities: [{ kind: 'document', score: 'met' }] })).s === 404, 'an element of another standard is refused');
+  check((await qa(elUrl(a2), 'PUT', { activities: [{ id: d1.id, kind: 'document', score: 'met' }] })).s === 404, "another element's activity is refused");
+  r = await qa(elUrl(a2), 'PUT', { activities: [{ kind: 'observation', score: null }] });
+  check(r.j.element.score === null && r.j.score === null, 'clearing a score opens the standard again', r.j);
+  r = await owner('/standards/' + s10.id + '/history');
+  check(r.j.history.length >= 2 && r.j.history[0].score === 'met', "the standard's history keeps its worked-out scores", r.j.history);
+
   // Which frameworks show.
   check((await qa('/quality/frameworks', 'PUT', { on: ['jci'] })).s === 403, 'an assessor cannot change the frameworks');
   check((await owner('/quality/frameworks', 'PUT', { on: [] })).s === 400, 'at least one framework stays on');

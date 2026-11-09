@@ -47,6 +47,8 @@ export async function ensureSchema(env) {
   // An assessment row can be about one element of the standard (std_elements.id).
   const { results: saCols } = await env.DB.prepare('PRAGMA table_info(std_assessments)').all();
   if (!saCols.some((c) => c.name === 'element_id')) await env.DB.prepare('ALTER TABLE std_assessments ADD COLUMN element_id INTEGER').run();
+  // ... or about one activity of that element (std_activities.id).
+  if (!saCols.some((c) => c.name === 'activity_id')) await env.DB.prepare('ALTER TABLE std_assessments ADD COLUMN activity_id INTEGER').run();
   // A technical department (IT, biomedical, maintenance) receives tickets. Technicians carry a job title.
   const { results: deptCols } = await env.DB.prepare('PRAGMA table_info(departments)').all();
   if (!deptCols.some((c) => c.name === 'is_team')) await env.DB.prepare('ALTER TABLE departments ADD COLUMN is_team INTEGER NOT NULL DEFAULT 0').run();
