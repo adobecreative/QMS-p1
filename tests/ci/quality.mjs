@@ -129,6 +129,10 @@ check((await owner('/fms-link', 'PUT', { on: true, url: B, key: 'abc' })).s === 
 r = await owner('/api-keys', 'POST', { name_ar: 'ربط الجودة', name_en: 'QMS link', scopes: ['tickets_read', 'assets_read'] });
 check(r.s === 200 && /^fms_/.test(r.j.key), 'owner makes a read-only key', r);
 const linkKey = r.j.key;
+{
+  const sum = await fetch(B + '/api/v1/summary', { headers: { authorization: 'Bearer ' + linkKey } }).then(async (x) => ({ s: x.status, j: await x.json() }));
+  check(sum.s === 200 && sum.j.system === 'quality' && sum.j.icon === 'award' && sum.j.stats.length === 2 && sum.j.stats[0].ar === 'جاهزية', 'the portal card reads readiness and corrective actions', sum);
+}
 r = await owner('/fms-link', 'PUT', { on: true, url: B + '/', key: linkKey });
 check(r.s === 200 && r.j.on && r.j.key_set && r.j.sync && r.j.sync.ok && !('key' in r.j) && !JSON.stringify(r.j).includes(linkKey), 'switching on reads at once, and the key never comes back', r.j);
 check(r.j.snapshot && r.j.snapshot.tickets && r.j.snapshot.tickets.open >= 1 && r.j.snapshot.assets && typeof r.j.snapshot.assets.total === 'number', 'the summary has requests and devices', r.j.snapshot);

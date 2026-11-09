@@ -6,6 +6,7 @@ import { HttpError, checkLang, fail, json, nowIso, sha256Hex, str, toHex, todayI
 import { ASSET_SELECT, ASSET_STATUSES } from './assets.js';
 import { statusOf } from './docs.js';
 import { DOC_RE, PART_ROWS_MAX, RECEIPT_KINDS, REQUEST_SELECT, REQUEST_STATUSES, codeOf, costOf, costReport, erpIssueStmts, invMode, isConstraint, qtyOf, readPart, realertStmt, receiptLines, receiptStmts, reportRange } from './inventory.js';
+import { qualityHome } from './quality.js';
 import { MAX_STAFF_ROWS, TICKET_SELECT, addMinutes, afterNewTicket, eventStmt, importStaff, slaFor, ticketOut, ticketPriority, toInt } from './tickets.js';
 
 /* ------------------------- Integration API (v1) -------------------------- */
@@ -107,6 +108,19 @@ export async function handleIntegration(request, env, url, seg, method, ctx) {
   const limit = Math.min(API_LIST_MAX, Math.max(1, toInt(url.searchParams.get('limit')) || 100));
 
   if (route === 'GET /ping') return json({ ok: true, name_ar: key.name_ar, name_en: key.name_en, scopes, per_hour: API_PER_HOUR, used_this_hour: key.hour_n });
+
+  // A few numbers for this system's card on the Fikra portal page (the operations system links to it). Any key.
+  if (route === 'GET /summary') {
+    const q = await qualityHome(env);
+    return json({
+      system: 'quality',
+      icon: 'award',
+      stats: [
+        { n: q.pct == null ? '-' : q.pct + '%', ar: 'جاهزية', en: 'readiness' },
+        { n: q.capa_open, ar: 'إجراء تصحيحي', en: 'corrective actions', alert: q.capa_late > 0 },
+      ],
+    });
+  }
 
   /* reference lists, for any key: the ids other routes take */
 

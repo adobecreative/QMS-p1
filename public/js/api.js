@@ -10,6 +10,7 @@ import { simpleDelete, timeEl } from './tickets.js';
 // Keys other systems (HR, the hospital information system) use to reach /api/v1, and how to use them.
 export const API_DOCS = [
   ['GET', '/ping', '', 'api.ep.ping'],
+  ['GET', '/summary', '', 'api.ep.summary'],
   ['GET', '/departments', '', 'api.ep.departments'],
   ['GET', '/locations', '', 'api.ep.locations'],
   ['GET', '/categories', '', 'api.ep.categories'],
