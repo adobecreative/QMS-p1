@@ -496,7 +496,7 @@ window.I18N = {
     'role.user': 'مستخدم',
     'user.level': 'مستوى الصلاحية',
     'level.user': 'مستخدم (دور في كل نظام)',
-    'level.systems_admin': 'مدير الأنظمة (جميع الأنظمة دون المستخدمين)',
+    'level.systems_admin': 'مشرف الأنظمة (جميع الأنظمة دون المستخدمين)',
     'level.super_admin': 'مدير النظام العام (جميع الأنظمة والمستخدمين)',
     'user.view_only': 'هذه القائمة للعرض فقط، ويعدّل الحسابات مدير النظام العام.',
     'user.super_hint': 'كل الصلاحيات في كل الأنظمة.',
@@ -559,7 +559,7 @@ window.I18N = {
     'err.type_has_files': 'لا يمكن حذف نوع عليه ملفات. غيّر نوع الملفات أو احذفها أولًا.',
 
     'role.super_admin': 'مدير النظام العام',
-    'role.systems_admin': 'مدير الأنظمة',
+    'role.systems_admin': 'مشرف الأنظمة',
     'role.dept_admin': 'مسؤول قسم',
     'role.viewer': 'مستخدم',
 
@@ -3031,7 +3031,7 @@ window.I18N = {
     'role.user': 'User',
     'user.level': 'Access level',
     'level.user': 'User (a role in each system)',
-    'level.systems_admin': 'Systems admin (every system, not the users)',
+    'level.systems_admin': 'Systems supervisor (every system, not the users)',
     'level.super_admin': 'Super admin (every system and the users)',
     'user.view_only': 'This list is view-only; the super admin changes the accounts.',
     'user.super_hint': 'Full access to every system.',
@@ -3094,7 +3094,7 @@ window.I18N = {
     'err.type_has_files': 'A type used by files cannot be deleted. Change their type or delete them first.',
 
     'role.super_admin': 'Super Admin',
-    'role.systems_admin': 'Systems Admin',
+    'role.systems_admin': 'Systems Supervisor',
     'role.dept_admin': 'Department Admin',
     'role.viewer': 'Viewer',
 
