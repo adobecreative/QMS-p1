@@ -449,5 +449,83 @@ check((await qv('/quality')).j.fms === null, 'and the evidence leaves the FMS ch
 r = await owner('/logs');
 check(r.s === 200 && r.j.logs.some((l) => l.action === 'assess' && l.entity === 'standard'), 'assessments are in the activity log');
 
+// Accounts kept in step with the portal's (users permission): a small stand-in portal on another port.
+{
+  const { createServer } = await import('node:http');
+  const KEY = 'fms_' + 'a'.repeat(40);
+  const people = [
+    { id: 101, name_ar: 'مقيم الجودة', name_en: 'Assessor', email: 'qa@example.com', active: true, department: { id: 1, name_ar: 'الجودة', name_en: 'Quality' } },
+    { id: 102, name_ar: 'موظف جديد', name_en: 'Newcomer', email: 'new@example.com', active: true, department: null },
+    { id: 103, name_ar: 'مطلع الجودة', name_en: 'QA viewer', email: 'qv@example.com', active: true, department: null },
+    { id: 104, name_ar: 'المالك', name_en: 'Owner', email: 'owner@example.com', active: true, department: null },
+  ];
+  const srv = createServer((req, res) => {
+    const send = (code, body) => (res.writeHead(code, { 'content-type': 'application/json' }), res.end(JSON.stringify(body)));
+    if (req.headers.authorization !== 'Bearer ' + KEY) return send(401, { error: 'api_key_invalid' });
+    const u = new URL(req.url, 'http://x');
+    if (u.pathname === '/api/v1/ping') return send(200, { ok: true, scopes: ['users_read'] });
+    if (u.pathname === '/api/v1/users') {
+      const after = Number(u.searchParams.get('after_id')) || 0;
+      const limit = Number(u.searchParams.get('limit')) || 100;
+      const rows = people.filter((p) => p.id > after);
+      return send(200, { users: rows.slice(0, limit), more: rows.length > limit });
+    }
+    send(404, { error: 'not_found' });
+  });
+  await new Promise((ok) => srv.listen(8799, ok));
+  const P = 'http://localhost:8799';
+  r = await owner('/fms-link', 'PUT', { on: true, url: P, key: KEY });
+  check(r.s === 200 && r.j.sync && r.j.sync.ok && r.j.snapshot.users && r.j.snapshot.users.linked === 3 && r.j.snapshot.users.missing === 1, 'the first read links the accounts with the same email', r.j);
+  let users = (await owner('/users')).j.users;
+  const qaU = users.find((u) => u.email === 'qa@example.com');
+  check(qaU.portal === true && qaU.portal_off === false, 'a linked account is marked', qaU);
+  check(!users.find((u) => u.email === 'tech@example.com').portal, 'an account with no portal match stays as it is');
+  r = await owner('/portal-users');
+  check(r.s === 200 && r.j.on && r.j.users.length === 1 && r.j.users[0].email === 'new@example.com' && !('password' in r.j.users[0]), 'the admin sees who has no account here', r.j);
+  check((await qv('/portal-users')).s === 403, 'a non-admin cannot see the portal list');
+  r = await owner('/users', 'POST', { name: 'موظف جديد', name_en: 'Newcomer', email: 'new@example.com', role: 'user', password: 'secret-pass-4', quality_role: 'viewer', portal_id: 102 });
+  check(r.s === 200, 'the admin adds someone from the list, linked from the start', r);
+  check((await owner('/portal-users')).j.users.length === 0, 'and they leave the list');
+  check((await owner('/users', 'POST', { name: 'نسخة', name_en: 'Copy', email: 'copy@example.com', role: 'user', password: 'secret-pass-4', portal_id: 102 })).s === 409, 'a portal account links to one account only');
+  check((await owner('/users', 'POST', { name: 'مجهول', name_en: 'Nobody', email: 'nobody@example.com', role: 'user', password: 'secret-pass-4', portal_id: 999 })).s === 400, 'an unknown portal account is refused');
+
+  // Switched off there: off here, signed out, cannot sign in. The owner is never switched off. Names follow.
+  const qv2 = await login('qv@example.com', 'secret-pass-3');
+  people[2].active = false;
+  people[3].active = false;
+  people[0].name_en = 'Quality assessor';
+  r = await owner('/fms-link/sync', 'POST');
+  check(r.j.ok && r.j.snapshot.users.switched_off === 1 && r.j.snapshot.users.updated === 1, 'the sync switches off and renames', r.j);
+  users = (await owner('/users')).j.users;
+  const qvU = users.find((u) => u.email === 'qv@example.com');
+  check(!qvU.active && qvU.portal_off, 'switched off in the portal, switched off here', qvU);
+  check((await qv2('/bootstrap')).j.user === null, 'and signed out at once');
+  check((await fetch(B + '/api/login', { method: 'POST', headers: { 'content-type': 'application/json', 'x-requested-with': 'fetch' }, body: JSON.stringify({ email: 'qv@example.com', password: 'secret-pass-3' }) })).status !== 200, 'and cannot sign in');
+  check(users.find((u) => u.email === 'owner@example.com').active, 'the system owner is never switched off');
+  check(users.find((u) => u.email === 'qa@example.com').name_en === 'Quality assessor', 'a new name in the portal shows here');
+  // Back on there: back on here, because the sync switched it off.
+  people[2].active = true;
+  r = await owner('/fms-link/sync', 'POST');
+  check(r.j.snapshot.users.switched_on === 1 && (await owner('/users')).j.users.find((u) => u.email === 'qv@example.com').active, 'switched back on there, back on here');
+  // An account the admin switched off here stays off, even while the portal has it on.
+  const newU = (await owner('/users')).j.users.find((u) => u.email === 'new@example.com');
+  check((await owner('/users/' + newU.id, 'PUT', { ...newU, active: false })).s === 200, 'the admin switches a linked account off here');
+  await owner('/fms-link/sync', 'POST');
+  check(!(await owner('/users')).j.users.find((u) => u.email === 'new@example.com').active, 'and the sync does not switch it back on');
+  // Deleted in the portal: switched off here too.
+  people.splice(2, 1);
+  await owner('/fms-link/sync', 'POST');
+  check(!(await owner('/users')).j.users.find((u) => u.email === 'qv@example.com').active, 'deleted in the portal, switched off here');
+  r = await owner('/logs');
+  check(r.j.logs.some((l) => l.action === 'portal_off') && r.j.logs.some((l) => l.action === 'portal_link'), 'linking and switching off are in the activity log');
+  // Switching the link off unlinks; the accounts stay.
+  r = await owner('/fms-link', 'PUT', { on: false });
+  users = (await owner('/users')).j.users;
+  check(r.s === 200 && users.every((u) => !u.portal) && (await owner('/portal-users')).j.on === false, 'switching the link off unlinks the accounts and empties the list');
+  const back = users.find((u) => u.email === 'qv@example.com');
+  await owner('/users/' + back.id, 'PUT', { ...back, active: true });
+  srv.close();
+}
+
 console.log(failed ? `\n${failed} check(s) failed` : '\nall checks passed');
 process.exit(failed ? 1 : 0);

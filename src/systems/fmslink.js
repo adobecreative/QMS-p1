@@ -1,4 +1,6 @@
 // The optional link to the Fikra portal (FMS). Off by default: QMS works fully on its own.
+// With the users permission, accounts here are kept in step with the portal's (see syncUsers): separate
+// accounts and passwords, linked one to one, and switched off here when switched off there.
 // When the owner switches it on, QMS reads the portal's integration API (/api/v1) every hour with a
 // read-only key and keeps a small summary: requests, work orders and devices. The summary is shown as
 // evidence on the FMS chapter. Nothing is written to the portal and no patient or staff data is kept.
@@ -13,7 +15,7 @@ import { importStaff } from './tickets.js';
 export const LINK_KEYS = ['link_on', 'link_url', 'link_key', 'link_synced_at', 'link_error', 'link_snapshot', 'link_portal', 'link_staff_hash'];
 // Calls per sync, so one run stays well inside the free plan's limit on outgoing requests.
 const PAGE = 200;
-const MAX_PAGES = { recent: 5, assets: 5, docs: 10 };
+const MAX_PAGES = { recent: 5, assets: 5, docs: 10, users: 10 };
 const TIMEOUT_MS = 10000;
 
 // https only, except a portal on this computer (tests, a server inside the hospital network on http is not allowed).
@@ -174,6 +176,39 @@ export async function runFmsSync(env, actor, force) {
       }
       snap.staff = { total: rows.length, matched: rows.filter((m) => m.department_id).length };
     }
+    // The portal's accounts: kept so the admin can add the missing ones; linking and switching off follow.
+    let usersFull = null;
+    if (scopes.includes('users_read')) {
+      const all = [];
+      let after = 0;
+      let more = true;
+      for (let page = 0; more && page < MAX_PAGES.users; page++) {
+        const r = await call(s.link_url, s.link_key, `/users?limit=${PAGE}${after ? '&after_id=' + after : ''}`);
+        all.push(...r.users);
+        more = r.more && r.users.length > 0;
+        if (r.users.length) after = r.users[r.users.length - 1].id;
+      }
+      const rows = all
+        .filter((u) => Number.isInteger(u.id) && u.email)
+        .map((u) => ({
+          id: u.id, name_ar: str(u.name_ar, 100) || str(u.name_en, 100) || '#' + u.id, name_en: str(u.name_en, 100), email: str(u.email, 200).toLowerCase(),
+          department_ar: u.department ? str(u.department.name_ar, 100) : '', department_en: u.department ? str(u.department.name_en, 100) : '', active: u.active ? 1 : 0,
+        }));
+      extra.push(
+        env.DB.prepare(
+          `INSERT INTO portal_users (id, name_ar, name_en, email, department_ar, department_en, active, synced_at)
+           SELECT json_extract(value, '$.id'), json_extract(value, '$.name_ar'), json_extract(value, '$.name_en'), json_extract(value, '$.email'),
+                  json_extract(value, '$.department_ar'), json_extract(value, '$.department_en'), json_extract(value, '$.active'), ?2
+             FROM json_each(?1) WHERE true
+           ON CONFLICT(id) DO UPDATE SET name_ar = excluded.name_ar, name_en = excluded.name_en, email = excluded.email, department_ar = excluded.department_ar,
+                  department_en = excluded.department_en, active = excluded.active, synced_at = excluded.synced_at`,
+        ).bind(JSON.stringify(rows), now),
+      );
+      // Someone deleted in the portal is gone here too, unless the list was too long to read in full.
+      if (!more) extra.push(env.DB.prepare('DELETE FROM portal_users WHERE synced_at <> ?').bind(now));
+      usersFull = !more;
+      snap.users = { total: rows.length, partial: more };
+    }
     // Shown beside the evidence: where it came from (the ping answers with the key's name, not the portal's).
     const host = new URL(s.link_url).hostname;
     const portal = JSON.stringify({ name_ar: host, name_en: host });
@@ -185,6 +220,10 @@ export async function runFmsSync(env, actor, force) {
       env.DB.prepare('INSERT OR REPLACE INTO fms_snapshots (day, data) VALUES (?, ?)').bind(today, JSON.stringify(snap)),
       ...extra,
     ]);
+    if (usersFull !== null) {
+      snap.users = { ...snap.users, ...(await syncUsers(env, actor, usersFull)) };
+      await setSettingStmt(env, 'link_snapshot', JSON.stringify(snap)).run();
+    }
     return { ok: true, snapshot: snap };
   } catch (e) {
     const code = e.name === 'AbortError' ? 'link_timeout' : e.status === 401 ? 'link_bad_key' : e.status ? 'link_http_' + e.status : 'link_unreachable';
@@ -192,6 +231,76 @@ export async function runFmsSync(env, actor, force) {
     await env.DB.batch([setSettingStmt(env, 'link_error', code), setSettingStmt(env, 'link_synced_at', now), logStmt(env, actor, 'sync_failed', 'fms_link', null, null, { error: code })]);
     return { ok: false, error: code };
   }
+}
+
+// Accounts here against the portal's: link by email the first time (then by the portal's id, so a changed
+// email never makes a second account), switch off here whoever is off or gone there, and switch back on only
+// those the sync itself switched off. Names and email follow the portal. The system owner is never switched off.
+// Roles here (quality, meetings...) are this system's own: the sync never gives or takes any.
+export async function syncUsers(env, actor, full) {
+  const [{ results: mine }, { results: theirs }, ownerRow] = await Promise.all([
+    env.DB.prepare('SELECT id, name, name_en, email, active, portal_id, portal_off FROM users').all(),
+    env.DB.prepare('SELECT id, name_ar, name_en, email, active FROM portal_users').all(),
+    env.DB.prepare('SELECT MIN(id) AS id FROM users').first(),
+  ]);
+  const byId = new Map(theirs.map((p) => [p.id, p]));
+  const byEmail = new Map(theirs.map((p) => [p.email, p]));
+  const linked = new Set(mine.filter((u) => u.portal_id).map((u) => u.portal_id));
+  const emails = new Set(mine.map((u) => u.email.toLowerCase()));
+  const stmts = [];
+  const out = { linked: 0, switched_off: 0, switched_on: 0, updated: 0 };
+  for (const u of mine) {
+    let pid = u.portal_id;
+    if (!pid) {
+      const p = byEmail.get(u.email.toLowerCase());
+      if (!p || linked.has(p.id)) continue;
+      pid = p.id;
+      linked.add(pid);
+      out.linked++;
+      stmts.push(env.DB.prepare('UPDATE users SET portal_id = ? WHERE id = ?').bind(pid, u.id), logStmt(env, actor, 'portal_link', 'user', u.id, u.name, { portal_id: [null, pid] }));
+    }
+    const p = byId.get(pid);
+    const off = p ? !p.active : full;
+    if (off && u.active && u.id !== ownerRow.id) {
+      out.switched_off++;
+      stmts.push(
+        env.DB.prepare('UPDATE users SET active = 0, portal_off = 1 WHERE id = ?').bind(u.id),
+        env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(u.id),
+        logStmt(env, actor, 'portal_off', 'user', u.id, u.name, { active: [1, 0] }),
+      );
+    } else if (p && p.active && !u.active && u.portal_off) {
+      out.switched_on++;
+      stmts.push(env.DB.prepare('UPDATE users SET active = 1, portal_off = 0 WHERE id = ?').bind(u.id), logStmt(env, actor, 'portal_on', 'user', u.id, u.name, { active: [0, 1] }));
+    }
+    if (!p) continue;
+    const next = { name: p.name_ar, name_en: p.name_en || p.name_ar, email: p.email };
+    // A new email only when no other account here uses it.
+    if (next.email === u.email.toLowerCase() || emails.has(next.email)) next.email = u.email;
+    const diff = {};
+    for (const k of ['name', 'name_en', 'email']) if ((u[k] || '') !== next[k]) diff[k] = [u[k], next[k]];
+    if (Object.keys(diff).length) {
+      out.updated++;
+      emails.add(next.email);
+      stmts.push(env.DB.prepare('UPDATE users SET name = ?, name_en = ?, email = ? WHERE id = ?').bind(next.name, next.name_en, next.email, u.id), logStmt(env, actor, 'portal_update', 'user', u.id, next.name, diff));
+    }
+  }
+  if (stmts.length) await env.DB.batch(stmts);
+  out.missing = theirs.filter((p) => p.active && !linked.has(p.id) && !emails.has(p.email)).length;
+  return out;
+}
+
+// The portal's people with no account here yet, for the admin to add (Admin Center → Users).
+export async function handlePortalUsers(env, method, user) {
+  if (!isAdmin(user)) fail(403, 'forbidden');
+  if (method !== 'GET') fail(405, 'method_not_allowed');
+  const s = await getSettings(env);
+  const on = s.link_on === '1' && !!(snapshotOut(s)?.scopes || []).includes('users_read');
+  if (!on) return json({ on: false, users: [] });
+  const { results } = await env.DB.prepare(
+    `SELECT p.id, p.name_ar, p.name_en, p.email, p.department_ar, p.department_en FROM portal_users p
+      WHERE p.active = 1 AND NOT EXISTS (SELECT 1 FROM users u WHERE u.portal_id = p.id OR lower(u.email) = p.email) ORDER BY p.name_ar`,
+  ).all();
+  return json({ on: true, synced_at: s.link_synced_at || null, users: results });
 }
 
 export async function handleFmsLink(request, env, seg, method, user, isOwner) {
@@ -213,6 +322,8 @@ export async function handleFmsLink(request, env, seg, method, user, isOwner) {
     if (on === '0') for (const k of ['link_key', 'link_snapshot', 'link_error', 'link_synced_at', 'link_portal', 'link_staff_hash']) stmts.push(setSettingStmt(env, k, ''));
     // The portal's document register goes with it; the staff stay (they are this system's staff now).
     if (on === '0') stmts.push(env.DB.prepare('DELETE FROM portal_docs'));
+    // And the portal's accounts: accounts here stay as they are, no longer linked.
+    if (on === '0') stmts.push(env.DB.prepare('DELETE FROM portal_users'), env.DB.prepare('UPDATE users SET portal_id = NULL, portal_off = 0 WHERE portal_id IS NOT NULL'));
     stmts.push(logStmt(env, user, 'update', 'fms_link', null, url, { link_on: [s.link_on || '0', on], ...(key ? { link_key: ['***', '***'] } : {}) }));
     await env.DB.batch(stmts);
     // A first sync straight away, so the owner sees at once whether the address and key work.

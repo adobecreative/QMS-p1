@@ -184,6 +184,7 @@ export const userOut = (u) => ({
   totp_on: !!u.totp_on,
   ...(u.must_2fa ? { must_2fa: true } : {}),
   active: u.active === undefined ? true : !!u.active,
+  ...(u.portal_id ? { portal: true, portal_off: !!u.portal_off } : {}),
   created_at: u.created_at,
 });
 

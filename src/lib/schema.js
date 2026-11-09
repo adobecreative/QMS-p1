@@ -670,6 +670,17 @@ export const MIGRATIONS = [
      chapter TEXT,
      synced_at TEXT NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS idx_portal_docs_chapter ON portal_docs(chapter)`,
+  // The Fikra portal's accounts, read over the optional link (never a password). Accounts here are kept in
+  // step with them through users.portal_id; the ones with no account here are offered to the admin to add.
+  `CREATE TABLE IF NOT EXISTS portal_users (
+     id INTEGER PRIMARY KEY,
+     name_ar TEXT NOT NULL,
+     name_en TEXT,
+     email TEXT NOT NULL,
+     department_ar TEXT,
+     department_en TEXT,
+     active INTEGER NOT NULL DEFAULT 1,
+     synced_at TEXT NOT NULL)`,
   // Corrective and preventive actions (CAPA). source: round (a failed line of a quality round) or manual.
   // status: open, doing, done (action taken), verified (quality checked it worked). chapter and std_code tie it
   // to the standard it serves, so it counts as evidence there.
