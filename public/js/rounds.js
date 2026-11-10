@@ -496,7 +496,6 @@ export function roundReminders(d) {
     h('p', { class: 'hint' }, t('rnd.require_scan_hint')),
     checkField(t('rnd.remind'), on),
     h('p', { class: 'hint' }, t('rnd.remind_hint')),
-    d.mail_ready ? '' : h('p', { class: 'notice notice-warn' }, t('rnd.remind_no_mail')),
     h('div', { class: 'actions' }, send, d.reminded_on ? h('span', { class: 'muted small' }, t('rnd.remind_last'), ' ', h('span', { dir: 'ltr' }, fmtDate(d.reminded_on))) : ''),
   );
 }

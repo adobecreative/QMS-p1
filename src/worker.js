@@ -735,6 +735,8 @@ async function handleApi(request, env, url, ctx) {
     // Its id never changes: nobody else can touch it and it cannot delete or demote itself.
     const ownerId = (await env.DB.prepare('SELECT MIN(id) AS id FROM users').first()).id;
     const isOwner = user.id === ownerId;
+    // Linked with the portal, accounts and roles are set on its users screen; the owner can still step in here.
+    if (method !== 'GET' && !isOwner && (await getSettings(env)).link_on === '1') fail(409, 'users_from_portal');
 
     if (route === 'GET /users') {
       const { results } = await env.DB.prepare('SELECT id, name, name_en, email, role, docs_role, desk_role, assets_role, rounds_role, quality_role, meetings_role, department_id, job_title, totp_on, active, portal_id, portal_off, created_at FROM users ORDER BY id').all();
@@ -748,6 +750,8 @@ async function handleApi(request, env, url, ctx) {
     if (route === 'POST /users') {
       const body = await readJson(request);
       const data = await readUserFields(body);
+      // Only the system owner makes a super admin (another one cannot appoint or remove one).
+      if (data.role === 'super_admin' && !isOwner) fail(403, 'super_admin_owner_only');
       await emailTaken(data.email, 0);
       await userCap();
       const hash = await hashPassword(checkPassword(body.password));
@@ -769,6 +773,7 @@ async function handleApi(request, env, url, ctx) {
     if (id === ownerId && !isOwner) fail(404, 'not_found');
     const target = await env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(id).first();
     if (!target) fail(404, 'not_found');
+    if (target.role === 'super_admin' && !isOwner && id !== user.id && method !== 'GET') fail(403, 'super_admin_owner_only');
 
     // For someone who lost their phone and their recovery codes: they set it up again at the next sign-in.
     if (method === 'POST' && seg[2] === '2fa-reset' && seg.length === 3) {
@@ -786,6 +791,7 @@ async function handleApi(request, env, url, ctx) {
       const body = await readJson(request);
       const data = await readUserFields(body);
       data.active = body.active === false ? 0 : 1;
+      if (data.role === 'super_admin' && target.role !== 'super_admin' && !isOwner) fail(403, 'super_admin_owner_only');
       if (data.active && !target.active) await userCap();
       // An admin cannot lock themselves out, so at least one super admin always remains.
       if (id === user.id && (data.role !== 'super_admin' || !data.active)) fail(400, 'cannot_change_self');
