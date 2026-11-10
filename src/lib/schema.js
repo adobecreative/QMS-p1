@@ -679,6 +679,7 @@ export const MIGRATIONS = [
      email TEXT NOT NULL,
      department_ar TEXT,
      department_en TEXT,
+     phone TEXT,
      active INTEGER NOT NULL DEFAULT 1,
      synced_at TEXT NOT NULL)`,
   // Corrective and preventive actions (CAPA). source: round (a failed line of a quality round) or manual.

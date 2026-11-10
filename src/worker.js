@@ -723,7 +723,9 @@ async function handleApi(request, env, url, ctx) {
       if (teamWork && !dept.is_team) fail(400, 'team_required');
       if (sup) department_id = null;
       const job_title = teamWork ? (JOB_TITLES.includes(body.job_title) ? body.job_title : null) : null;
-      return { name, name_en, email, role, docs_role, desk_role, assets_role, rounds_role, quality_role, meetings_role, department_id, job_title };
+      const phone = str(body.phone, 30) || null;
+      if (phone && !/^\+?[0-9 -]{5,30}$/.test(phone)) fail(400, 'invalid_phone');
+      return { name, name_en, email, phone, role, docs_role, desk_role, assets_role, rounds_role, quality_role, meetings_role, department_id, job_title };
     };
     const emailTaken = async (email, exceptId) => {
       const row = await env.DB.prepare('SELECT id FROM users WHERE email = ? AND id <> ?').bind(email, exceptId).first();
@@ -739,7 +741,7 @@ async function handleApi(request, env, url, ctx) {
     if (method !== 'GET' && !isOwner && (await getSettings(env)).link_on === '1') fail(409, 'users_from_portal');
 
     if (route === 'GET /users') {
-      const { results } = await env.DB.prepare('SELECT id, name, name_en, email, role, docs_role, desk_role, assets_role, rounds_role, quality_role, meetings_role, department_id, job_title, totp_on, active, portal_id, portal_off, created_at FROM users ORDER BY id').all();
+      const { results } = await env.DB.prepare('SELECT id, name, name_en, email, phone, role, docs_role, desk_role, assets_role, rounds_role, quality_role, meetings_role, department_id, job_title, totp_on, active, portal_id, portal_off, created_at FROM users ORDER BY id').all();
       return json({ users: results.filter((u) => isOwner || u.id !== ownerId).map(userOut) });
     }
     // The license may cap the number of active accounts.
@@ -763,8 +765,8 @@ async function handleApi(request, env, url, ctx) {
         if (!p) fail(400, 'portal_user_unknown');
         if (await env.DB.prepare('SELECT id FROM users WHERE portal_id = ?').bind(portalId).first()) fail(409, 'portal_user_linked');
       }
-      const res = await env.DB.prepare('INSERT INTO users (name, name_en, email, password_hash, role, docs_role, desk_role, assets_role, rounds_role, quality_role, meetings_role, department_id, job_title, active, portal_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)')
-        .bind(data.name, data.name_en, data.email, hash, data.role, data.docs_role, data.desk_role, data.assets_role, data.rounds_role, data.quality_role, data.meetings_role, data.department_id, data.job_title, portalId, nowIso())
+      const res = await env.DB.prepare('INSERT INTO users (name, name_en, email, phone, password_hash, role, docs_role, desk_role, assets_role, rounds_role, quality_role, meetings_role, department_id, job_title, active, portal_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)')
+        .bind(data.name, data.name_en, data.email, data.phone, hash, data.role, data.docs_role, data.desk_role, data.assets_role, data.rounds_role, data.quality_role, data.meetings_role, data.department_id, data.job_title, portalId, nowIso())
         .run();
       await logStmt(env, user, 'create', 'user', res.meta.last_row_id, data.name, { role: [null, data.role], docs_role: [null, data.docs_role], desk_role: [null, data.desk_role], assets_role: [null, data.assets_role], rounds_role: [null, data.rounds_role], quality_role: [null, data.quality_role], meetings_role: [null, data.meetings_role] }).run();
       return json({ ok: true, id: res.meta.last_row_id });
@@ -796,10 +798,10 @@ async function handleApi(request, env, url, ctx) {
       // An admin cannot lock themselves out, so at least one super admin always remains.
       if (id === user.id && (data.role !== 'super_admin' || !data.active)) fail(400, 'cannot_change_self');
       await emailTaken(data.email, id);
-      const diff = changes(target, data, ['name', 'name_en', 'email', 'role', 'docs_role', 'desk_role', 'assets_role', 'rounds_role', 'quality_role', 'meetings_role', 'department_id', 'job_title', 'active']);
+      const diff = changes(target, data, ['name', 'name_en', 'email', 'phone', 'role', 'docs_role', 'desk_role', 'assets_role', 'rounds_role', 'quality_role', 'meetings_role', 'department_id', 'job_title', 'active']);
       const stmts = [
-        env.DB.prepare('UPDATE users SET name = ?, name_en = ?, email = ?, role = ?, docs_role = ?, desk_role = ?, assets_role = ?, rounds_role = ?, quality_role = ?, meetings_role = ?, department_id = ?, job_title = ?, active = ? WHERE id = ?').bind(
-          data.name, data.name_en, data.email, data.role, data.docs_role, data.desk_role, data.assets_role, data.rounds_role, data.quality_role, data.meetings_role, data.department_id, data.job_title, data.active, id,
+        env.DB.prepare('UPDATE users SET name = ?, name_en = ?, email = ?, phone = ?, role = ?, docs_role = ?, desk_role = ?, assets_role = ?, rounds_role = ?, quality_role = ?, meetings_role = ?, department_id = ?, job_title = ?, active = ? WHERE id = ?').bind(
+          data.name, data.name_en, data.email, data.phone, data.role, data.docs_role, data.desk_role, data.assets_role, data.rounds_role, data.quality_role, data.meetings_role, data.department_id, data.job_title, data.active, id,
         ),
       ];
       if (body.password) {

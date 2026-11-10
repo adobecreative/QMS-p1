@@ -192,16 +192,16 @@ export async function runFmsSync(env, actor, force) {
         .filter((u) => Number.isInteger(u.id) && u.email)
         .map((u) => ({
           id: u.id, name_ar: str(u.name_ar, 100) || str(u.name_en, 100) || '#' + u.id, name_en: str(u.name_en, 100), email: str(u.email, 200).toLowerCase(),
-          department_ar: u.department ? str(u.department.name_ar, 100) : '', department_en: u.department ? str(u.department.name_en, 100) : '', active: u.active ? 1 : 0,
+          department_ar: u.department ? str(u.department.name_ar, 100) : '', department_en: u.department ? str(u.department.name_en, 100) : '', phone: str(u.phone, 30), active: u.active ? 1 : 0,
         }));
       extra.push(
         env.DB.prepare(
-          `INSERT INTO portal_users (id, name_ar, name_en, email, department_ar, department_en, active, synced_at)
+          `INSERT INTO portal_users (id, name_ar, name_en, email, department_ar, department_en, phone, active, synced_at)
            SELECT json_extract(value, '$.id'), json_extract(value, '$.name_ar'), json_extract(value, '$.name_en'), json_extract(value, '$.email'),
-                  json_extract(value, '$.department_ar'), json_extract(value, '$.department_en'), json_extract(value, '$.active'), ?2
+                  json_extract(value, '$.department_ar'), json_extract(value, '$.department_en'), json_extract(value, '$.phone'), json_extract(value, '$.active'), ?2
              FROM json_each(?1) WHERE true
            ON CONFLICT(id) DO UPDATE SET name_ar = excluded.name_ar, name_en = excluded.name_en, email = excluded.email, department_ar = excluded.department_ar,
-                  department_en = excluded.department_en, active = excluded.active, synced_at = excluded.synced_at`,
+                  department_en = excluded.department_en, phone = excluded.phone, active = excluded.active, synced_at = excluded.synced_at`,
         ).bind(JSON.stringify(rows), now),
       );
       // Someone deleted in the portal is gone here too, unless the list was too long to read in full.
@@ -239,8 +239,8 @@ export async function runFmsSync(env, actor, force) {
 // Roles here (quality, meetings...) are this system's own: the sync never gives or takes any.
 export async function syncUsers(env, actor, full) {
   const [{ results: mine }, { results: theirs }, ownerRow] = await Promise.all([
-    env.DB.prepare('SELECT id, name, name_en, email, active, portal_id, portal_off FROM users').all(),
-    env.DB.prepare('SELECT id, name_ar, name_en, email, active FROM portal_users').all(),
+    env.DB.prepare('SELECT id, name, name_en, email, phone, active, portal_id, portal_off FROM users').all(),
+    env.DB.prepare('SELECT id, name_ar, name_en, email, phone, active FROM portal_users').all(),
     env.DB.prepare('SELECT MIN(id) AS id FROM users').first(),
   ]);
   const byId = new Map(theirs.map((p) => [p.id, p]));
@@ -273,15 +273,15 @@ export async function syncUsers(env, actor, full) {
       stmts.push(env.DB.prepare('UPDATE users SET active = 1, portal_off = 0 WHERE id = ?').bind(u.id), logStmt(env, actor, 'portal_on', 'user', u.id, u.name, { active: [0, 1] }));
     }
     if (!p) continue;
-    const next = { name: p.name_ar, name_en: p.name_en || p.name_ar, email: p.email };
+    const next = { name: p.name_ar, name_en: p.name_en || p.name_ar, email: p.email, phone: p.phone || u.phone || '' };
     // A new email only when no other account here uses it.
     if (next.email === u.email.toLowerCase() || emails.has(next.email)) next.email = u.email;
     const diff = {};
-    for (const k of ['name', 'name_en', 'email']) if ((u[k] || '') !== next[k]) diff[k] = [u[k], next[k]];
+    for (const k of ['name', 'name_en', 'email', 'phone']) if ((u[k] || '') !== next[k]) diff[k] = [u[k], next[k]];
     if (Object.keys(diff).length) {
       out.updated++;
       emails.add(next.email);
-      stmts.push(env.DB.prepare('UPDATE users SET name = ?, name_en = ?, email = ? WHERE id = ?').bind(next.name, next.name_en, next.email, u.id), logStmt(env, actor, 'portal_update', 'user', u.id, next.name, diff));
+      stmts.push(env.DB.prepare('UPDATE users SET name = ?, name_en = ?, email = ?, phone = ? WHERE id = ?').bind(next.name, next.name_en, next.email, next.phone || null, u.id), logStmt(env, actor, 'portal_update', 'user', u.id, next.name, diff));
     }
   }
   if (stmts.length) await env.DB.batch(stmts);
@@ -297,7 +297,7 @@ export async function handlePortalUsers(env, method, user) {
   const on = s.link_on === '1' && !!(snapshotOut(s)?.scopes || []).includes('users_read');
   if (!on) return json({ on: false, users: [] });
   const { results } = await env.DB.prepare(
-    `SELECT p.id, p.name_ar, p.name_en, p.email, p.department_ar, p.department_en FROM portal_users p
+    `SELECT p.id, p.name_ar, p.name_en, p.email, p.phone, p.department_ar, p.department_en FROM portal_users p
       WHERE p.active = 1 AND NOT EXISTS (SELECT 1 FROM users u WHERE u.portal_id = p.id OR lower(u.email) = p.email) ORDER BY p.name_ar`,
   ).all();
   return json({ on: true, synced_at: s.link_synced_at || null, users: results });

@@ -171,6 +171,7 @@ export const userOut = (u) => ({
   name: u.name,
   name_en: u.name_en || u.name,
   email: u.email,
+  ...(u.phone !== undefined ? { phone: u.phone || '' } : {}),
   role: u.role,
   docs_role: u.docs_role || 'none',
   desk_role: u.desk_role || 'none',

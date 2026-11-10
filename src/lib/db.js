@@ -90,6 +90,10 @@ export async function ensureSchema(env) {
     ]);
   }
   // Every record is named in Arabic and English. Older people get their one name in both until edited.
+  // A mobile number, for messages later (WhatsApp / SMS). It follows the portal when the systems are linked.
+  if (!userCols.some((c) => c.name === 'phone')) await env.DB.prepare('ALTER TABLE users ADD COLUMN phone TEXT').run();
+  const { results: puCols } = await env.DB.prepare('PRAGMA table_info(portal_users)').all();
+  if (puCols.length && !puCols.some((c) => c.name === 'phone')) await env.DB.prepare('ALTER TABLE portal_users ADD COLUMN phone TEXT').run();
   if (!userCols.some((c) => c.name === 'name_en')) await env.DB.batch([env.DB.prepare('ALTER TABLE users ADD COLUMN name_en TEXT'), env.DB.prepare('UPDATE users SET name_en = name')]);
   // An asset's kind comes from asset_types (it first came from the problem types, which list faults, not devices).
   // Assets made before get a device type of the same name and team, once.
