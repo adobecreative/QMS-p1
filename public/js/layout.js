@@ -194,14 +194,19 @@ export function header(app, active) {
       const on = nav.querySelector('[aria-current="page"]');
       if (on && nav.scrollWidth > nav.clientWidth) nav.scrollLeft += on.getBoundingClientRect().left - nav.getBoundingClientRect().left - (nav.clientWidth - on.offsetWidth) / 2;
     });
-  const home = link('', { class: 'app-switch', 'aria-label': t('portal.title'), title: t('portal.title') }, icon('grid', 20), app ? h('span', { class: 'app-name' }, t('app.' + app)) : null);
+  // Linked with the operations system: the systems button goes back to the Fikra portal, and the logo to this system's home.
+  const homeKids = [icon('grid', 20), app ? h('span', { class: 'app-name' }, t('app.' + app)) : null];
+  const home = S.portalUrl
+    ? h('a', { class: 'app-switch', href: S.portalUrl, 'aria-label': t('portal.fikra'), title: t('portal.fikra') }, ...homeKids)
+    : link('', { class: 'app-switch', 'aria-label': t('portal.title'), title: t('portal.title') }, ...homeKids);
+  const logo = S.portalUrl ? link('', { class: 'brand-home', 'aria-label': t('portal.title') }, brand()) : brand();
   const userBtn = h(
     'button',
     { type: 'button', class: 'user-btn', 'aria-label': personName(S.user), onclick: accountDialog },
     icon('user', 20),
     h('span', { class: 'user-text' }, h('span', { class: 'user-name' }, personName(S.user)), h('span', { class: 'user-role' }, roleLabel(app))),
   );
-  return h('header', { class: 'top' }, h('div', { class: 'top-row wrap' }, h('div', { class: 'top-start' }, brand(), home), h('div', { class: 'top-tools' }, langToggle(), userBtn)), nav);
+  return h('header', { class: 'top' }, h('div', { class: 'top-row wrap' }, h('div', { class: 'top-start' }, logo, home), h('div', { class: 'top-tools' }, langToggle(), userBtn)), nav);
 }
 
 // Notifications on this device (see sw.js). An iPhone or iPad shows them only for a site added to the home screen.

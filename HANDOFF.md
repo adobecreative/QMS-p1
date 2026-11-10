@@ -480,3 +480,10 @@ file form). The chapter page in Quality shows those files as tiles ("Chapter fil
 - Admin Center → Users: chip on linked accounts, and a button listing the portal's active people with no account here
   (`GET /portal-users`, admins). "Add" opens the user form filled in; `POST /users` takes `portal_id` to link it.
 - Switching the link off empties `portal_users` and unlinks every account (the accounts stay).
+
+## Signing in from the Fikra portal (10 November 2026)
+
+- The portal's Quality card opens `https://<this system>/#/sso/<token>`. `public/app.js` takes the token out of the address bar and posts it to `POST /api/sso` (`src/systems/sso.js`).
+- Token: base64url of `{ e: email, n: 32-hex nonce, x: expiry (unix seconds, at most 2 minutes ahead), a: this system's origin }`, then `.`, then hex HMAC-SHA256 of the first part. The HMAC secret is the key's `key_hash` (sha256 hex of the raw key), so this system needs nothing beyond the key it already keeps.
+- Only active keys with the `portal` scope ("Fikra portal") count. Each nonce works once (`sso_used`). The person needs an active account here with the same email, and keeps the roles set here. With two-step sign-in on, the code is still asked for.
+- With the link to the operations system on, `/bootstrap` returns `portal_url`, and the header's systems button goes back to the portal.
