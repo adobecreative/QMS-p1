@@ -1241,6 +1241,10 @@ textarea {
   background: var(--yellow-bg);
   color: var(--yellow-ink);
 }
+.notice-ok {
+  background: var(--green-bg);
+  color: var(--green-ink);
+}
 .pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;

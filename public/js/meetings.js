@@ -4,8 +4,8 @@ import { render } from '../app.js';
 import { kpiRow } from './assets.js';
 import { S, h, icon, t } from './core.js';
 import { link, navigate } from './layout.js';
-import { api, checkField, errText, errorBox, field, fmtDate, input, openDialog, select, toast } from './offline.js';
-import { pick, simpleDelete } from './tickets.js';
+import { api, checkField, errText, errorBox, field, fmtDate, input, loading, openDialog, select, toast } from './offline.js';
+import { pick, printQr, publicShell, simpleDelete } from './tickets.js';
 
 const KINDS = ['committee', 'department', 'special'];
 const FREQS = ['weekly', 'biweekly', 'monthly', 'bimonthly', 'quarterly', 'semiannual', 'annual'];
@@ -284,6 +284,7 @@ async function committeePage(root, id, alive) {
         h(
           'div',
           { class: 'row-actions' },
+          run && !s.date_tbd && s.status !== 'cancelled' && s.date >= d.today && s.minutes_status !== 'approved' ? h('button', { type: 'button', class: 'btn btn-small', title: t('mtg.checkin_qr'), 'aria-label': t('mtg.checkin_qr') + ': ' + s.code, onclick: () => showCheckinQr(c, s) }, 'QR') : null,
           s.minutes_status || (run && s.status !== 'cancelled' && !s.date_tbd && s.date <= d.today) ? link('meetings/committees/s' + s.id, { class: 'btn btn-small' }, icon('file'), t('mtg.minutes'), s.minutes_status ? [' ', minutesChip(s.minutes_status)] : null) : null,
           !s.date_tbd && s.status !== 'cancelled' ? h('a', { class: 'btn btn-icon', href: '/api/committee-sessions/' + s.id + '/ics', title: t('mtg.ics'), 'aria-label': t('mtg.ics') + ': ' + s.code }, icon('download')) : null,
           run ? sessionMenu(c, s, d.today) : null,
@@ -359,7 +360,9 @@ async function minutesPage(root, sid, alive) {
   const marked = Object.fromEntries(d.attendance.map((a) => [a.member_id, a]));
   const attRows = d.members.map((m) => {
     const cur = marked[m.id];
-    const sel = select([['', '-'], ...ATT.map((a) => [a, t('mtg.att.' + a)])], cur ? cur.status : '', { disabled: !edit, 'aria-label': t('mtg.attendance') + ': ' + m.name });
+    // Over and not checked in: absent, unless the secretary changes it.
+    const auto = !cur && d.ended && m.active && edit ? 'absent' : '';
+    const sel = select([['', '-'], ...ATT.map((a) => [a, t('mtg.att.' + a)])], cur ? cur.status : auto, { disabled: !edit, 'aria-label': t('mtg.attendance') + ': ' + m.name });
     const note = input({ type: 'text', maxlength: 200, value: cur ? cur.note || '' : '', disabled: !edit, 'aria-label': t('mtg.notes') + ': ' + m.name });
     return { m, sel, note };
   });
@@ -382,7 +385,7 @@ async function minutesPage(root, sid, alive) {
         'table',
         {},
         h('thead', {}, h('tr', {}, ['mtg.member', 'mtg.member_role', 'mtg.attendance', 'mtg.notes'].map((x) => h('th', { scope: 'col' }, t(x))))),
-        h('tbody', {}, attRows.map((r) => h('tr', {}, h('td', {}, h('div', { class: 'strong' }, pick(r.m.name, r.m.name_en)), r.m.position ? h('div', { class: 'small muted' }, r.m.position) : null), h('td', {}, t('mtg.role.' + r.m.role)), h('td', {}, r.sel), h('td', {}, r.note)))),
+        h('tbody', {}, attRows.map((r) => h('tr', {}, h('td', {}, h('div', { class: 'strong' }, pick(r.m.name, r.m.name_en)), r.m.position ? h('div', { class: 'small muted' }, r.m.position) : null), h('td', {}, t('mtg.role.' + r.m.role)), h('td', {}, r.sel, marked[r.m.id] && marked[r.m.id].method ? h('div', { class: 'small muted' }, t('mtg.via.' + marked[r.m.id].method), ' ', ltr(new Date(marked[r.m.id].checked_at).toLocaleTimeString(S.lang === 'ar' ? 'ar-EG-u-nu-latn' : 'en-GB', { hour: '2-digit', minute: '2-digit' }))) : null), h('td', {}, r.note)))),
       ),
     ),
   );
@@ -469,6 +472,139 @@ async function minutesPage(root, sid, alive) {
     attPanel,
     itemsPanel,
   );
+}
+
+// The session's QR code, to show on the screen or print for the room. Members scan it and give their number.
+async function showCheckinQr(c, s) {
+  try {
+    const r = await api('/committee-sessions/' + s.id + '/checkin');
+    await printQr([{ url: location.origin + '/#/checkin/' + r.code, title: name(c) + ' · ' + s.code, heading: t('mtg.checkin_scan') }]);
+  } catch (e) {
+    toast(errText(e), true);
+  }
+}
+
+// The page a member opens from their emailed link or the session's QR code. No account needed.
+export async function checkinPage(code) {
+  let d;
+  try {
+    d = await api('/checkin/' + code);
+  } catch (e) {
+    return publicShell(h('h1', {}, t('mtg.checkin')), errorBox(e));
+  }
+  const head = [h('h1', {}, t('mtg.checkin')), h('p', { class: 'strong' }, pick(d.committee.name_ar, d.committee.name_en)), h('p', { class: 'muted' }, when({ ...d.session, date_tbd: 0 }), d.session.venue ? ' · ' + d.session.venue : '')];
+  const box = h('div', { class: 'stack' });
+  const done = (r) => box.replaceChildren(h('p', { class: 'notice notice-ok' }, t(r.again ? 'mtg.checkin_again' : 'mtg.checkin_done', { name: pick(r.name, r.name_en), st: t('mtg.att.' + r.status) })));
+  const send = async (body, btn) => {
+    btn.disabled = true;
+    try {
+      done(await api('/checkin/' + code, { method: 'POST', body }));
+    } catch (e) {
+      btn.disabled = false;
+      toast(errText(e), true);
+    }
+  };
+  if (d.marked) done({ name: d.member.name, name_en: d.member.name_en, status: d.marked, again: true });
+  else if (d.phase === 'before' || d.phase === 'closed') box.append(h('p', { class: 'notice notice-warn' }, t('mtg.checkin_' + d.phase)));
+  else if (d.qr) {
+    const who = input({ type: 'text', required: true, dir: 'ltr', maxlength: 200, autocomplete: 'off', placeholder: t('mtg.checkin_who_ph') });
+    const btn = h('button', { type: 'submit', class: 'btn btn-primary' }, t('mtg.checkin_btn'));
+    box.append(h('form', { class: 'stack', onsubmit: (e) => (e.preventDefault(), send({ who: who.value }, btn)) }, field(t('mtg.checkin_who'), who), btn));
+  } else {
+    const btn = h('button', { type: 'button', class: 'btn btn-primary btn-block', onclick: () => send({}, btn) }, t('mtg.checkin_btn'));
+    box.append(h('p', {}, pick(d.member.name, d.member.name_en)), btn);
+  }
+  return publicShell(...head, box);
+}
+
+// Attendance across committees and meetings over a period, to measure compliance.
+export async function attendancePage(root, _param, alive) {
+  const year = new Date().getFullYear();
+  const from = input({ type: 'date', value: year + '-01-01' });
+  const to = input({ type: 'date', value: new Date().toISOString().slice(0, 10) });
+  const body = h('div', { class: 'stack' }, loading());
+  const pctChip = (p) => (p === null || p === undefined ? h('span', { class: 'muted' }, '-') : h('span', { class: 'chip ' + (p >= 75 ? 'chip-valid' : p >= 50 ? 'chip-near' : 'chip-expired') }, ltr(p + '%')));
+  const load = async () => {
+    body.replaceChildren(loading());
+    let d;
+    try {
+      d = await api('/committees/attendance?from=' + from.value + '&to=' + to.value);
+    } catch (e) {
+      if (alive()) body.replaceChildren(errorBox(e));
+      return;
+    }
+    if (!alive()) return;
+    const rows = d.committees.filter((c) => c.held);
+    body.replaceChildren(
+      kpiRow([
+        ['mtg.rep_committees', d.summary.committees],
+        ['mtg.rep_held', d.summary.held],
+        ['mtg.rep_pct', d.summary.pct === null ? '-' : d.summary.pct + '%'],
+        ['mtg.rep_quorum', d.summary.quorum_pct === null ? '-' : d.summary.quorum_pct + '%'],
+      ]),
+      h(
+        'section',
+        { class: 'panel' },
+        h('div', { class: 'panel-head' }, h('div', { class: 'panel-title' }, h('h2', {}, t('mtg.rep_by_committee')))),
+        rows.length
+          ? h(
+              'div',
+              { class: 'table-scroll' },
+              h(
+                'table',
+                {},
+                h('thead', {}, h('tr', {}, ['mtg.code', 'mtg.name', 'mtg.rep_held', 'mtg.rep_pct', 'mtg.rep_quorum_met', 'mtg.att.absent', 'mtg.att.excused'].map((x) => h('th', { scope: 'col' }, t(x))))),
+                h(
+                  'tbody',
+                  {},
+                  rows.map((c) =>
+                    h(
+                      'tr',
+                      {},
+                      h('td', {}, ltr(c.code)),
+                      h('td', {}, link('meetings/committees/' + c.id, {}, name(c)), h('div', { class: 'small muted' }, t('mtg.kinds.' + c.kind))),
+                      h('td', {}, ltr(String(c.held))),
+                      h('td', {}, pctChip(c.pct)),
+                      h('td', {}, c.recorded ? ltr(c.quorum_met + '/' + c.recorded) : h('span', { class: 'muted' }, '-')),
+                      h('td', {}, ltr(String(c.absent))),
+                      h('td', {}, ltr(String(c.excused))),
+                    ),
+                  ),
+                ),
+              ),
+            )
+          : h('p', { class: 'empty' }, t('mtg.rep_empty')),
+      ),
+      h(
+        'section',
+        { class: 'panel' },
+        h('div', { class: 'panel-head' }, h('div', { class: 'panel-title' }, h('h2', {}, t('mtg.rep_low')), h('span', { class: 'muted small' }, t('mtg.rep_low_sub')))),
+        d.low.length
+          ? h(
+              'div',
+              { class: 'table-scroll' },
+              h(
+                'table',
+                {},
+                h('thead', {}, h('tr', {}, ['mtg.member', 'mtg.name', 'mtg.rep_pct', 'mtg.rep_came', 'mtg.att.absent', 'mtg.att.excused'].map((x) => h('th', { scope: 'col' }, t(x))))),
+                h(
+                  'tbody',
+                  {},
+                  d.low.map((m) => {
+                    const c = d.committees.find((x) => x.id === m.committee_id) || {};
+                    return h('tr', {}, h('td', { class: 'strong' }, pick(m.name, m.name_en)), h('td', {}, name(c)), h('td', {}, pctChip(m.pct)), h('td', {}, ltr(m.p + '/' + m.n)), h('td', {}, ltr(String(m.ab))), h('td', {}, ltr(String(m.ex))));
+                  }),
+                ),
+              ),
+            )
+          : h('p', { class: 'empty' }, t('mtg.rep_low_empty')),
+      ),
+    );
+  };
+  from.addEventListener('change', load);
+  to.addEventListener('change', load);
+  root.replaceChildren(h('div', { class: 'page-head' }, h('h1', {}, t('nav.attendance'))), h('section', { class: 'panel pad' }, h('div', { class: 'form-grid' }, field(t('mtg.rep_from'), from), field(t('mtg.rep_to'), to))), body);
+  load();
 }
 
 function sessionMenu(c, s, today) {

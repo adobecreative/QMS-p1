@@ -651,16 +651,20 @@ export const MIGRATIONS = [
      minutes_at TEXT,
      approved_by TEXT,
      approved_at TEXT,
+     checkin_key TEXT,
      created_at TEXT NOT NULL,
      updated_at TEXT NOT NULL,
      UNIQUE (committee_id, num))`,
   `CREATE INDEX IF NOT EXISTS idx_committee_sessions_date ON committee_sessions(date, status)`,
   // Who came to a session. status: present, late, absent, excused (apologised before).
+  // method: link (their emailed link) or qr (the session's QR code) when they checked in themselves.
   `CREATE TABLE IF NOT EXISTS session_attendance (
      session_id INTEGER NOT NULL,
      member_id INTEGER NOT NULL,
      status TEXT NOT NULL,
      note TEXT,
+     checked_at TEXT,
+     method TEXT,
      PRIMARY KEY (session_id, member_id))`,
   // The minutes: one line per subject, with its decision or action, who does it, by when, and open or closed.
   // An action still open is carried to the next session's minutes (carried_from = the line it came from).

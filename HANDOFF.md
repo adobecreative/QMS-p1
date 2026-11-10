@@ -503,4 +503,11 @@ file form). The chapter page in Quality shows those files as tiles ("Chapter fil
 - Flow: draft → pending (only when every active member is marked and there is at least one line) → approved, then locked. Saving minutes marks the session held.
 - Who writes: whoever runs the committee (meetings role "رئيس قسم / أمين لجنة" for their department meetings and the committees they lead, or a manager). Who approves: the chair or co-chair (by email), the head of the department for a department meeting, or a manager. Only a manager reopens approved minutes.
 - The committee page shows each member's attendance rate over held sessions (late counts as present).
+- Electronic attendance (`src/systems/checkin.js`, public route `#/checkin/<code>`, API `/api/checkin/<code>` with no account):
+  - Each member gets a personal link in the invitation and reminder emails (one message per member through Brevo `messageVersions`).
+  - Each session has a QR code (button "QR" on the session row, `GET /api/committee-sessions/:id/checkin`): the scanner gives an employee number or email, and only an active member of that committee is accepted.
+  - Codes are `<session>.<member|q>.<token>`, the token being a hash of a per-session random key (`checkin_key`).
+  - Open from 30 minutes before the start to 30 minutes after the end, in the settings time zone; after 10 minutes the member is late. Closed once the minutes are approved.
+  - Once the session has ended, whoever did not check in shows as absent in the minutes until they are saved.
+- Report "الحضور والغياب" (`#/meetings/attendance`, `GET /api/committees/attendance?from&to`): held sessions, sessions with minutes, quorum met and attendance rate per committee, and members under 75 %. A secretary sees only the committees they run.
 - Next, with OVR: open an investigation automatically when absences pass a set rate.

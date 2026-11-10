@@ -6,6 +6,7 @@
 import { readJson } from '../lib/auth.js';
 import { logStmt } from '../lib/db.js';
 import { fail, isDate, json, nowIso, str } from '../lib/util.js';
+import { sessionEnded } from './checkin.js';
 
 export const ATTENDANCE = ['present', 'late', 'absent', 'excused'];
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -38,7 +39,7 @@ export async function handleMinutes(request, env, method, seg, ctx) {
   if (method === 'GET' && seg.length === 3) {
     const [{ results: members }, { results: att }, { results: items }] = await Promise.all([
       env.DB.prepare('SELECT id, name, name_en, position, role, active, emp_no FROM committee_members WHERE committee_id = ? ORDER BY sort, id').bind(c.id).all(),
-      env.DB.prepare('SELECT member_id, status, note FROM session_attendance WHERE session_id = ?').bind(s.id).all(),
+      env.DB.prepare('SELECT member_id, status, note, checked_at, method FROM session_attendance WHERE session_id = ?').bind(s.id).all(),
       env.DB.prepare('SELECT * FROM session_items WHERE session_id = ? ORDER BY sn, id').bind(s.id).all(),
     ]);
     const marked = new Set(att.map((a) => a.member_id));
@@ -61,6 +62,8 @@ export async function handleMinutes(request, env, method, seg, ctx) {
       attendance: att,
       items,
       carry: carry.map((i) => ({ subject: i.subject, discussion: i.discussion, action: i.action, responsibility: i.responsibility, target_date: i.target_date, status: 'open', carried_from: i.id })),
+      // Once the session is over, whoever did not check in shows as absent until the minutes are saved.
+      ended: sessionEnded(s, ctx.tz),
       can_edit: run && status !== 'approved' && s.status !== 'cancelled' && s.date <= today,
       can_approve: canApprove && status === 'pending',
       can_reopen: manager && status === 'approved',
@@ -97,13 +100,16 @@ export async function handleMinutes(request, env, method, seg, ctx) {
       if (active.some((m) => !have.has(m.id))) fail(400, 'mtg_attendance_missing');
       if (!items.length) fail(400, 'mtg_items_missing');
     }
+    // Who checked in themselves keeps when and how.
+    const { results: selfIn } = await env.DB.prepare('SELECT member_id, checked_at, method FROM session_attendance WHERE session_id = ? AND method IS NOT NULL').bind(s.id).all();
+    const kept = Object.fromEntries(selfIn.map((r) => [r.member_id, r]));
     const now = nowIso();
     const next = submit ? 'pending' : 'draft';
     const who = user.name_en || user.name;
     await env.DB.batch([
       env.DB.prepare('DELETE FROM session_attendance WHERE session_id = ?').bind(s.id),
       env.DB.prepare('DELETE FROM session_items WHERE session_id = ?').bind(s.id),
-      ...att.map((a) => env.DB.prepare('INSERT INTO session_attendance (session_id, member_id, status, note) VALUES (?, ?, ?, ?)').bind(s.id, a.member_id, a.status, a.note)),
+      ...att.map((a) => env.DB.prepare('INSERT INTO session_attendance (session_id, member_id, status, note, checked_at, method) VALUES (?, ?, ?, ?, ?, ?)').bind(s.id, a.member_id, a.status, a.note, kept[a.member_id]?.checked_at || null, kept[a.member_id]?.method || null)),
       ...items.map((i, n) =>
         env.DB.prepare('INSERT INTO session_items (session_id, sn, subject, discussion, action, responsibility, target_date, status, carried_from, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(
           s.id, n + 1, i.subject, i.discussion, i.action, i.responsibility, i.target_date, i.status, i.carried_from, now,
