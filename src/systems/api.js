@@ -6,6 +6,7 @@ import { HttpError, checkLang, fail, json, nowIso, sha256Hex, str, toHex, todayI
 import { ASSET_SELECT, ASSET_STATUSES } from './assets.js';
 import { statusOf } from './docs.js';
 import { DOC_RE, PART_ROWS_MAX, RECEIPT_KINDS, REQUEST_SELECT, REQUEST_STATUSES, codeOf, costOf, costReport, erpIssueStmts, invMode, isConstraint, qtyOf, readPart, realertStmt, receiptLines, receiptStmts, reportRange } from './inventory.js';
+import { handlePeople } from './people.js';
 import { qualityHome } from './quality.js';
 import { MAX_STAFF_ROWS, TICKET_SELECT, addMinutes, afterNewTicket, eventStmt, importStaff, slaFor, ticketOut, ticketPriority, toInt } from './tickets.js';
 
@@ -107,6 +108,11 @@ export async function handleIntegration(request, env, url, seg, method, ctx) {
   const route = `${method} /${rest.join('/')}`;
   const limit = Math.min(API_LIST_MAX, Math.max(1, toInt(url.searchParams.get('limit')) || 100));
 
+  // Accounts and roles from the Fikra portal's users screen (systems/people.js).
+  if (rest[0] === 'people' && rest.length === 1) {
+    need('portal');
+    return handlePeople(request, env, url, method, actor);
+  }
   if (route === 'GET /ping') return json({ ok: true, name_ar: key.name_ar, name_en: key.name_en, scopes, per_hour: API_PER_HOUR, used_this_hour: key.hour_n });
 
   // A few numbers for this system's card on the Fikra portal page (the operations system links to it). Any key.

@@ -557,6 +557,24 @@ check(r.s === 200 && r.j.logs.some((l) => l.action === 'assess' && l.entity === 
   check((await sso(token(portalKey, { x: Math.floor(Date.now() / 1000) - 5 }))).j?.error === 'sso_expired', 'an old link is refused');
   check((await sso(token(portalKey, { e: 'nobody@example.com' }))).j?.error === 'sso_no_account', 'no account here, no way in');
   check((await sso(good.slice(0, -1) + (good.endsWith('0') ? '1' : '0'))).j?.error === 'sso_invalid', 'a changed signature is refused');
+
+  // The portal's users screen: list and set accounts and roles here, by email.
+  const people = async (key, method = 'GET', body) => {
+    const x = await fetch(B + '/api/v1/people', { method, headers: { authorization: 'Bearer ' + key, 'content-type': 'application/json' }, body: body && JSON.stringify(body) });
+    return { s: x.status, j: await x.json().catch(() => null) };
+  };
+  r = await people(portalKey);
+  check(r.s === 200 && r.j.apps.some((a) => a.key === 'quality_role' && a.options.length === 4) && r.j.people.some((p) => p.email === 'owner@example.com' && p.owner), 'the portal reads the accounts and the parts it can give', r.j && r.j.apps);
+  check((await people(otherKey)).s === 403, 'only a key with the portal scope reads them');
+  r = await people(portalKey, 'PUT', { email: 'New.Person@example.com', name: 'شخص جديد', name_en: 'New Person', role: 'user', roles: { quality_role: 'assessor', meetings_role: 'bogus' }, by: 'Owner' });
+  check(r.s === 200 && r.j.person.active && r.j.person.roles.quality_role === 'assessor' && r.j.person.roles.meetings_role === 'none', 'the portal gives someone an account and a role here', r.j);
+  r = await people(portalKey, 'PUT', { email: 'new.person@example.com', role: 'systems_admin', roles: { quality_role: 'manager' } });
+  check(r.s === 200 && r.j.person.role === 'systems_admin' && r.j.person.roles.quality_role === 'none', 'an admin needs no per-part roles', r.j);
+  r = await people(portalKey, 'PUT', { email: 'new.person@example.com', account: false });
+  check(r.s === 200 && r.j.person.active === false, 'and switches the account off', r.j);
+  check((await people(portalKey, 'PUT', { email: 'owner@example.com', role: 'user' })).j?.error === 'owner_account', 'the owner account is never changed from the portal');
+  const logs = (await owner('/logs?entity=user')).j;
+  check(JSON.stringify(logs || {}).includes('(Owner)'), 'the log names the portal admin', logs && (logs.logs || logs).slice ? (logs.logs || logs).slice(0, 2) : logs);
 }
 
 console.log(failed ? `\n${failed} check(s) failed` : '\nall checks passed');

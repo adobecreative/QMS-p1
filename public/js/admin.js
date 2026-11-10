@@ -22,10 +22,11 @@ export async function usersPage(root, _param, alive) {
     return;
   }
   if (!alive()) return;
-  const manage = S.user.role === 'super_admin';
+  const fromPortal = !!S.portalUrl && !S.user.is_owner;
+  const manage = S.user.role === 'super_admin' && !fromPortal;
   root.replaceChildren(
     h('div', { class: 'page-head' }, h('h1', {}, t('nav.users')), manage ? h('div', { class: 'actions' }, missing.length ? h('button', { type: 'button', class: 'btn', onclick: () => portalUsersDialog(missing) }, icon('users'), t('puser.button', { n: missing.length })) : null, h('button', { type: 'button', class: 'btn btn-primary', onclick: () => userDialog(null) }, icon('plus'), t('user.add'))) : ''),
-    manage ? '' : h('p', { class: 'notice' }, t('user.view_only')),
+    fromPortal ? h('p', { class: 'notice' }, t('user.from_portal'), ' ', h('a', { href: S.portalUrl + '/#/admin/users' }, t('portal.fikra'))) : manage ? '' : h('p', { class: 'notice' }, t('user.view_only')),
     h(
       'section',
       { class: 'panel' },
@@ -74,7 +75,7 @@ export async function usersPage(root, _param, alive) {
                 manage ? h(
                   'td',
                   {},
-                  h(
+                  u.role === 'super_admin' && !S.user.is_owner && u.id !== S.user.id ? '' : h(
                     'div',
                     { class: 'row-actions' },
                     h('button', { type: 'button', class: 'btn btn-icon', 'aria-label': t('common.edit') + ': ' + personName(u), title: t('common.edit'), onclick: () => userDialog(u) }, icon('edit')),
@@ -135,7 +136,10 @@ export function userDialog(u, from) {
   const name = input({ type: 'text', required: true, maxlength: 100, dir: 'rtl', value: u ? u.name : from ? from.name_ar : '' });
   const nameEn = input({ type: 'text', required: true, maxlength: 100, dir: 'ltr', value: u ? u.name_en || '' : from ? from.name_en || '' : '' });
   const email = input({ type: 'email', required: true, dir: 'ltr', value: u ? u.email : from ? from.email : '' });
-  const level = select(['user', 'systems_admin', 'super_admin'].map((r) => [r, t('level.' + r)]), u ? u.role : 'user', { disabled: isSelf });
+  // Only the system owner appoints or changes a super admin.
+  const lockedSup = !!u && u.role === 'super_admin' && !S.user.is_owner;
+  const levels = S.user.is_owner || lockedSup ? ['user', 'systems_admin', 'super_admin'] : ['user', 'systems_admin'];
+  const level = select(levels.map((r) => [r, t('level.' + r)]), u ? u.role : 'user', { disabled: isSelf || lockedSup });
   const dept = select([['', t('common.none')], ...S.departments.map((d) => [d.id, deptName(d)])], u ? u.department_id ?? '' : '', {});
   const docs = select(['none', 'viewer', 'dept_admin'].map((r) => [r, t('docsrole.' + r)]), u ? u.docs_role : 'viewer', {});
   const desk = select(['none', 'dept', 'technician', 'supervisor'].map((r) => [r, t('deskrole.' + r)]), u ? u.desk_role : 'none', {});

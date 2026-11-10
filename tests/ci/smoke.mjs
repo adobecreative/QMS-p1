@@ -43,6 +43,7 @@ check((await add({ name: 'فني', name_en: 'Tech', email: 'tech@example.com', r
 check((await add({ name: 'Latin', name_en: 'Latin', email: 'latin@example.com', role: 'user' })) === 400, 'latin letters refused in an Arabic name');
 
 const sup = await login('super@example.com', 'secret-pass-2');
+check((await sup('/users', 'POST', { name: 'مدير ثالث', name_en: 'Super Three', email: 'super3@example.com', role: 'super_admin', password: 'secret-pass-9' })).j?.error === 'super_admin_owner_only', 'only the owner appoints a super admin');
 const sys = await login('systems@example.com', 'secret-pass-2');
 const tech = await login('tech@example.com', 'secret-pass-2');
 
