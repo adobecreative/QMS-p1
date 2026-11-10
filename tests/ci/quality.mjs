@@ -1,3 +1,4 @@
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 // End-to-end checks for Quality & Accreditation: CBAHI chapters, standards, self-assessment and readiness.
 // Runs after systems.mjs, on the same data. Each check prints PASS or FAIL; any FAIL makes the run fail.
 
@@ -531,6 +532,31 @@ check(r.s === 200 && r.j.logs.some((l) => l.action === 'assess' && l.entity === 
   const back = users.find((u) => u.email === 'qv@example.com');
   await owner('/users/' + back.id, 'PUT', { ...back, active: true });
   srv.close();
+}
+
+// Signing in from the Fikra portal: a one-minute token signed with the hash of a key that has the portal scope.
+{
+  const mk = async (scopes) => (await owner('/api-keys', 'POST', { name_ar: 'بوابة فكرة', name_en: 'Fikra portal', scopes })).j.key;
+  const portalKey = await mk(['portal']);
+  const otherKey = await mk(['assets_read']);
+  const token = (key, over = {}) => {
+    const body = Buffer.from(JSON.stringify({ e: 'tech@example.com', n: randomBytes(16).toString('hex'), x: Math.floor(Date.now() / 1000) + 60, a: B, ...over })).toString('base64url');
+    return body + '.' + createHmac('sha256', createHash('sha256').update(key).digest('hex')).update(body).digest('hex');
+  };
+  const sso = async (t) => {
+    const x = await fetch(B + '/api/sso', { method: 'POST', headers: { 'content-type': 'application/json', 'x-requested-with': 'fetch' }, body: JSON.stringify({ token: t }) });
+    return { s: x.status, j: await x.json().catch(() => null), cookie: (x.headers.get('set-cookie') || '').split(';')[0] };
+  };
+  const good = token(portalKey);
+  r = await sso(good);
+  const me = r.cookie ? await fetch(B + '/api/bootstrap', { headers: { cookie: r.cookie } }).then((x) => x.json()) : {};
+  check(r.s === 200 && r.cookie.startsWith('fm_session=') && me.user && me.user.email === 'tech@example.com', 'a portal link signs the same person in', r);
+  check((await sso(good)).j?.error === 'sso_expired', 'each link works once');
+  check((await sso(token(otherKey))).j?.error === 'sso_invalid', 'only a key with the portal scope signs people in');
+  check((await sso(token(portalKey, { a: 'https://other.example' }))).j?.error === 'sso_invalid', 'a link made for another system is refused');
+  check((await sso(token(portalKey, { x: Math.floor(Date.now() / 1000) - 5 }))).j?.error === 'sso_expired', 'an old link is refused');
+  check((await sso(token(portalKey, { e: 'nobody@example.com' }))).j?.error === 'sso_no_account', 'no account here, no way in');
+  check((await sso(good.slice(0, -1) + (good.endsWith('0') ? '1' : '0'))).j?.error === 'sso_invalid', 'a changed signature is refused');
 }
 
 console.log(failed ? `\n${failed} check(s) failed` : '\nall checks passed');

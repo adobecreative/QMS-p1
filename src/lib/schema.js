@@ -745,4 +745,6 @@ export const MIGRATIONS = [
      framework TEXT NOT NULL,
      data TEXT NOT NULL,
      PRIMARY KEY (month, framework))`,
+  // Sign-in links from the Fikra portal already used (each works once), kept until they expire.
+  `CREATE TABLE IF NOT EXISTS sso_used (nonce TEXT PRIMARY KEY, expires_at TEXT NOT NULL)`,
 ];

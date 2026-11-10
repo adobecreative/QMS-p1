@@ -13,7 +13,7 @@ import { MAX_STAFF_ROWS, TICKET_SELECT, addMinutes, afterNewTicket, eventStmt, i
 
 // Other systems (HR, the hospital information system) call /api/v1 with a key made in Admin Center.
 // Each key has its own scopes, and is counted per hour so one busy system never slows the rest.
-export const API_SCOPES = ['staff', 'tickets_read', 'tickets_write', 'assets_read', 'inventory', 'costs_read', 'docs_read'];
+export const API_SCOPES = ['portal', 'staff', 'tickets_read', 'tickets_write', 'assets_read', 'inventory', 'costs_read', 'docs_read'];
 export const API_PER_HOUR = 1000; // calls per key and hour
 export const API_KEYS_MAX = 20;
 export const API_LIST_MAX = 200; // rows per call on the list routes

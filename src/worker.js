@@ -18,6 +18,7 @@ import { handleCompliance, handleReportMail, handleReports, runMonthlyReport } f
 import { handleHome } from './systems/home.js';
 import { handleFmsLink, handlePortalDocs, handlePortalUsers, portalDocsOn, runFmsSync } from './systems/fmslink.js';
 import { handleQuality, seedChapters } from './systems/quality.js';
+import { portalSignIn } from './systems/sso.js';
 import { handleCapa } from './systems/capa.js';
 import { handleKpis, refreshAutoKpis, snapshotReadiness } from './systems/kpis.js';
 import { handleRounds, runRoundReminders } from './systems/rounds.js';
@@ -167,6 +168,9 @@ async function handleApi(request, env, url, ctx) {
     const token = await createSession(env, ch.id);
     return json({ ok: true, recovery_left: left }, 200, { 'set-cookie': sessionCookie(token, SESSION_DAYS * 86400) });
   }
+
+  // Arriving from the Fikra portal, already signed in there (see systems/sso.js).
+  if (route === 'POST /sso') return portalSignIn(request, env, url, (await readJson(request)).token);
 
   /* ---- forgot password (public) ---- */
 

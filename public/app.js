@@ -6,8 +6,8 @@ import { $app, I18N, S, h, icon, store, t } from './js/core.js';
 import { healthPage } from './js/health.js';
 import { dashboardPage, departmentsPage, documentsPage, typesPage } from './js/docs.js';
 import { costsPage, devTypesPage, movesPage, partsPage, pmPage, requestsPage } from './js/inventory.js';
-import { APPS, access, appPages, applyBrand, authPage, currentRoute, forgotPage, header, link, myApps, resetPage, roleLabel, setUrl, twoFactorRequiredPage } from './js/layout.js';
-import { IDB, OFF, api, drawOffBar, errText, loading, personName, syncQueue, warmPages } from './js/offline.js';
+import { APPS, access, appPages, applyBrand, authPage, currentRoute, forgotPage, header, link, loginCodeStep, myApps, resetPage, roleLabel, setUrl, twoFactorRequiredPage } from './js/layout.js';
+import { IDB, OFF, api, drawOffBar, errText, loading, personName, syncQueue, toast, warmPages } from './js/offline.js';
 import { calendarPage, committeesPage } from './js/meetings.js';
 import { assessPage, chaptersPage, portalDocsPage, standardsPage } from './js/quality.js';
 import { capaPage } from './js/capa.js';
@@ -127,6 +127,14 @@ export function render() {
     S.route = 'reset';
     setUrl('reset', false);
   }
+  // Arriving from the Fikra portal with a one-minute sign-in token: taken out of the address bar at once.
+  const so = /^sso\/([A-Za-z0-9_.-]{20,900})$/.exec(S.route);
+  if (so) {
+    S.route = '';
+    setUrl('', false);
+    portalSignIn(so[1]);
+    return;
+  }
   if (!S.needsSetup && S.route === 'reset' && S.resetToken) {
     $app.replaceChildren(resetPage(S.resetToken));
     return;
@@ -163,6 +171,23 @@ export function render() {
   if (!app) return portalPage(main, alive);
   if (app === 'desk') refreshBadge();
   (name === 'settings' ? settingsPage : PAGES[name])(main, param, alive, app);
+}
+
+async function portalSignIn(token) {
+  $app.replaceChildren(h('div', { class: 'auth' }, loading()));
+  try {
+    const r = await api('/sso', { method: 'POST', body: { token } });
+    if (r.need_code) {
+      S.user = null;
+      $app.replaceChildren(authPage(false));
+      loginCodeStep($app.querySelector('.auth-card'), r.ticket);
+      return;
+    }
+    await boot();
+  } catch (e) {
+    toast(errText(e), true);
+    render();
+  }
 }
 
 export async function boot() {
