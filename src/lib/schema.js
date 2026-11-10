@@ -645,10 +645,38 @@ export const MIGRATIONS = [
      invited_at TEXT,
      remind3_at TEXT,
      remind1_at TEXT,
+     minutes_status TEXT,
+     time_started TEXT,
+     minutes_by TEXT,
+     minutes_at TEXT,
+     approved_by TEXT,
+     approved_at TEXT,
      created_at TEXT NOT NULL,
      updated_at TEXT NOT NULL,
      UNIQUE (committee_id, num))`,
   `CREATE INDEX IF NOT EXISTS idx_committee_sessions_date ON committee_sessions(date, status)`,
+  // Who came to a session. status: present, late, absent, excused (apologised before).
+  `CREATE TABLE IF NOT EXISTS session_attendance (
+     session_id INTEGER NOT NULL,
+     member_id INTEGER NOT NULL,
+     status TEXT NOT NULL,
+     note TEXT,
+     PRIMARY KEY (session_id, member_id))`,
+  // The minutes: one line per subject, with its decision or action, who does it, by when, and open or closed.
+  // An action still open is carried to the next session's minutes (carried_from = the line it came from).
+  `CREATE TABLE IF NOT EXISTS session_items (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     session_id INTEGER NOT NULL,
+     sn INTEGER NOT NULL,
+     subject TEXT NOT NULL,
+     discussion TEXT,
+     action TEXT,
+     responsibility TEXT,
+     target_date TEXT,
+     status TEXT NOT NULL DEFAULT 'open',
+     carried_from INTEGER,
+     created_at TEXT NOT NULL)`,
+  `CREATE INDEX IF NOT EXISTS idx_session_items ON session_items(session_id, sn)`,
   // The Fikra portal's document register, read over the optional link (the PDFs stay in the portal and are
   // opened through this server). id is the portal's id. chapter is filed here, by quality, so a portal
   // document shows as evidence on that chapter; it survives every sync.

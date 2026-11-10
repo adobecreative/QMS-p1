@@ -1,7 +1,7 @@
 // Committees & meetings: the committees master (hospital committees, departmental meetings and one-off
 // special meetings), their members, terms of reference and reference papers, the schedule made from each
 // committee's frequency, and the invitations and reminders sent to the members by email and on their phones.
-// Agenda, minutes, actions and QR attendance come in the next phase on the same sessions.
+// Minutes, attendance and actions of each session: systems/minutes.js.
 import { readJson } from '../lib/auth.js';
 import { appName, isAdmin } from '../lib/config.js';
 import { getSettings, logStmt } from '../lib/db.js';
@@ -10,6 +10,7 @@ import { sendPush } from '../lib/push.js';
 import { ARABIC_RE, diffDays, escHtml, fail, isDate, json, nowIso, str, todayIn } from '../lib/util.js';
 import { route2 } from './assets.js';
 import { plusDays } from './docs.js';
+import { attendanceStats, handleMinutes } from './minutes.js';
 
 export const MEETING_KINDS = ['committee', 'department', 'special'];
 export const CODE_PREFIX = { committee: 'COM', department: 'DEP', special: 'SPM' };
@@ -444,6 +445,10 @@ export async function handleMeetings(request, env, url, seg, method, user) {
     if (method === 'GET' && seg[2] === 'ics' && seg.length === 3) {
       return new Response(sessionIcs(c, s, settings), { headers: { 'content-type': 'text/calendar; charset=utf-8', 'content-disposition': `attachment; filename="${sessionCode(c, s)}.ics"`, 'cache-control': 'no-store' } });
     }
+    if (seg[2] === 'minutes') {
+      const lead = await leads();
+      return handleMinutes(request, env, method, seg, { user, c, s, run: canRun(c, lead), manager, today, lead, code: sessionCode(c, s) });
+    }
     if (method !== 'PUT' || seg.length !== 2) fail(405, 'method_not_allowed');
     if (!canRun(c, await leads())) fail(403, 'forbidden');
     const body = await readJson(request);
@@ -515,9 +520,10 @@ export async function handleMeetings(request, env, url, seg, method, user) {
       env.DB.prepare('SELECT * FROM committee_sessions WHERE committee_id = ? ORDER BY date, start_time').bind(id).all(),
     ]);
     const active = members.filter((m) => m.active && m.role !== 'invitee').length;
+    const stats = await attendanceStats(env, id);
     return json({
       committee: { ...c, quorum_n: Math.ceil((active * c.quorum_pct) / 100) },
-      members,
+      members: members.map((m) => ({ ...m, attendance: stats[m.id] || null })),
       files,
       sessions: sessions.map((s) => ({ ...s, code: sessionCode(c, s) })),
       can_run: run,

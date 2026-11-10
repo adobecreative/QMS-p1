@@ -155,6 +155,11 @@ export async function ensureSchema(env) {
       ),
     ]);
   }
+  // Minutes of a session: draft, pending (sent to the chair), approved.
+  const { results: sesCols } = await env.DB.prepare('PRAGMA table_info(committee_sessions)').all();
+  if (!sesCols.some((c) => c.name === 'minutes_status')) {
+    await env.DB.batch(['minutes_status', 'time_started', 'minutes_by', 'minutes_at', 'approved_by', 'approved_at'].map((c) => env.DB.prepare(`ALTER TABLE committee_sessions ADD COLUMN ${c} TEXT`)));
+  }
   // Hospital departments, teams and common problem types, once per database.
   if (!(await env.DB.prepare("SELECT 1 AS x FROM settings WHERE key = 'starter_seeded'").first())) await seedStarter(env);
   // Common device types, once, after the teams they belong to exist.

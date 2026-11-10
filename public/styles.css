@@ -4010,3 +4010,9 @@ tr.is-off td {
 .kpi-body {
   padding: 16px 20px;
 }
+/* A line of the minutes: its delete button stays small. */
+.mtg-item > .btn {
+  width: auto;
+  align-self: flex-start;
+  margin-top: 8px;
+}

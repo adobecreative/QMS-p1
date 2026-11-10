@@ -25,6 +25,7 @@ const ltr = (x) => h('span', { dir: 'ltr', class: 'mono' }, x);
 // meetings/committees: the list; meetings/committees/5: one committee.
 export async function committeesPage(root, param, alive) {
   if (/^\d+$/.test(String(param || ''))) return committeePage(root, Number(param), alive);
+  if (/^s\d+$/.test(String(param || ''))) return minutesPage(root, Number(param.slice(1)), alive);
   let d;
   try {
     d = await api('/committees');
@@ -222,6 +223,7 @@ async function committeePage(root, id, alive) {
       h('td', {}, m.position || h('span', { class: 'muted' }, '-')),
       h('td', {}, h('span', { class: 'chip ' + (m.role === 'chair' ? 'chip-progress' : 'chip-review') }, t('mtg.role.' + m.role))),
       h('td', {}, m.email ? h('bdi', { dir: 'ltr', class: 'small' }, m.email) : h('span', { class: 'small form-error' }, t('mtg.no_email'))),
+      h('td', { class: 'nowrap' }, attCell(m.attendance)),
       h('td', { class: 'small' }, m.active ? (m.substitute_name ? t('mtg.substitute_is', { name: m.substitute_name }) : '') : h('span', { class: 'muted' }, t('mtg.inactive_since', { reason: m.inactive_reason || '' }))),
       run
         ? h(
@@ -246,7 +248,7 @@ async function committeePage(root, id, alive) {
       run ? h('div', { class: 'actions' }, c.kind === 'department' && c.department_id ? h('button', { type: 'button', class: 'btn', onclick: () => suggestDialog(c, d.members) }, icon('users'), t('mtg.suggest')) : null, h('button', { type: 'button', class: 'btn btn-primary', onclick: () => memberDialog(c, null) }, icon('plus'), t('mtg.member_add'))) : null,
     ),
     d.members.length
-      ? h('div', { class: 'table-scroll' }, h('table', {}, h('thead', {}, h('tr', {}, ['mtg.member', 'mtg.position', 'mtg.member_role', 'user.email', 'mtg.notes', ...(run ? ['common.actions'] : [])].map((x) => h('th', { scope: 'col' }, t(x))))), h('tbody', {}, d.members.map(memberRow))))
+      ? h('div', { class: 'table-scroll' }, h('table', {}, h('thead', {}, h('tr', {}, ['mtg.member', 'mtg.position', 'mtg.member_role', 'user.email', 'mtg.attendance', 'mtg.notes', ...(run ? ['common.actions'] : [])].map((x) => h('th', { scope: 'col' }, t(x))))), h('tbody', {}, d.members.map(memberRow))))
       : h('p', { class: 'empty' }, t('mtg.members_empty')),
   );
 
@@ -282,6 +284,7 @@ async function committeePage(root, id, alive) {
         h(
           'div',
           { class: 'row-actions' },
+          s.minutes_status || (run && s.status !== 'cancelled' && !s.date_tbd && s.date <= d.today) ? link('meetings/committees/s' + s.id, { class: 'btn btn-small' }, icon('file'), t('mtg.minutes'), s.minutes_status ? [' ', minutesChip(s.minutes_status)] : null) : null,
           !s.date_tbd && s.status !== 'cancelled' ? h('a', { class: 'btn btn-icon', href: '/api/committee-sessions/' + s.id + '/ics', title: t('mtg.ics'), 'aria-label': t('mtg.ics') + ': ' + s.code }, icon('download')) : null,
           run ? sessionMenu(c, s, d.today) : null,
         ),
@@ -325,6 +328,146 @@ async function committeePage(root, id, alive) {
     sessions,
     files,
     ].filter(Boolean),
+  );
+}
+
+const MINUTES_CHIP = { draft: 'chip-review', pending: 'chip-near', approved: 'chip-valid' };
+const minutesChip = (st) => h('span', { class: 'chip ' + MINUTES_CHIP[st] }, t('mtg.ms.' + st));
+const ATT = ['present', 'late', 'absent', 'excused'];
+// A member's attendance over the held sessions: the share present (late counts as present).
+function attCell(a) {
+  if (!a || !a.n) return h('span', { class: 'muted' }, '-');
+  return h('span', { class: 'chip ' + (a.pct >= 75 ? 'chip-valid' : a.pct >= 50 ? 'chip-near' : 'chip-expired'), title: t('mtg.att_detail', { p: a.present, n: a.n, a: a.absent, e: a.excused }) }, ltr(a.pct + '%'), ' ', h('span', { class: 'small' }, ltr(a.present + '/' + a.n)));
+}
+
+// The minutes of one session: attendance, then one line per subject with its action, owner, date and state.
+async function minutesPage(root, sid, alive) {
+  let d;
+  try {
+    d = await api('/committee-sessions/' + sid + '/minutes');
+  } catch (e) {
+    if (alive()) root.replaceChildren(errorBox(e));
+    return;
+  }
+  if (!alive()) return;
+  const c = d.committee;
+  const s = d.session;
+  const edit = d.can_edit;
+  const ro = (v) => (v ? h('span', {}, v) : h('span', { class: 'muted' }, '-'));
+
+  // Attendance.
+  const marked = Object.fromEntries(d.attendance.map((a) => [a.member_id, a]));
+  const attRows = d.members.map((m) => {
+    const cur = marked[m.id];
+    const sel = select([['', '-'], ...ATT.map((a) => [a, t('mtg.att.' + a)])], cur ? cur.status : '', { disabled: !edit, 'aria-label': t('mtg.attendance') + ': ' + m.name });
+    const note = input({ type: 'text', maxlength: 200, value: cur ? cur.note || '' : '', disabled: !edit, 'aria-label': t('mtg.notes') + ': ' + m.name });
+    return { m, sel, note };
+  });
+  const count = h('span', { class: 'muted small' });
+  const recount = () => {
+    const n = attRows.filter((r) => r.sel.value === 'present' || r.sel.value === 'late').length;
+    count.textContent = t('mtg.att_count', { n, of: attRows.filter((r) => r.m.active && r.m.role !== 'invitee').length });
+  };
+  attRows.forEach((r) => r.sel.addEventListener('change', recount));
+  recount();
+  const allPresent = edit ? h('button', { type: 'button', class: 'btn btn-small', onclick: () => (attRows.forEach((r) => !r.sel.value && (r.sel.value = 'present')), recount()) }, t('mtg.att_all')) : null;
+  const attPanel = h(
+    'section',
+    { class: 'panel' },
+    h('div', { class: 'panel-head' }, h('div', { class: 'panel-title' }, h('h2', {}, t('mtg.attendance')), count), allPresent),
+    h(
+      'div',
+      { class: 'table-scroll' },
+      h(
+        'table',
+        {},
+        h('thead', {}, h('tr', {}, ['mtg.member', 'mtg.member_role', 'mtg.attendance', 'mtg.notes'].map((x) => h('th', { scope: 'col' }, t(x))))),
+        h('tbody', {}, attRows.map((r) => h('tr', {}, h('td', {}, h('div', { class: 'strong' }, pick(r.m.name, r.m.name_en)), r.m.position ? h('div', { class: 'small muted' }, r.m.position) : null), h('td', {}, t('mtg.role.' + r.m.role)), h('td', {}, r.sel), h('td', {}, r.note)))),
+      ),
+    ),
+  );
+
+  // Lines of the minutes.
+  const list = h('div', { class: 'stack mtg-items' });
+  const rows = [];
+  const addRow = (i) => {
+    const subject = input({ type: 'text', maxlength: 300, value: i.subject || '', disabled: !edit, 'aria-label': t('mtg.subject') });
+    const discussion = h('textarea', { rows: 2, maxlength: 4000, disabled: !edit, 'aria-label': t('mtg.discussion') }, i.discussion || '');
+    const action = h('textarea', { rows: 2, maxlength: 1000, disabled: !edit, 'aria-label': t('mtg.action') }, i.action || '');
+    const resp = input({ type: 'text', maxlength: 200, value: i.responsibility || '', disabled: !edit });
+    const target = input({ type: 'date', value: i.target_date || '', disabled: !edit });
+    const status = select([['open', t('mtg.item.open')], ['closed', t('mtg.item.closed')]], i.status || 'open', { disabled: !edit });
+    const row = { i, subject, discussion, action, resp, target, status };
+    const el = h(
+      'fieldset',
+      { class: 'app-roles mtg-item' },
+      h('legend', {}, String(rows.length + 1), i.carried_from ? [' ', h('span', { class: 'tag' }, t('mtg.carried'))] : null),
+      field(t('mtg.subject'), subject),
+      field(t('mtg.discussion'), discussion),
+      field(t('mtg.action'), action),
+      h('div', { class: 'form-grid' }, field(t('mtg.responsibility'), resp), field(t('mtg.target'), target), field(t('mtg.status'), status)),
+      edit ? h('button', { type: 'button', class: 'btn btn-small', onclick: () => (rows.splice(rows.indexOf(row), 1), el.remove()) }, icon('trash'), t('common.delete')) : null,
+    );
+    row.el = el;
+    rows.push(row);
+    list.append(el);
+  };
+  const start = d.items.length ? d.items : d.carry.length ? [{ subject: t('mtg.call_to_order') }, ...d.carry] : edit ? [{ subject: t('mtg.call_to_order') }] : [];
+  start.forEach(addRow);
+  const itemsPanel = h(
+    'section',
+    { class: 'panel pad' },
+    h('div', { class: 'panel-head' }, h('div', { class: 'panel-title' }, h('h2', {}, t('mtg.minutes')))),
+    list,
+    !start.length && !edit ? h('p', { class: 'empty' }, t('mtg.minutes_empty')) : null,
+    edit ? h('button', { type: 'button', class: 'btn', onclick: () => addRow({}) }, icon('plus'), t('mtg.item_add')) : null,
+  );
+
+  const started = input({ type: 'time', value: s.time_started || s.start_time, disabled: !edit });
+  const save = async (submit) => {
+    try {
+      await api('/committee-sessions/' + s.id + '/minutes', {
+        method: 'PUT',
+        body: {
+          submit,
+          time_started: started.value,
+          attendance: attRows.filter((r) => r.sel.value).map((r) => ({ member_id: r.m.id, status: r.sel.value, note: r.note.value })),
+          items: rows.map((r) => ({ subject: r.subject.value, discussion: r.discussion.value, action: r.action.value, responsibility: r.resp.value, target_date: r.target.value || null, status: r.status.value, carried_from: r.i.carried_from || null })),
+        },
+      });
+      toast(t(submit ? 'mtg.ms_sent' : 'mtg.ms_saved'));
+      render();
+    } catch (e) {
+      toast(errText(e), true);
+    }
+  };
+  const act = (path, msg) => api('/committee-sessions/' + s.id + '/minutes/' + path, { method: 'POST' }).then(() => (toast(t(msg)), render())).catch((e) => toast(errText(e), true));
+
+  root.replaceChildren(
+    h(
+      'div',
+      { class: 'page-head' },
+      h(
+        'div',
+        {},
+        link('meetings/committees/' + c.id, { class: 'back-link' }, name(c)),
+        h('h1', {}, t('mtg.minutes'), ' ', ltr(s.code)),
+        h('p', { class: 'muted' }, when(s), s.venue ? ' · ' + s.venue : '', ' ', minutesChip(s.minutes_status)),
+        s.approved_by ? h('p', { class: 'small muted' }, t('mtg.ms_approved_by', { name: s.approved_by, d: fmtDate(s.approved_at.slice(0, 10)) })) : null,
+      ),
+      h(
+        'div',
+        { class: 'actions' },
+        edit ? h('button', { type: 'button', class: 'btn', onclick: () => save(false) }, t('mtg.ms_save')) : null,
+        edit ? h('button', { type: 'button', class: 'btn btn-primary', onclick: () => save(true) }, t('mtg.ms_send')) : null,
+        d.can_approve ? h('button', { type: 'button', class: 'btn', onclick: () => act('return', 'mtg.ms_returned') }, t('mtg.ms_return')) : null,
+        d.can_approve ? h('button', { type: 'button', class: 'btn btn-primary', onclick: () => act('approve', 'mtg.ms_approved') }, t('mtg.ms_approve')) : null,
+        d.can_reopen ? h('button', { type: 'button', class: 'btn', onclick: () => act('reopen', 'mtg.ms_reopened') }, t('mtg.ms_reopen')) : null,
+      ),
+    ),
+    h('section', { class: 'panel pad' }, h('div', { class: 'form-grid' }, field(t('mtg.time_started'), started))),
+    attPanel,
+    itemsPanel,
   );
 }
 

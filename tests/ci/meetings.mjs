@@ -204,5 +204,34 @@ r = await owner('/committees/' + qid, 'DELETE');
 check(r.s === 200 && r.j.retired === true, 'a committee with history is switched off, not deleted', r.j);
 check((await sec('/committees/' + did, 'DELETE')).s === 403, 'only a manager deletes');
 
+// Minutes and attendance: the secretary writes, the chair (or a manager) approves, open actions carry over.
+{
+  r = await owner('/committees/' + qid + '/sessions', 'POST', { date: today, start_time: '08:00', reason: 'محضر' });
+  check(r.s === 200, 'a session today is added', r.j);
+  const cm = (await owner('/committees/' + qid)).j;
+  const ses = cm.sessions.find((x) => x.date === today && x.start_time === '08:00');
+  const active = cm.members.filter((m) => m.active);
+  let m = await sec('/committee-sessions/' + ses.id + '/minutes');
+  check(m.s === 200 && m.j.can_edit && m.j.members.length === active.length && m.j.session.minutes_status === 'draft', 'the secretary opens the minutes', m.j);
+  check((await mv('/committee-sessions/' + ses.id + '/minutes', 'PUT', { items: [] })).s === 403, 'a viewer cannot write the minutes');
+  const items = [{ subject: 'افتتاح الاجتماع' }, { subject: 'مؤشرات الربع', discussion: 'نقاش', action: 'رفع نسبة الإبلاغ', responsibility: 'مدير الجودة', target_date: plus(today, 30), status: 'open' }];
+  const att = active.map((x, i) => ({ member_id: x.id, status: i === 0 ? 'absent' : 'present' }));
+  check((await sec('/committee-sessions/' + ses.id + '/minutes', 'PUT', { submit: true, items, attendance: att.slice(1) })).j?.error === 'mtg_attendance_missing', 'every member is marked before sending');
+  r = await sec('/committee-sessions/' + ses.id + '/minutes', 'PUT', { submit: true, items, attendance: att, time_started: '08:10' });
+  check(r.s === 200 && r.j.minutes_status === 'pending', 'the minutes go to the chair', r.j);
+  check((await sec('/committee-sessions/' + ses.id + '/minutes/approve', 'POST')).s === 403, 'the secretary does not approve their own minutes');
+  check((await owner('/committee-sessions/' + ses.id + '/minutes/approve', 'POST')).s === 200, 'a manager approves');
+  check((await sec('/committee-sessions/' + ses.id + '/minutes', 'PUT', { items })).j?.error === 'mtg_minutes_locked', 'approved minutes are locked');
+  const after = (await owner('/committees/' + qid)).j;
+  check(after.sessions.find((x) => x.id === ses.id).status === 'held', 'writing the minutes marks the session held');
+  const absent = after.members.find((x) => x.id === active[0].id).attendance;
+  const came = after.members.find((x) => x.id === active[1].id).attendance;
+  check(absent && absent.pct === 0 && absent.absent === 1 && came && came.pct === 100, 'each member has an attendance rate', { absent, came });
+  r = await owner('/committees/' + qid + '/sessions', 'POST', { date: today, start_time: '23:00', reason: 'متابعة' });
+  const ses2 = (await owner('/committees/' + qid)).j.sessions.find((x) => x.date === today && x.start_time === '23:00');
+  m = await sec('/committee-sessions/' + ses2.id + '/minutes');
+  check(m.j.carry.length === 1 && m.j.carry[0].action === 'رفع نسبة الإبلاغ', 'an open action carries to the next minutes', m.j.carry);
+}
+
 console.log(failed ? `\n${failed} check(s) failed` : '\nall checks passed');
 process.exit(failed ? 1 : 0);
