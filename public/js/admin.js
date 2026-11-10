@@ -136,6 +136,7 @@ export function userDialog(u, from) {
   const name = input({ type: 'text', required: true, maxlength: 100, dir: 'rtl', value: u ? u.name : from ? from.name_ar : '' });
   const nameEn = input({ type: 'text', required: true, maxlength: 100, dir: 'ltr', value: u ? u.name_en || '' : from ? from.name_en || '' : '' });
   const email = input({ type: 'email', required: true, dir: 'ltr', value: u ? u.email : from ? from.email : '' });
+  const phone = input({ type: 'tel', maxlength: 30, dir: 'ltr', autocomplete: 'tel', placeholder: '05xxxxxxxx', value: u ? u.phone || '' : from ? from.phone || '' : '' });
   // Only the system owner appoints or changes a super admin.
   const lockedSup = !!u && u.role === 'super_admin' && !S.user.is_owner;
   const levels = S.user.is_owner || lockedSup ? ['user', 'systems_admin', 'super_admin'] : ['user', 'systems_admin'];
@@ -179,7 +180,7 @@ export function userDialog(u, from) {
       'div',
       { class: 'stack' },
       h('div', { class: 'form-grid' }, field(t('user.name_ar'), name), field(t('user.name_en'), nameEn)),
-      field(t('user.email'), email),
+      h('div', { class: 'form-grid' }, field(t('user.email'), email), field(t('user.phone'), phone)),
       field(t('user.level'), level),
       deptField,
       perApp,
@@ -191,6 +192,7 @@ export function userDialog(u, from) {
         name: name.value,
         name_en: nameEn.value,
         email: email.value,
+        phone: phone.value,
         role: level.value,
         docs_role: docs.value,
         desk_role: desk.value,

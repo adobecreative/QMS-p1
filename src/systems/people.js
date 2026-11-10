@@ -70,17 +70,20 @@ export async function handlePeople(request, env, url, method, actor) {
   const dept = deptName && !admin ? await env.DB.prepare('SELECT id FROM departments WHERE name_ar = ?').bind(deptName).first() : null;
   const department_id = dept ? dept.id : null;
   if (roles.docs_role === 'dept_admin' && !department_id) fail(400, 'department_required');
+  // Their mobile number and names follow the portal (an empty one there leaves the one here as it is).
+  const phoneIn = str(body.phone, 30);
+  const phone = /^\+?[0-9 -]{5,30}$/.test(phoneIn) ? phoneIn : null;
 
   if (old) {
-    const next = { role, ...roles, department_id, active: 1 };
-    const diff = changes(old, next, ['role', ...ROLE_KEYS, 'department_id', 'active']);
+    const next = { role, ...roles, department_id, active: 1, phone: phone || old.phone || null, name: str(body.name, 100) || old.name, name_en: str(body.name_en, 100) || old.name_en };
+    const diff = changes(old, next, ['name', 'name_en', 'phone', 'role', ...ROLE_KEYS, 'department_id', 'active']);
     if (!old.active) {
       const lic = (await licenseState(env, url.hostname)).lic;
       const max = lic ? Number(lic.max_users) || 0 : 0;
       if (max && (await env.DB.prepare('SELECT COUNT(*) AS n FROM users WHERE active = 1').first()).n >= max) fail(409, 'license_user_limit');
     }
     await env.DB.batch([
-      env.DB.prepare(`UPDATE users SET role = ?, ${ROLE_KEYS.map((k) => k + ' = ?').join(', ')}, department_id = ?, active = 1 WHERE id = ?`).bind(role, ...ROLE_KEYS.map((k) => roles[k]), department_id, old.id),
+      env.DB.prepare(`UPDATE users SET name = ?, name_en = ?, phone = ?, role = ?, ${ROLE_KEYS.map((k) => k + ' = ?').join(', ')}, department_id = ?, active = 1 WHERE id = ?`).bind(next.name, next.name_en, next.phone, role, ...ROLE_KEYS.map((k) => roles[k]), department_id, old.id),
       ...(Object.keys(diff).length ? [logStmt(env, actor, 'update', 'user', old.id, old.name, diff)] : []),
     ]);
     return json({ ok: true, person: personOut({ ...old, ...next }, ownerId) });
@@ -96,9 +99,9 @@ export async function handlePeople(request, env, url, method, actor) {
   const portalId = Number.isInteger(pid) && (await env.DB.prepare('SELECT id FROM portal_users WHERE id = ?').bind(pid).first()) && !(await env.DB.prepare('SELECT id FROM users WHERE portal_id = ?').bind(pid).first()) ? pid : null;
   const hash = await hashPassword(toHex(crypto.getRandomValues(new Uint8Array(32))));
   const res = await env.DB.prepare(
-    `INSERT INTO users (name, name_en, email, password_hash, role, ${ROLE_KEYS.join(', ')}, department_id, active, portal_id, created_at) VALUES (?, ?, ?, ?, ?, ${ROLE_KEYS.map(() => '?').join(', ')}, ?, 1, ?, ?)`,
+    `INSERT INTO users (name, name_en, email, phone, password_hash, role, ${ROLE_KEYS.join(', ')}, department_id, active, portal_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ${ROLE_KEYS.map(() => '?').join(', ')}, ?, 1, ?, ?)`,
   )
-    .bind(name, name_en, email, hash, role, ...ROLE_KEYS.map((k) => roles[k]), department_id, portalId, nowIso())
+    .bind(name, name_en, email, phone, hash, role, ...ROLE_KEYS.map((k) => roles[k]), department_id, portalId, nowIso())
     .run();
   await logStmt(env, actor, 'create', 'user', res.meta.last_row_id, name, { role: [null, role], ...Object.fromEntries(ROLE_KEYS.map((k) => [k, [null, roles[k]]])) }).run();
   const row = await env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(res.meta.last_row_id).first();

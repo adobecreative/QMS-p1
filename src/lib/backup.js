@@ -11,7 +11,7 @@ export async function fullBackupData(env) {
   const [departments, docTypes, users, files, acks, logs, settingsRows, staff, categories, locations, tickets, ticketEvents, assets, pmPlans, pmDone, assetTypes, roundForms, roundItems, roundPlaces, rounds, roundAnswers, vendors, vendorDocs, contracts, contractAssets, contractVisits, stores, parts, stock, stockMoves, partRequests, stdChapters, standards, stdAssessments, stdElements, fmsSnapshots, committees, committeeMembers, committeeFiles, committeeSessions, portalDocs, capa, kpis, kpiValues, stdSnapshots, stdActivities] = await Promise.all([
     all('SELECT * FROM departments ORDER BY id'),
     all('SELECT * FROM doc_types ORDER BY id'),
-    all('SELECT id, name, name_en, email, role, docs_role, desk_role, assets_role, rounds_role, quality_role, meetings_role, department_id, job_title, active, created_at FROM users ORDER BY id'),
+    all('SELECT id, name, name_en, email, phone, role, docs_role, desk_role, assets_role, rounds_role, quality_role, meetings_role, department_id, job_title, active, created_at FROM users ORDER BY id'),
     all('SELECT * FROM files ORDER BY id'),
     all('SELECT * FROM acks ORDER BY file_id, user_id'),
     all('SELECT * FROM logs ORDER BY id'),

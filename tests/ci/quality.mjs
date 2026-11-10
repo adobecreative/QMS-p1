@@ -501,6 +501,7 @@ check(r.s === 200 && r.j.logs.some((l) => l.action === 'assess' && l.entity === 
   people[2].active = false;
   people[3].active = false;
   people[0].name_en = 'Quality assessor';
+  people[0].phone = '0559876543';
   r = await owner('/fms-link/sync', 'POST');
   check(r.j.ok && r.j.snapshot.users.switched_off === 1 && r.j.snapshot.users.updated === 1, 'the sync switches off and renames', r.j);
   users = (await owner('/users')).j.users;
@@ -510,6 +511,7 @@ check(r.s === 200 && r.j.logs.some((l) => l.action === 'assess' && l.entity === 
   check((await fetch(B + '/api/login', { method: 'POST', headers: { 'content-type': 'application/json', 'x-requested-with': 'fetch' }, body: JSON.stringify({ email: 'qv@example.com', password: 'secret-pass-3' }) })).status !== 200, 'and cannot sign in');
   check(users.find((u) => u.email === 'owner@example.com').active, 'the system owner is never switched off');
   check(users.find((u) => u.email === 'qa@example.com').name_en === 'Quality assessor', 'a new name in the portal shows here');
+  check(users.find((u) => u.email === 'qa@example.com').phone === '0559876543', 'and a mobile number too');
   // Back on there: back on here, because the sync switched it off.
   people[2].active = true;
   r = await owner('/fms-link/sync', 'POST');
@@ -566,10 +568,15 @@ check(r.s === 200 && r.j.logs.some((l) => l.action === 'assess' && l.entity === 
   r = await people(portalKey);
   check(r.s === 200 && r.j.apps.some((a) => a.key === 'quality_role' && a.options.length === 4) && r.j.people.some((p) => p.email === 'owner@example.com' && p.owner), 'the portal reads the accounts and the parts it can give', r.j && r.j.apps);
   check((await people(otherKey)).s === 403, 'only a key with the portal scope reads them');
-  r = await people(portalKey, 'PUT', { email: 'New.Person@example.com', name: 'شخص جديد', name_en: 'New Person', role: 'user', roles: { quality_role: 'assessor', meetings_role: 'bogus' }, by: 'Owner' });
+  r = await people(portalKey, 'PUT', { email: 'New.Person@example.com', name: 'شخص جديد', name_en: 'New Person', phone: '0551234567', role: 'user', roles: { quality_role: 'assessor', meetings_role: 'bogus' }, by: 'Owner' });
   check(r.s === 200 && r.j.person.active && r.j.person.roles.quality_role === 'assessor' && r.j.person.roles.meetings_role === 'none', 'the portal gives someone an account and a role here', r.j);
   r = await people(portalKey, 'PUT', { email: 'new.person@example.com', role: 'systems_admin', roles: { quality_role: 'manager' } });
   check(r.s === 200 && r.j.person.role === 'systems_admin' && r.j.person.roles.quality_role === 'none', 'an admin needs no per-part roles', r.j);
+  {
+    const list = (await owner('/users')).j;
+    const np = list && list.users.find((x) => x.email === 'new.person@example.com');
+    check(np && np.phone === '0551234567', 'the mobile number comes with the account', np);
+  }
   r = await people(portalKey, 'PUT', { email: 'new.person@example.com', account: false });
   check(r.s === 200 && r.j.person.active === false, 'and switches the account off', r.j);
   check((await people(portalKey, 'PUT', { email: 'owner@example.com', role: 'user' })).j?.error === 'owner_account', 'the owner account is never changed from the portal');
