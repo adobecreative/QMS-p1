@@ -138,6 +138,7 @@ check(r.s === 200 && r.j.on && r.j.key_set && r.j.sync && r.j.sync.ok && !('key'
 check(r.j.snapshot && r.j.snapshot.tickets && r.j.snapshot.tickets.open >= 1 && r.j.snapshot.assets && typeof r.j.snapshot.assets.total === 'number', 'the summary has requests and devices', r.j.snapshot);
 r = await qv('/quality');
 check(r.j.fms && r.j.fms.snapshot && r.j.fms.error === null && r.j.fms.synced_at, 'a quality viewer sees the FMS evidence', r.j.fms);
+check((await qv('/bootstrap')).j.portal_url === B, 'the systems button goes back to the portal');
 // A key switched off in the portal: the error shows, the last summary stays.
 const keys = (await owner('/api-keys')).j.keys;
 const k = keys.find((x) => x.name_en === 'QMS link');
@@ -152,6 +153,7 @@ if (r.s === 200) check(!JSON.stringify(r.j).includes(linkKey) && !('link_key' in
 r = await owner('/fms-link', 'PUT', { on: false });
 check(r.s === 200 && !r.j.on && !r.j.key_set && r.j.snapshot === null, 'switching off forgets the key and the summary', r.j);
 check((await qv('/quality')).j.fms === null, 'and the evidence leaves the FMS chapter');
+check((await qv('/bootstrap')).j.portal_url === '', 'and the systems button stays in this system');
 
 // Chapter files: a documents file filed under a CBAHI chapter shows on that chapter's page.
 {

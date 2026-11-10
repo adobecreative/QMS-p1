@@ -179,6 +179,7 @@ export async function boot() {
     S.defaults = b.defaults;
     if (b.brand) S.brand = b.brand;
     S.license = b.license || null;
+    S.portalUrl = b.portal_url || '';
     S.today = b.today;
   } catch (e) {
     $app.replaceChildren(h('div', { class: 'auth' }, h('div', { class: 'auth-card' }, h('p', { class: 'form-error' }, errText(e)), h('button', { type: 'button', class: 'btn', onclick: boot }, t('common.retry')))));

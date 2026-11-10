@@ -54,6 +54,8 @@ async function handleApi(request, env, url, ctx) {
       today: todayIn(settings.timezone),
       brand: brandOut(settings),
       license: licenseOut(license, false),
+      // With the operations system linked, its address is the Fikra portal: the header's systems button goes there.
+      portal_url: user && settings.link_on === '1' && settings.link_url ? settings.link_url : '',
     });
   }
 
