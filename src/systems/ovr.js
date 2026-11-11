@@ -126,16 +126,16 @@ const MAIL = {
   ar: {
     dir: 'rtl',
     kind: {
-      new: 'بلاغ OVR جديد', severe: 'بلاغ OVR جسيم', route_reply: 'بلاغ OVR محوّل إليك للرد', route_action: 'بلاغ OVR محوّل إليك لاتخاذ إجراء',
-      reply: 'تم الرد على بلاغ OVR', action: 'تم تسجيل إجراء على بلاغ OVR', closed: 'تم إغلاق بلاغ OVR', reopened: 'أعيد فتح بلاغ OVR',
-      late_task: 'تذكير: بلاغ OVR متأخر الرد', late_ovr: 'بلاغات OVR تجاوزت موعد الإغلاق', received: 'تم استلام بلاغك',
+      new: 'تقرير حادث OVR جديد', severe: 'تقرير حادث OVR جسيم', route_reply: 'تقرير حادث OVR محوّل إليك للرد', route_action: 'تقرير حادث OVR محوّل إليك لاتخاذ إجراء',
+      reply: 'تم الرد على تقرير حادث OVR', action: 'تم تسجيل إجراء على تقرير حادث OVR', closed: 'تم إغلاق تقرير حادث OVR', reopened: 'أعيد فتح تقرير حادث OVR',
+      late_task: 'تذكير: تقرير حادث OVR متأخر الرد', late_ovr: 'تقارير حوادث OVR تجاوزت موعد الإغلاق', received: 'تم استلام تقريرك',
       rca_team: 'أُضفت إلى فريق تحليل السبب الجذري', rca_soon: 'تذكير: موعد مرحلة في تحليل السبب الجذري', rca_late: 'تحليل سبب جذري متأخر',
       rca_approved: 'اعتُمدت خطة عمل تحليل السبب الجذري',
     },
     labels: { type: 'النوع', place: 'المكان', harm: 'الضرر', due: 'الموعد', note: 'ملاحظة', stage: 'المرحلة' },
     stage: { team: 'تشكيل الفريق', analysis: 'التحليل', plan: 'خطة العمل' },
     harm: { near_miss: 'قريب من الخطأ', no_harm: 'بدون ضرر', minor: 'ضرر بسيط', moderate: 'ضرر متوسط', major: 'ضرر جسيم', sentinel: 'حدث جسيم' },
-    open: 'فتح البلاغ',
+    open: 'فتح التقرير',
     footer: (app) => `رسالة تلقائية من ${app}.`,
   },
   en: {
