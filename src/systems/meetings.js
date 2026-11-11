@@ -229,7 +229,8 @@ export async function notifySession(env, settings, c, s, kind) {
       <p style="margin:16px 0 0;font-size:12px;color:#6e6553">${escHtml(L.footer(appName(st, st.email_lang)))}</p></div>`;
     return { subject: `${L.kind[kind]}: ${ar ? c.name_ar : c.name_en || c.name_ar} - ${s.date_tbd ? L.labels.tbd : fmtDay(s.date, L)}`, html };
   });
-  let ok = true;
+  // Not sent when there is someone to write to but no email set up, so the session is not shown as invited.
+  let ok = !emails.length || mailReady(settings);
   if (emails.length && mailReady(settings)) {
     const ics = withIcs ? [{ name: 'meeting.ics', type: 'text/calendar', content: btoa(unescape(encodeURIComponent(sessionIcs(c, s, settings)))) }] : null;
     const msgs = [];
@@ -275,6 +276,8 @@ export async function runMeetingJobs(env) {
   ).bind(plusDays(today, HORIZON_DAYS - 30)).all();
   let added = 0;
   for (const c of list) added += await buildSchedule(env, c, today, false);
+  // Without email nothing is sent, and the sessions wait to be invited once it is set up.
+  if (!mailReady(settings)) return { added, invite: 0, remind3: 0, remind1: 0, failed: 0 };
   const { results: due } = await env.DB.prepare(
     `SELECT s.*, c.code, c.name_ar, c.name_en, c.urgent, c.active AS c_active FROM committee_sessions s JOIN committees c ON c.id = s.committee_id
       WHERE c.active = 1 AND s.status IN ('scheduled', 'rescheduled', 'postponed') AND s.date_tbd = 0 AND s.date >= ? AND s.date <= ?
@@ -336,8 +339,11 @@ function readCommittee(body, kindFixed) {
 }
 const COMMITTEE_KEYS = ['kind', 'name_ar', 'name_en', 'department_id', 'meeting_type', 'urgent', 'purpose', 'frequency', 'first_date', 'start_time', 'duration_min', 'venue', 'quorum_pct'];
 
-function readMember(body) {
-  const name = str(body.name, 120);
+// A member on the staff list gets their details from it (see membersFromStaffStmt); anyone else is typed in.
+async function readMember(env, body) {
+  const emp_no = normDigits(str(body.emp_no, 30)) || null;
+  const st = emp_no ? await env.DB.prepare('SELECT name, name_en, email, job_title, phone FROM staff WHERE emp_no = ? AND active = 1').bind(emp_no).first() : null;
+  const name = (st && st.name) || str(body.name, 120);
   if (!name) fail(400, 'name_required');
   const email = str(body.email, 160).toLowerCase() || null;
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail(400, 'invalid_email');
@@ -345,17 +351,18 @@ function readMember(body) {
   if (substitute_email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(substitute_email)) fail(400, 'invalid_email');
   const role = MEMBER_ROLES.includes(body.role) ? body.role : 'member';
   return {
-    emp_no: normDigits(str(body.emp_no, 30)) || null,
+    emp_no,
     name,
-    name_en: str(body.name_en, 120) || null,
-    email,
-    position: str(body.position, 120) || null,
+    name_en: (st && st.name_en) || str(body.name_en, 120) || null,
+    email: (st && st.email && st.email.toLowerCase()) || email,
+    position: (st && st.job_title) || str(body.position, 120) || null,
+    phone: (st && st.phone) || str(body.phone, 30) || null,
     role,
     substitute_name: str(body.substitute_name, 120) || null,
     substitute_email,
   };
 }
-const MEMBER_KEYS = ['emp_no', 'name', 'name_en', 'email', 'position', 'role', 'substitute_name', 'substitute_email'];
+const MEMBER_KEYS = ['emp_no', 'name', 'name_en', 'email', 'position', 'phone', 'role', 'substitute_name', 'substitute_email'];
 // The order members are listed in: chair, co-chair, secretary, members, invitees.
 const ROLE_SORT = Object.fromEntries(MEMBER_ROLES.map((r, i) => [r, i + 1]));
 
@@ -464,11 +471,11 @@ export async function handleMeetings(request, env, url, seg, method, user, exec)
     if (!q && !dept) return json({ staff: [] });
     const { results } = q
       ? await env.DB.prepare(
-          `SELECT s.emp_no, s.name, s.name_en, s.department_id, d.name_ar AS dept_ar, d.name_en AS dept_en FROM staff s LEFT JOIN departments d ON d.id = s.department_id
+          `SELECT s.emp_no, s.name, s.name_en, s.email, s.job_title, s.phone, s.department_id, d.name_ar AS dept_ar, d.name_en AS dept_en FROM staff s LEFT JOIN departments d ON d.id = s.department_id
             WHERE s.active = 1 AND (s.emp_no = ?1 OR s.name LIKE ?2 OR s.name_en LIKE ?2) ORDER BY s.emp_no = ?1 DESC, s.name LIMIT 10`,
         ).bind(q, '%' + q + '%').all()
       : await env.DB.prepare(
-          `SELECT s.emp_no, s.name, s.name_en, s.department_id, d.name_ar AS dept_ar, d.name_en AS dept_en FROM staff s LEFT JOIN departments d ON d.id = s.department_id
+          `SELECT s.emp_no, s.name, s.name_en, s.email, s.job_title, s.phone, s.department_id, d.name_ar AS dept_ar, d.name_en AS dept_en FROM staff s LEFT JOIN departments d ON d.id = s.department_id
             WHERE s.active = 1 AND s.department_id = ? ORDER BY s.name LIMIT 200`,
         ).bind(dept).all();
     return json({ staff: results });
@@ -582,7 +589,7 @@ export async function handleMeetings(request, env, url, seg, method, user, exec)
   // One committee: its details, members, papers and sessions.
   if (method === 'GET' && seg.length === 2) {
     const [{ results: members }, { results: files }, { results: sessions }] = await Promise.all([
-      env.DB.prepare('SELECT * FROM committee_members WHERE committee_id = ? ORDER BY active DESC, sort, id').bind(id).all(),
+      env.DB.prepare('SELECT m.*, EXISTS(SELECT 1 FROM staff st WHERE st.emp_no = m.emp_no AND st.active = 1) AS on_staff FROM committee_members m WHERE m.committee_id = ? ORDER BY m.active DESC, m.sort, m.id').bind(id).all(),
       env.DB.prepare('SELECT id, kind, name, content_type, size, uploaded_by, created_at FROM committee_files WHERE committee_id = ? ORDER BY kind DESC, id').bind(id).all(),
       env.DB.prepare('SELECT * FROM committee_sessions WHERE committee_id = ? ORDER BY date, start_time').bind(id).all(),
     ]);
@@ -679,7 +686,7 @@ export async function handleMeetings(request, env, url, seg, method, user, exec)
   // Members.
   if (method === 'POST' && seg[2] === 'members' && seg.length === 3) {
     needRun();
-    const d = readMember(await readJson(request));
+    const d = await readMember(env, await readJson(request));
     const n = await env.DB.prepare('SELECT COUNT(*) AS n FROM committee_members WHERE committee_id = ?').bind(id).first();
     if (n.n >= 200) fail(409, 'mtg_too_many');
     if (d.emp_no && (await env.DB.prepare('SELECT 1 FROM committee_members WHERE committee_id = ? AND emp_no = ? AND active = 1').bind(id, d.emp_no).first())) fail(409, 'mtg_member_taken');
@@ -695,7 +702,7 @@ export async function handleMeetings(request, env, url, seg, method, user, exec)
     if (!m) fail(404, 'not_found');
     if (method === 'PUT') {
       const body = await readJson(request);
-      const d = readMember({ ...m, ...body });
+      const d = await readMember(env, { ...m, ...body });
       const active = body.active === false ? 0 : 1;
       // Switching a member off needs a reason, so the chair knows why they no longer come.
       const inactive_reason = active ? null : str(body.inactive_reason, 300) || (m.active ? fail(400, 'mtg_reason_required') : m.inactive_reason);
