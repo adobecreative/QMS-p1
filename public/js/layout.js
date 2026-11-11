@@ -194,9 +194,10 @@ export function header(app, active) {
       const on = nav.querySelector('[aria-current="page"]');
       if (on && nav.scrollWidth > nav.clientWidth) nav.scrollLeft += on.getBoundingClientRect().left - nav.getBoundingClientRect().left - (nav.clientWidth - on.offsetWidth) / 2;
     });
-  // Linked with the operations system: the systems button goes back to the Fikra portal, and the logo to this system's home.
+  // Inside one of this system's parts the systems button goes to this system's home; from there, linked with the
+  // operations system, to the Fikra portal. The logo always goes to this system's home.
   const homeKids = [icon('grid', 20), app ? h('span', { class: 'app-name' }, t('app.' + app)) : null];
-  const home = S.portalUrl
+  const home = S.portalUrl && !app
     ? h('a', { class: 'app-switch', href: S.portalUrl, 'aria-label': t('portal.fikra'), title: t('portal.fikra') }, ...homeKids)
     : link('', { class: 'app-switch', 'aria-label': t('portal.title'), title: t('portal.title') }, ...homeKids);
   const logo = S.portalUrl ? link('', { class: 'brand-home', 'aria-label': t('portal.title') }, brand()) : brand();
