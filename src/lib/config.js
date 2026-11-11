@@ -108,6 +108,10 @@ export const DEFAULT_SETTINGS = {
   link_portal: '',
   // Incident reports: the day the quality managers were last told of reports past their closing date.
   ovr_late_sent: '',
+  // Who in human resources gets the reports the system opens for committee absences, and after how many
+  // unexcused absences in a row (0: none).
+  ovr_hr_user: '',
+  ovr_absence_after: '2',
 };
 export const SLA_KEYS = [1, 2, 3, 4].flatMap((p) => [`sla_p${p}_resp`, `sla_p${p}_res`]);
 export const MAX_LOGO_BYTES = 1024 * 1024;

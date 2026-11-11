@@ -138,6 +138,7 @@ function capaDialog(c, d) {
       'div',
       { class: 'stack' },
       c && c.round_id ? h('p', { class: 'muted small' }, t('capa.from_round'), ' ', link('rounds/rlog/' + c.round_id, { onclick: () => dlg.close() }, pick(c.form_ar, c.form_en) || '#' + c.round_id), c.loc_ar ? ' · ' + pick(c.loc_ar, c.loc_en) : '') : '',
+      c && c.ovr_id ? h('p', { class: 'muted small' }, t('capa.from_ovr'), ' ', link('ovr/ovrs/' + c.ovr_id, { onclick: () => dlg.close(), dir: 'ltr' }, '#' + c.ovr_id)) : '',
       field(t('capa.title'), title),
       field(t('capa.detail'), detail),
       h('div', { class: 'form-grid' }, field(t('qa.chapter'), chapter), field(t('capa.std'), std)),

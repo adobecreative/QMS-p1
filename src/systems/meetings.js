@@ -359,7 +359,7 @@ const MEMBER_KEYS = ['emp_no', 'name', 'name_en', 'email', 'position', 'role', '
 // The order members are listed in: chair, co-chair, secretary, members, invitees.
 const ROLE_SORT = Object.fromEntries(MEMBER_ROLES.map((r, i) => [r, i + 1]));
 
-export async function handleMeetings(request, env, url, seg, method, user) {
+export async function handleMeetings(request, env, url, seg, method, user, exec) {
   const role = user.meetings || 'none';
   if (role === 'none') fail(403, 'forbidden');
   const manager = isAdmin(user) || role === 'manager' || role === 'admin';
@@ -514,7 +514,7 @@ export async function handleMeetings(request, env, url, seg, method, user) {
     }
     if (seg[2] === 'minutes') {
       const lead = await leads();
-      return handleMinutes(request, env, method, seg, { user, c, s, run: canRun(c, lead), manager, today, lead, code: sessionCode(c, s), tz: settings.timezone });
+      return handleMinutes(request, env, method, seg, { user, c, s, run: canRun(c, lead), manager, today, lead, code: sessionCode(c, s), tz: settings.timezone, exec });
     }
     if (method !== 'PUT' || seg.length !== 2) fail(405, 'method_not_allowed');
     if (!canRun(c, await leads())) fail(403, 'forbidden');

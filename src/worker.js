@@ -669,7 +669,7 @@ async function handleApi(request, env, url, ctx) {
 
   /* ---- Committees & meetings: the committees master, members, schedule and invitations ---- */
   if (seg[0] === 'committees' || seg[0] === 'committee-sessions') {
-    const res = await handleMeetings(request, env, url, seg, method, user);
+    const res = await handleMeetings(request, env, url, seg, method, user, ctx);
     if (res) return res;
     fail(404, 'not_found');
   }
