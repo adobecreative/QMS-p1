@@ -144,7 +144,7 @@ function committeeDialog(c, kind, ctx) {
       h('div', { class: 'form-grid' }, field(t('user.name_ar'), nameAr), field(t('user.name_en'), nameEn)),
       kind === 'department' ? field(t('user.department'), dept, t('mtg.dept_hint')) : null,
       special ? field(t('mtg.type'), type, t('mtg.type_hint')) : null,
-      h('div', { class: 'form-grid' }, special ? null : field(t('mtg.frequency'), freq, t('mtg.freq_hint')), field(t(special ? 'mtg.date' : 'mtg.first_date'), first, special ? null : t('mtg.first_hint'))),
+      h('div', { class: 'form-grid' }, special ? null : field(t('mtg.frequency'), freq, t('mtg.freq_hint')), field(t(special ? 'mtg.date' : 'mtg.first_date'), first)),
       h('div', { class: 'form-grid' }, field(t('mtg.time'), time), field(t('mtg.duration'), dur)),
       h('div', { class: 'form-grid' }, field(t('mtg.venue'), venue), field(t('mtg.quorum'), quorum, t('mtg.quorum_hint'))),
       field(t(special ? 'mtg.purpose_special' : 'mtg.purpose'), purpose),
