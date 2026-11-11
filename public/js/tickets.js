@@ -5,7 +5,7 @@ import { fmtHours, fmtMoney, lateText, period, vendorArriveDialog, vendorCallDia
 import { S, h, icon, store, t } from './core.js';
 import { normText } from './docs.js';
 import { fmtQty, ticketParts, unitText } from './inventory.js';
-import { access, brand, flowDialog, langToggle, link, navigate, orgNameIn, orgNames, supportLine } from './layout.js';
+import { OFF_APPS, access, brand, flowDialog, langToggle, link, navigate, orgNameIn, orgNames, supportLine } from './layout.js';
 import { OFF, api, checkField, deptById, deptName, errText, errorBox, field, fmtDate, input, loading, openDialog, personName, select, send, toast } from './offline.js';
 import { XLS_STYLE, downloadXlsx } from './xlsx.js';
 
@@ -217,17 +217,24 @@ export async function requestPage() {
       ),
     );
   }
-  // A place with inspection rounds: report a fault, or start a round there (inspectors sign in).
-  if (meta.location && meta.location.rounds && !qs.has('report')) {
+  // A place's QR code: report an incident, report a fault (when maintenance requests are on here), or start a round.
+  if (meta.location && !qs.has('report')) {
     const report = new URLSearchParams(qs);
     report.set('report', '1');
+    const desk = !OFF_APPS.includes('desk');
+    const incident = '/incident?loc=' + encodeURIComponent(code);
+    if (!desk && !meta.location.rounds) {
+      location.replace(incident);
+      return publicShell(loading());
+    }
     return publicShell(
       h('h1', {}, pick(meta.location.name_ar, meta.location.name_en)),
       h(
         'div',
         { class: 'qr-choices' },
-        h('a', { class: 'qr-choice qr-choice-main', href: '/request?' + report }, icon('desk', 28), h('span', { class: 'strong' }, t('qrc.report')), h('span', { class: 'small' }, t('qrc.report_place_hint'))),
-        h('a', { class: 'qr-choice', href: '/#/rounds/scan/' + encodeURIComponent(code) }, icon('clipboard', 28), h('span', { class: 'strong' }, t('qrc.round')), h('span', { class: 'small' }, t('qrc.round_hint'))),
+        h('a', { class: 'qr-choice qr-choice-main', href: incident }, icon('alert', 28), h('span', { class: 'strong' }, t('qrc.incident')), h('span', { class: 'small' }, t('qrc.incident_hint'))),
+        desk ? h('a', { class: 'qr-choice', href: '/request?' + report }, icon('desk', 28), h('span', { class: 'strong' }, t('qrc.report')), h('span', { class: 'small' }, t('qrc.report_place_hint'))) : null,
+        meta.location.rounds ? h('a', { class: 'qr-choice', href: '/#/rounds/scan/' + encodeURIComponent(code) }, icon('clipboard', 28), h('span', { class: 'strong' }, t('qrc.round')), h('span', { class: 'small' }, t('qrc.round_hint'))) : null,
       ),
     );
   }
