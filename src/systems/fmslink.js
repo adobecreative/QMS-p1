@@ -7,7 +7,7 @@
 import { readJson } from '../lib/auth.js';
 import { isAdmin } from '../lib/config.js';
 import { getSettings, logStmt, setSettingStmt } from '../lib/db.js';
-import { fail, json, nowIso, sha256Hex, str, todayIn } from '../lib/util.js';
+import { fail, json, nowIso, sha256Hex, str, toHex, todayIn } from '../lib/util.js';
 import { API_KEY_RE } from './api.js';
 import { plusDays } from './docs.js';
 import { importStaff } from './tickets.js';
@@ -126,6 +126,45 @@ export async function runFmsSync(env, actor, force) {
     }
     // The document register: kept here so it can be filed under chapters; the PDFs stay in the portal.
     const extra = [];
+    // Places: the portal's places (any key can read them) are the places here too, so forms, rounds and
+    // checklists list them without adding them twice. A place already here with the same Arabic name is
+    // linked to the portal's, not doubled; its QR code stays this system's own. A place gone there is switched off.
+    // An older portal without the list is skipped.
+    const plocs = await call(s.link_url, s.link_key, '/locations').then((r) => r.locations || [], () => null);
+    if (plocs) {
+      const pdeps = await call(s.link_url, s.link_key, '/departments').then((r) => r.departments || [], () => []);
+      const { results: mine } = await env.DB.prepare('SELECT id, name_ar, name_en FROM departments').all();
+      const norm = (v) => String(v || '').trim().toLowerCase();
+      const byName = new Map();
+      for (const d of mine) for (const n of [d.name_ar, d.name_en]) if (n) byName.set(norm(n), d.id);
+      const deptOf = new Map(pdeps.map((d) => [d.id, byName.get(norm(d.name_ar)) || byName.get(norm(d.name_en)) || null]));
+      const rows = plocs
+        .filter((l) => Number.isInteger(l.id) && (l.name_ar || l.name_en))
+        .map((l) => ({
+          pid: l.id, name_ar: str(l.name_ar, 100) || str(l.name_en, 100), name_en: str(l.name_en, 100) || str(l.name_ar, 100), dept: deptOf.get(l.department_id) || null,
+          code: toHex(crypto.getRandomValues(new Uint8Array(8))),
+        }));
+      const j = JSON.stringify(rows);
+      const pick = (k) => `(SELECT json_extract(value, '$.${k}') FROM json_each(?1) WHERE json_extract(value, '$.pid') = locations.portal_id)`;
+      extra.push(
+        env.DB.prepare(
+          `UPDATE locations SET portal_id = (SELECT json_extract(value, '$.pid') FROM json_each(?1) WHERE json_extract(value, '$.name_ar') = locations.name_ar LIMIT 1)
+            WHERE portal_id IS NULL AND name_ar IN (SELECT json_extract(value, '$.name_ar') FROM json_each(?1))
+              AND (SELECT json_extract(value, '$.pid') FROM json_each(?1) WHERE json_extract(value, '$.name_ar') = locations.name_ar LIMIT 1) NOT IN (SELECT portal_id FROM locations WHERE portal_id IS NOT NULL)`,
+        ).bind(j),
+        env.DB.prepare(
+          `UPDATE locations SET name_ar = ${pick('name_ar')}, name_en = ${pick('name_en')}, department_id = COALESCE(${pick('dept')}, department_id), active = 1
+            WHERE portal_id IN (SELECT json_extract(value, '$.pid') FROM json_each(?1))`,
+        ).bind(j),
+        env.DB.prepare(
+          `INSERT INTO locations (name_ar, name_en, department_id, code, active, created_at, portal_id)
+           SELECT json_extract(value, '$.name_ar'), json_extract(value, '$.name_en'), json_extract(value, '$.dept'), json_extract(value, '$.code'), 1, ?2, json_extract(value, '$.pid')
+             FROM json_each(?1) WHERE json_extract(value, '$.pid') NOT IN (SELECT portal_id FROM locations WHERE portal_id IS NOT NULL)`,
+        ).bind(j, now),
+        env.DB.prepare(`UPDATE locations SET active = 0 WHERE portal_id IS NOT NULL AND portal_id NOT IN (SELECT json_extract(value, '$.pid') FROM json_each(?1))`).bind(j),
+      );
+      snap.places = rows.length;
+    }
     if (scopes.includes('docs_read')) {
       const all = [];
       let after = 0;

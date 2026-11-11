@@ -165,6 +165,9 @@ export async function ensureSchema(env) {
   if (!attCols.some((c) => c.name === 'method')) await env.DB.batch([env.DB.prepare('ALTER TABLE session_attendance ADD COLUMN checked_at TEXT'), env.DB.prepare('ALTER TABLE session_attendance ADD COLUMN method TEXT')]);
   // Incident reports and corrective actions: the action a report or its root cause analysis opened, and
   // a reference that keeps a report made by the system (a committee absence) from being made twice.
+  // A place read from the portal keeps the portal's id, so the next read updates it instead of adding it again.
+  const { results: locCols } = await env.DB.prepare('PRAGMA table_info(locations)').all();
+  if (!locCols.some((c) => c.name === 'portal_id')) await env.DB.prepare('ALTER TABLE locations ADD COLUMN portal_id INTEGER').run();
   const { results: capaCols } = await env.DB.prepare('PRAGMA table_info(capa)').all();
   if (!capaCols.some((c) => c.name === 'ovr_id')) await env.DB.prepare('ALTER TABLE capa ADD COLUMN ovr_id INTEGER').run();
   const { results: taskCols } = await env.DB.prepare('PRAGMA table_info(ovr_tasks)').all();

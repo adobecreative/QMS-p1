@@ -394,7 +394,6 @@ export async function checklistsPage(root, _param, alive) {
       h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn btn-primary', onclick: () => roundFormDialog(null, d) }, icon('plus'), t('rnd.form_add'))),
     ),
     roundReminders(d),
-    d.locations.length ? '' : h('p', { class: 'notice notice-warn' }, t('rnd.no_locations')),
     h(
       'section',
       { class: 'panel' },
