@@ -12,7 +12,7 @@ const opt = (v, ar, en) => ({ v, ar, en });
 const NONE = opt('none', 'بدون دخول', 'No access');
 export const PEOPLE_APPS = [
   { key: 'quality_role', ar: 'الجودة والاعتماد', en: 'Quality & Accreditation', values: QUALITY_ROLES, options: [NONE, opt('viewer', 'اطلاع', 'Viewer'), opt('assessor', 'مُقيِّم', 'Assessor'), opt('manager', 'مدير الجودة', 'Quality manager')] },
-  { key: 'meetings_role', ar: 'اللجان والاجتماعات', en: 'Committees & Meetings', values: MEETINGS_ROLES, options: [NONE, opt('viewer', 'اطلاع', 'Viewer'), opt('secretary', 'أمين لجنة', 'Committee secretary'), opt('manager', 'مدير اللجان', 'Committees manager')] },
+  { key: 'meetings_role', ar: 'اللجان والاجتماعات', en: 'Committees & Meetings', values: MEETINGS_ROLES, options: [NONE, opt('viewer', 'اطلاع', 'Viewer'), opt('secretary', 'رئيس قسم / أمين لجنة', 'Dept head / Committee secretary'), opt('manager', 'مدير اللجان', 'Committees manager')] },
   { key: 'rounds_role', ar: 'جولات الجودة', en: 'Quality rounds', values: ROUNDS_ROLES, options: [NONE, opt('inspector', 'مفتش', 'Inspector'), opt('manager', 'مدير الجولات', 'Rounds manager')] },
   { key: 'docs_role', ar: 'إدارة الوثائق', en: 'Document Control', values: DOCS_ROLES, options: [NONE, opt('viewer', 'قارئ', 'Viewer'), opt('dept_admin', 'مسؤول وثائق القسم', 'Department documents admin')] },
 ];

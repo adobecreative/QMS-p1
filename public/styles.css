@@ -1241,6 +1241,10 @@ textarea {
   background: var(--yellow-bg);
   color: var(--yellow-ink);
 }
+.notice-ok {
+  background: var(--green-bg);
+  color: var(--green-ink);
+}
 .pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -4009,4 +4013,10 @@ tr.is-off td {
 }
 .kpi-body {
   padding: 16px 20px;
+}
+/* A line of the minutes: its delete button stays small. */
+.mtg-item > .btn {
+  width: auto;
+  align-self: flex-start;
+  margin-top: 8px;
 }

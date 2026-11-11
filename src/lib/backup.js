@@ -8,7 +8,7 @@ import { escHtml, nowIso } from './util.js';
 // Password hashes, sessions and the mail and push keys are never included.
 export async function fullBackupData(env) {
   const all = (sql) => env.DB.prepare(sql).all().then((r) => r.results);
-  const [departments, docTypes, users, files, acks, logs, settingsRows, staff, categories, locations, tickets, ticketEvents, assets, pmPlans, pmDone, assetTypes, roundForms, roundItems, roundPlaces, rounds, roundAnswers, vendors, vendorDocs, contracts, contractAssets, contractVisits, stores, parts, stock, stockMoves, partRequests, stdChapters, standards, stdAssessments, stdElements, fmsSnapshots, committees, committeeMembers, committeeFiles, committeeSessions, portalDocs, capa, kpis, kpiValues, stdSnapshots, stdActivities] = await Promise.all([
+  const [departments, docTypes, users, files, acks, logs, settingsRows, staff, categories, locations, tickets, ticketEvents, assets, pmPlans, pmDone, assetTypes, roundForms, roundItems, roundPlaces, rounds, roundAnswers, vendors, vendorDocs, contracts, contractAssets, contractVisits, stores, parts, stock, stockMoves, partRequests, stdChapters, standards, stdAssessments, stdElements, fmsSnapshots, committees, committeeMembers, committeeFiles, committeeSessions, sessionAttendance, sessionItems, portalDocs, capa, kpis, kpiValues, stdSnapshots, stdActivities] = await Promise.all([
     all('SELECT * FROM departments ORDER BY id'),
     all('SELECT * FROM doc_types ORDER BY id'),
     all('SELECT id, name, name_en, email, phone, role, docs_role, desk_role, assets_role, rounds_role, quality_role, meetings_role, department_id, job_title, active, created_at FROM users ORDER BY id'),
@@ -51,6 +51,8 @@ export async function fullBackupData(env) {
     all('SELECT * FROM committee_members ORDER BY id'),
     all('SELECT * FROM committee_files ORDER BY id'),
     all('SELECT * FROM committee_sessions ORDER BY id'),
+    all('SELECT * FROM session_attendance ORDER BY session_id, member_id'),
+    all('SELECT * FROM session_items ORDER BY id'),
     all('SELECT * FROM portal_docs ORDER BY id'),
     all('SELECT * FROM capa ORDER BY id'),
     all('SELECT * FROM kpis ORDER BY id'),
@@ -65,7 +67,7 @@ export async function fullBackupData(env) {
     vendors, vendor_docs: vendorDocs, contracts, contract_assets: contractAssets, contract_visits: contractVisits,
     stores, parts, stock, stock_moves: stockMoves, part_requests: partRequests,
     std_chapters: stdChapters, standards, std_assessments: stdAssessments, std_elements: stdElements, fms_snapshots: fmsSnapshots,
-    committees, committee_members: committeeMembers, committee_files: committeeFiles, committee_sessions: committeeSessions,
+    committees, committee_members: committeeMembers, committee_files: committeeFiles, committee_sessions: committeeSessions, session_attendance: sessionAttendance, session_items: sessionItems,
     portal_docs: portalDocs,
     capa,
     kpis,

@@ -1,4 +1,5 @@
 import { handleMeetings, runMeetingJobs } from './systems/meetings.js';
+import { handleCheckin } from './systems/checkin.js';
 import { RECOVERY_RE, canEditDept, canSeeDept, checkEmail, checkOrigin, checkPassword, cleanRecovery, createSession, failedLogin, getUser, hashPassword, loginFrom, needs2fa, readJson, requireDocs, requireRole, sessionCookie, totpCheck, userOut, verifyPassword, withAccess } from './lib/auth.js';
 import { AUTO_BACKUP_PREFIX, emailBackup, fullBackupData, isAutoBackupTick, runAutoBackup } from './lib/backup.js';
 import { ADMIN_ROLES, ASSETS_ROLES, CHALLENGE_MINUTES, DEFAULT_SETTINGS, DESK_ROLES, DOCS_ROLES, JOB_TITLES, MAX_LOGO_BYTES, MEETINGS_ROLES, QUALITY_ROLES, ROLES, ROUNDS_ROLES, SESSION_DAYS, SLA_KEYS, TWO_FA_LEVELS, appName, brandOut, logoType } from './lib/config.js';
@@ -171,6 +172,8 @@ async function handleApi(request, env, url, ctx) {
 
   // Arriving from the Fikra portal, already signed in there (see systems/sso.js).
   if (route === 'POST /sso') return portalSignIn(request, env, url, (await readJson(request)).token);
+  // A member checking in to a committee session with their link or the session's QR code (systems/checkin.js).
+  if (seg[0] === 'checkin' && seg.length === 2) return handleCheckin(request, env, method, seg[1]);
 
   /* ---- forgot password (public) ---- */
 

@@ -8,7 +8,7 @@ import { dashboardPage, departmentsPage, documentsPage, typesPage } from './js/d
 import { costsPage, devTypesPage, movesPage, partsPage, pmPage, requestsPage } from './js/inventory.js';
 import { APPS, access, appPages, applyBrand, authPage, currentRoute, forgotPage, header, link, loginCodeStep, myApps, resetPage, roleLabel, setUrl, twoFactorRequiredPage } from './js/layout.js';
 import { IDB, OFF, api, drawOffBar, errText, loading, personName, syncQueue, toast, warmPages } from './js/offline.js';
-import { calendarPage, committeesPage } from './js/meetings.js';
+import { attendancePage, calendarPage, checkinPage, committeesPage } from './js/meetings.js';
 import { assessPage, chaptersPage, portalDocsPage, standardsPage } from './js/quality.js';
 import { capaPage } from './js/capa.js';
 import { kpisPage, readinessPage } from './js/kpis.js';
@@ -111,7 +111,7 @@ function portalPage(root, alive) {
 
 /* --------------------------------- start -------------------------------- */
 
-const PAGES = { dashboard: dashboardPage, tickets: ticketsPage, categories: categoriesPage, locations: locationsPage, staff: staffPage, api: apiPage, documents: documentsPage, departments: departmentsPage, types: typesPage, users: usersPage, logs: logsPage, health: healthPage, settings: settingsPage, register: registerPage, pm: pmPage, devtypes: devTypesPage, contracts: contractsPage, vendors: vendorsPage, parts: partsPage, moves: movesPage, requests: requestsPage, costs: costsPage, due: duePage, rlog: roundLogPage, checklists: checklistsPage, scan: roundScanPage, overview: reportsPage, compliance: compliancePage, chapters: chaptersPage, standards: standardsPage, assess: assessPage, committees: committeesPage, calendar: calendarPage, pdocs: portalDocsPage, capa: capaPage, kpis: kpisPage, readiness: readinessPage };
+const PAGES = { dashboard: dashboardPage, tickets: ticketsPage, categories: categoriesPage, locations: locationsPage, staff: staffPage, api: apiPage, documents: documentsPage, departments: departmentsPage, types: typesPage, users: usersPage, logs: logsPage, health: healthPage, settings: settingsPage, register: registerPage, pm: pmPage, devtypes: devTypesPage, contracts: contractsPage, vendors: vendorsPage, parts: partsPage, moves: movesPage, requests: requestsPage, costs: costsPage, due: duePage, rlog: roundLogPage, checklists: checklistsPage, scan: roundScanPage, overview: reportsPage, compliance: compliancePage, chapters: chaptersPage, standards: standardsPage, assess: assessPage, committees: committeesPage, calendar: calendarPage, attendance: attendancePage, pdocs: portalDocsPage, capa: capaPage, kpis: kpisPage, readiness: readinessPage };
 
 export function render() {
   const seq = ++renderSeq;
@@ -137,6 +137,15 @@ export function render() {
   }
   if (!S.needsSetup && S.route === 'reset' && S.resetToken) {
     $app.replaceChildren(resetPage(S.resetToken));
+    return;
+  }
+  // A member checking in to a committee session (their emailed link or the session's QR code): no account needed.
+  const ck = /^checkin\/(\d+\.(?:q|\d+)\.[0-9a-f]{24})$/.exec(S.route);
+  if (ck) {
+    $app.replaceChildren(h('div', { class: 'auth public' }, loading()));
+    checkinPage(ck[1]).then((page) => {
+      if (seq === renderSeq) $app.replaceChildren(page);
+    });
     return;
   }
   // The employees' request and tracking pages: no account needed.

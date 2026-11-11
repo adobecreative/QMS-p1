@@ -1,7 +1,7 @@
 // Committees & meetings: the committees master (hospital committees, departmental meetings and one-off
 // special meetings), their members, terms of reference and reference papers, the schedule made from each
 // committee's frequency, and the invitations and reminders sent to the members by email and on their phones.
-// Agenda, minutes, actions and QR attendance come in the next phase on the same sessions.
+// Minutes, attendance and actions of each session: systems/minutes.js.
 import { readJson } from '../lib/auth.js';
 import { appName, isAdmin } from '../lib/config.js';
 import { getSettings, logStmt } from '../lib/db.js';
@@ -10,6 +10,8 @@ import { sendPush } from '../lib/push.js';
 import { ARABIC_RE, diffDays, escHtml, fail, isDate, json, nowIso, str, todayIn } from '../lib/util.js';
 import { route2 } from './assets.js';
 import { plusDays } from './docs.js';
+import { attendanceStats, handleMinutes } from './minutes.js';
+import { checkinCode, checkinUrl } from './checkin.js';
 
 export const MEETING_KINDS = ['committee', 'department', 'special'];
 export const CODE_PREFIX = { committee: 'COM', department: 'DEP', special: 'SPM' };
@@ -118,6 +120,8 @@ const MAIL = {
     kind: { invite: 'دعوة لاجتماع', remind3: 'تذكير: الاجتماع بعد 3 أيام', remind1: 'تذكير: الاجتماع غدًا', rescheduled: 'تغيير موعد اجتماع', postponed: 'تأجيل اجتماع', cancelled: 'إلغاء اجتماع' },
     labels: { committee: 'اللجنة', session: 'الجلسة', date: 'التاريخ', time: 'الوقت', venue: 'المكان', reason: 'السبب', was: 'الموعد السابق', tbd: 'يُحدَّد الموعد الجديد لاحقًا' },
     open: 'فتح صفحة اللجنة',
+    checkin: 'تسجيل حضوري',
+    checkin_note: 'اضغط زر تسجيل الحضور وقت الاجتماع.',
     ics: 'مرفق ملف التقويم لإضافة الموعد إلى تقويمك.',
     footer: (app) => `رسالة تلقائية من نظام اللجان والاجتماعات - ${app}.`,
     days: ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'],
@@ -127,6 +131,8 @@ const MAIL = {
     kind: { invite: 'Meeting invitation', remind3: 'Reminder: meeting in 3 days', remind1: 'Reminder: meeting tomorrow', rescheduled: 'Meeting moved', postponed: 'Meeting postponed', cancelled: 'Meeting cancelled' },
     labels: { committee: 'Committee', session: 'Session', date: 'Date', time: 'Time', venue: 'Venue', reason: 'Reason', was: 'Was', tbd: 'The new date will follow' },
     open: 'Open the committee page',
+    checkin: 'Check me in',
+    checkin_note: 'Tap the check-in button at the time of the meeting.',
     ics: 'A calendar file is attached to add the meeting to your calendar.',
     footer: (app) => `Automatic message from the committees and meetings system - ${app}.`,
     days: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
@@ -198,7 +204,9 @@ export async function notifySession(env, settings, c, s, kind) {
   const { emails, users } = await recipients(env, c.id);
   const withIcs = kind === 'invite' || kind === 'rescheduled' || kind === 'cancelled' || (kind === 'postponed' && !s.date_tbd);
   const link = `${settings.site_url || ''}/#/meetings/committees/${c.id}`;
-  const mail = bothLangs(settings, (st) => {
+  // Each member's own check-in link, while the session is still ahead.
+  const personal = (kind === 'invite' || kind === 'remind3' || kind === 'remind1' || kind === 'rescheduled') && !s.date_tbd && s.status !== 'cancelled';
+  const build = (checkin) => bothLangs(settings, (st) => {
     const L = MAIL[st.email_lang];
     const ar = st.email_lang === 'ar';
     const align = ar ? 'right' : 'left';
@@ -216,15 +224,25 @@ export async function notifySession(env, settings, c, s, kind) {
         s.reason && (kind === 'rescheduled' || kind === 'postponed' || kind === 'cancelled') ? row('reason', s.reason) : '',
       ].join('')}</table>
       ${withIcs ? `<p style="font-size:13px;color:#6e6553">${escHtml(L.ics)}</p>` : ''}
+      ${checkin ? `<p style="margin:20px 0 6px"><a href="${escHtml(checkin)}" style="display:inline-block;background:#2f7a4f;color:#ffffff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:bold">${escHtml(L.checkin)}</a></p><p style="font-size:13px;color:#6e6553;margin:0">${escHtml(L.checkin_note)}</p>` : ''}
       <p style="margin:20px 0"><a href="${escHtml(link)}" style="display:inline-block;background:#8a6420;color:#ffffff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:bold">${escHtml(L.open)}</a></p>
       <p style="margin:16px 0 0;font-size:12px;color:#6e6553">${escHtml(L.footer(appName(st, st.email_lang)))}</p></div>`;
     return { subject: `${L.kind[kind]}: ${ar ? c.name_ar : c.name_en || c.name_ar} - ${s.date_tbd ? L.labels.tbd : fmtDay(s.date, L)}`, html };
   });
   let ok = true;
   if (emails.length && mailReady(settings)) {
-    const msg = { to: emails.join(','), ...mail };
-    if (withIcs) msg.attachments = [{ name: 'meeting.ics', type: 'text/calendar', content: btoa(unescape(encodeURIComponent(sessionIcs(c, s, settings)))) }];
-    const r = await sendMail(settings, [msg]);
+    const ics = withIcs ? [{ name: 'meeting.ics', type: 'text/calendar', content: btoa(unescape(encodeURIComponent(sessionIcs(c, s, settings)))) }] : null;
+    const msgs = [];
+    if (personal) {
+      // One message per member (and their substitute), each with that member's own link.
+      const { results: mem } = await env.DB.prepare('SELECT id, email, substitute_email FROM committee_members WHERE committee_id = ? AND active = 1').bind(c.id).all();
+      for (const m of mem) {
+        const to = [...new Set([m.email, m.substitute_email].filter((e) => e && e.includes('@')).map((e) => e.toLowerCase()))];
+        if (to.length) msgs.push({ to: to.join(','), ...build(checkinUrl(settings, await checkinCode(env, s, m.id))) });
+      }
+    } else msgs.push({ to: emails.join(','), ...build(null) });
+    if (ics) for (const m of msgs) m.attachments = ics;
+    const r = await sendMail(settings, msgs);
     ok = r.ok;
   }
   if (users.length)
@@ -394,6 +412,51 @@ export async function handleMeetings(request, env, url, seg, method, user) {
     return json({ sessions: results.map((s) => ({ ...s, session_code: sessionCode(s, s) })), from, to, today });
   }
 
+  // Attendance across committees and meetings over a period, to measure compliance. A secretary sees the
+  // ones they run; a viewer or manager sees all. Only held sessions count; late counts as present.
+  if (r2 === 'GET /committees/attendance') {
+    const from = isDate(url.searchParams.get('from') || '') ? url.searchParams.get('from') : today.slice(0, 4) + '-01-01';
+    const to = isDate(url.searchParams.get('to') || '') ? url.searchParams.get('to') : today;
+    const lead = await leads();
+    const { results: all } = await env.DB.prepare('SELECT c.id, c.code, c.kind, c.name_ar, c.name_en, c.department_id, c.quorum_pct, c.active FROM committees c ORDER BY c.kind, c.code').all();
+    const mine = all.filter((c) => role !== 'secretary' || manager || canRun(c, lead));
+    const ids = new Set(mine.map((c) => c.id));
+    const [{ results: ses }, { results: mem }] = await Promise.all([
+      env.DB.prepare(
+        `SELECT s.id, s.committee_id, COUNT(a.member_id) AS n, COALESCE(SUM(a.status IN ('present', 'late')), 0) AS p, COALESCE(SUM(a.status = 'absent'), 0) AS ab, COALESCE(SUM(a.status = 'excused'), 0) AS ex
+           FROM committee_sessions s LEFT JOIN session_attendance a ON a.session_id = s.id WHERE s.status = 'held' AND s.date >= ? AND s.date <= ? GROUP BY s.id`,
+      ).bind(from, to).all(),
+      env.DB.prepare(
+        `SELECT m.id, m.committee_id, m.name, m.name_en, m.role, COUNT(*) AS n, SUM(a.status IN ('present', 'late')) AS p, SUM(a.status = 'absent') AS ab, SUM(a.status = 'excused') AS ex
+           FROM session_attendance a JOIN committee_sessions s ON s.id = a.session_id JOIN committee_members m ON m.id = a.member_id
+          WHERE s.status = 'held' AND s.date >= ? AND s.date <= ? GROUP BY m.id`,
+      ).bind(from, to).all(),
+    ]);
+    const pct = (p, n) => (n ? Math.round((100 * p) / n) : null);
+    const rows = mine.map((c) => {
+      const list = ses.filter((x) => x.committee_id === c.id);
+      const marked = list.filter((x) => x.n);
+      const n = marked.reduce((a, x) => a + x.n, 0);
+      const p = marked.reduce((a, x) => a + x.p, 0);
+      return {
+        id: c.id, code: c.code, kind: c.kind, name_ar: c.name_ar, name_en: c.name_en, active: c.active,
+        held: list.length, recorded: marked.length,
+        quorum_met: marked.filter((x) => x.p >= Math.ceil((x.n * c.quorum_pct) / 100)).length,
+        absent: marked.reduce((a, x) => a + x.ab, 0), excused: marked.reduce((a, x) => a + x.ex, 0),
+        pct: pct(p, n),
+      };
+    });
+    const people = mem.filter((m) => ids.has(m.committee_id)).map((m) => ({ ...m, pct: pct(m.p, m.n) }));
+    const tot = rows.reduce((a, r) => ({ n: a.n + r.recorded, q: a.q + r.quorum_met }), { n: 0, q: 0 });
+    const allN = people.reduce((a, m) => a + m.n, 0);
+    return json({
+      from, to, today,
+      summary: { committees: rows.filter((r) => r.held).length, held: rows.reduce((a, r) => a + r.held, 0), pct: pct(people.reduce((a, m) => a + m.p, 0), allN), quorum_pct: pct(tot.q, tot.n) },
+      committees: rows,
+      low: people.filter((m) => m.pct !== null && m.pct < 75).sort((a, b) => a.pct - b.pct).slice(0, 200),
+    });
+  }
+
   // Look a person up by employee number (Arabic digits too) or name, to add them as a member.
   if (r2 === 'GET /committees/staff') {
     const q = normDigits(str(url.searchParams.get('q') || '', 60));
@@ -443,6 +506,15 @@ export async function handleMeetings(request, env, url, seg, method, user) {
     const c = await env.DB.prepare('SELECT * FROM committees WHERE id = ?').bind(s.committee_id).first();
     if (method === 'GET' && seg[2] === 'ics' && seg.length === 3) {
       return new Response(sessionIcs(c, s, settings), { headers: { 'content-type': 'text/calendar; charset=utf-8', 'content-disposition': `attachment; filename="${sessionCode(c, s)}.ics"`, 'cache-control': 'no-store' } });
+    }
+    // The session's QR code for checking in (shown on the screen or printed in the room).
+    if (method === 'GET' && seg[2] === 'checkin' && seg.length === 3) {
+      if (!canRun(c, await leads())) fail(403, 'forbidden');
+      return json({ code: await checkinCode(env, s, 'q') });
+    }
+    if (seg[2] === 'minutes') {
+      const lead = await leads();
+      return handleMinutes(request, env, method, seg, { user, c, s, run: canRun(c, lead), manager, today, lead, code: sessionCode(c, s), tz: settings.timezone });
     }
     if (method !== 'PUT' || seg.length !== 2) fail(405, 'method_not_allowed');
     if (!canRun(c, await leads())) fail(403, 'forbidden');
@@ -515,9 +587,10 @@ export async function handleMeetings(request, env, url, seg, method, user) {
       env.DB.prepare('SELECT * FROM committee_sessions WHERE committee_id = ? ORDER BY date, start_time').bind(id).all(),
     ]);
     const active = members.filter((m) => m.active && m.role !== 'invitee').length;
+    const stats = await attendanceStats(env, id);
     return json({
       committee: { ...c, quorum_n: Math.ceil((active * c.quorum_pct) / 100) },
-      members,
+      members: members.map((m) => ({ ...m, attendance: stats[m.id] || null })),
       files,
       sessions: sessions.map((s) => ({ ...s, code: sessionCode(c, s) })),
       can_run: run,

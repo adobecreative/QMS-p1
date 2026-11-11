@@ -495,3 +495,19 @@ file form). The chapter page in Quality shows those files as tiles ("Chapter fil
 - While the link with the operations system is on, only the owner changes accounts here (`users_from_portal`), and the users page points to the portal.
 - Only the owner appoints, changes or removes a super admin (`super_admin_owner_only`), the same as in the operations system.
 - Mobile number (10 November): `users.phone` (optional), in the user dialog, sent as `phone` in `PUT /api/v1/people` and read from the portal's `/api/v1/users` on sync (`portal_users.phone`). An empty number there keeps the one here. Kept for WhatsApp/SMS alerts later.
+
+## Minutes and attendance (10 November 2026)
+
+- Each session of a committee, department meeting or special meeting has minutes: `GET`/`PUT /api/committee-sessions/:id/minutes`, plus `POST .../minutes/approve`, `.../return` and `.../reopen` (`src/systems/minutes.js`, page `#/meetings/committees/s<id>`).
+- The minutes hold attendance (`session_attendance`: present, late, absent, excused) and lines (`session_items`: subject, discussion, decision/action, responsibility, target date, open/closed). An open action from the last session with minutes is offered again in a new session's minutes (`carried_from`).
+- Flow: draft → pending (only when every active member is marked and there is at least one line) → approved, then locked. Saving minutes marks the session held.
+- Who writes: whoever runs the committee (meetings role "رئيس قسم / أمين لجنة" for their department meetings and the committees they lead, or a manager). Who approves: the chair or co-chair (by email), the head of the department for a department meeting, or a manager. Only a manager reopens approved minutes.
+- The committee page shows each member's attendance rate over held sessions (late counts as present).
+- Electronic attendance (`src/systems/checkin.js`, public route `#/checkin/<code>`, API `/api/checkin/<code>` with no account):
+  - Each member gets a personal link in the invitation and reminder emails (one message per member through Brevo `messageVersions`).
+  - Each session has a QR code (button "QR" on the session row, `GET /api/committee-sessions/:id/checkin`): the scanner gives an employee number or email, and only an active member of that committee is accepted.
+  - Codes are `<session>.<member|q>.<token>`, the token being a hash of a per-session random key (`checkin_key`).
+  - Open from 30 minutes before the start to 30 minutes after the end, in the settings time zone; after 10 minutes the member is late. Closed once the minutes are approved.
+  - Once the session has ended, whoever did not check in shows as absent in the minutes until they are saved.
+- Report "الحضور والغياب" (`#/meetings/attendance`, `GET /api/committees/attendance?from&to`): held sessions, sessions with minutes, quorum met and attendance rate per committee, and members under 75 %. A secretary sees only the committees they run.
+- Next, with OVR: open an investigation automatically when absences pass a set rate.

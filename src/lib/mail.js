@@ -46,8 +46,10 @@ export async function sendBrevo(settings, messages) {
     htmlContent: versions[0].htmlContent,
     messageVersions: versions,
   };
-  // Attachments go with a single message only (the weekly backup copy).
-  if (messages.length === 1 && messages[0].attachments) body.attachment = messages[0].attachments.map((a) => ({ name: a.name, content: a.content }));
+  // Attachments go to every version, so only when all messages share them (the weekly backup copy, or one
+  // calendar file sent to each member with their own check-in link).
+  const att = messages[0].attachments;
+  if (att && messages.every((m) => m.attachments === att)) body.attachment = att.map((a) => ({ name: a.name, content: a.content }));
   if (settings.mail_reply_to) body.replyTo = { email: settings.mail_reply_to };
   let res;
   try {

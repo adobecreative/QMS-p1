@@ -113,7 +113,8 @@ r = await sec('/committee-sessions/' + s1.id, 'PUT', { action: 'reschedule', dat
 check(r.s === 200 && r.j.notified === true, 'the secretary moves the session inside the week and the members are told', r.j);
 let mails = await sent();
 const brevo = mails[0] && mails[0].body;
-const to = brevo ? brevo.messageVersions[0].to.map((x) => x.email) : [];
+const to = brevo ? brevo.messageVersions.flatMap((v) => v.to.map((x) => x.email)) : [];
+check(brevo && brevo.messageVersions.every((v) => /#\/checkin\/\d+\.\d+\.[0-9a-f]{24}/.test(v.htmlContent)), 'each member gets their own check-in link');
 check(brevo && to.includes('chair@example.com') && to.includes('sub@example.com') && /تغيير موعد اجتماع/.test(brevo.subject), 'the change goes to members and substitutes', brevo && { subject: brevo.subject, to });
 const ics = brevo && brevo.attachment && Buffer.from(brevo.attachment[0].content, 'base64').toString('utf8');
 check(ics && ics.includes('BEGIN:VEVENT') && ics.includes('SEQUENCE:1') && ics.includes('T083000Z'), 'with a calendar file at the new time (11:30 Riyadh = 08:30 UTC)', ics);
@@ -203,6 +204,75 @@ check(r.s === 200 && !r.j.meetings, 'someone outside every committee sees no mee
 r = await owner('/committees/' + qid, 'DELETE');
 check(r.s === 200 && r.j.retired === true, 'a committee with history is switched off, not deleted', r.j);
 check((await sec('/committees/' + did, 'DELETE')).s === 403, 'only a manager deletes');
+
+// Minutes and attendance: the secretary writes, the chair (or a manager) approves, open actions carry over.
+{
+  r = await owner('/committees/' + qid + '/sessions', 'POST', { date: today, start_time: '08:00', reason: 'محضر' });
+  check(r.s === 200, 'a session today is added', r.j);
+  const cm = (await owner('/committees/' + qid)).j;
+  const ses = cm.sessions.find((x) => x.date === today && x.start_time === '08:00');
+  const active = cm.members.filter((m) => m.active);
+  let m = await sec('/committee-sessions/' + ses.id + '/minutes');
+  check(m.s === 200 && m.j.can_edit && m.j.members.length === active.length && m.j.session.minutes_status === 'draft', 'the secretary opens the minutes', m.j);
+  check((await mv('/committee-sessions/' + ses.id + '/minutes', 'PUT', { items: [] })).s === 403, 'a viewer cannot write the minutes');
+  const items = [{ subject: 'افتتاح الاجتماع' }, { subject: 'مؤشرات الربع', discussion: 'نقاش', action: 'رفع نسبة الإبلاغ', responsibility: 'مدير الجودة', target_date: plus(today, 30), status: 'open' }];
+  const att = active.map((x, i) => ({ member_id: x.id, status: i === 0 ? 'absent' : 'present' }));
+  check((await sec('/committee-sessions/' + ses.id + '/minutes', 'PUT', { submit: true, items, attendance: att.slice(1) })).j?.error === 'mtg_attendance_missing', 'every member is marked before sending');
+  r = await sec('/committee-sessions/' + ses.id + '/minutes', 'PUT', { submit: true, items, attendance: att, time_started: '08:10' });
+  check(r.s === 200 && r.j.minutes_status === 'pending', 'the minutes go to the chair', r.j);
+  check((await sec('/committee-sessions/' + ses.id + '/minutes/approve', 'POST')).s === 403, 'the secretary does not approve their own minutes');
+  check((await owner('/committee-sessions/' + ses.id + '/minutes/approve', 'POST')).s === 200, 'a manager approves');
+  check((await sec('/committee-sessions/' + ses.id + '/minutes', 'PUT', { items })).j?.error === 'mtg_minutes_locked', 'approved minutes are locked');
+  const after = (await owner('/committees/' + qid)).j;
+  check(after.sessions.find((x) => x.id === ses.id).status === 'held', 'writing the minutes marks the session held');
+  const absent = after.members.find((x) => x.id === active[0].id).attendance;
+  const came = after.members.find((x) => x.id === active[1].id).attendance;
+  check(absent && absent.pct === 0 && absent.absent === 1 && came && came.pct === 100, 'each member has an attendance rate', { absent, came });
+  r = await owner('/committees/' + qid + '/sessions', 'POST', { date: today, start_time: '23:00', reason: 'متابعة' });
+  const ses2 = (await owner('/committees/' + qid)).j.sessions.find((x) => x.date === today && x.start_time === '23:00');
+  m = await sec('/committee-sessions/' + ses2.id + '/minutes');
+  check(m.j.carry.length === 1 && m.j.carry[0].action === 'رفع نسبة الإبلاغ', 'an open action carries to the next minutes', m.j.carry);
+}
+
+// Electronic attendance: the session's QR code (by employee number or email) and each member's own link.
+{
+  const tz = (await owner('/bootstrap')).j.settings?.timezone || 'Asia/Riyadh';
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date()).map((p) => [p.type, p.value]));
+  const nowDay = `${parts.year}-${parts.month}-${parts.day}`;
+  const nowHm = `${parts.hour}:${parts.minute}`;
+  await owner('/committees/' + qid + '/sessions', 'POST', { date: nowDay, start_time: nowHm, reason: 'حضور إلكتروني' });
+  const live = (await owner('/committees/' + qid)).j.sessions.find((x) => x.date === nowDay && x.start_time === nowHm);
+  check((await mv('/committee-sessions/' + live.id + '/checkin')).s === 403, 'only who runs the committee gets the QR code');
+  const qr = (await sec('/committee-sessions/' + live.id + '/checkin')).j.code;
+  const pub = (path, method = 'GET', body) => fetch(B + '/api/checkin/' + path, { method, headers: { 'content-type': 'application/json', 'x-requested-with': 'fetch' }, body: body && JSON.stringify(body) }).then(async (x) => ({ s: x.status, j: await x.json().catch(() => null) }));
+  let p = await pub(qr);
+  check(p.s === 200 && p.j.qr && p.j.phase === 'open', 'the QR page opens with no account', p.j);
+  p = await pub(qr, 'POST', { who: 'CHAIR@example.com' });
+  check(p.s === 200 && p.j.status === 'present', 'a member checks in by scanning the QR code', p.j);
+  check((await pub(qr, 'POST', { who: 'chair@example.com' })).j.again === true, 'checking in twice changes nothing');
+  check((await pub(qr, 'POST', { who: 'stranger@example.com' })).j.error === 'checkin_not_member', 'someone who is not a member is refused');
+  check((await pub(qr.slice(0, -1) + (qr.endsWith('0') ? '1' : '0'))).s === 404, 'a changed code is refused');
+  await sent();
+  check((await sec('/committees/' + qid + '/sessions/' + live.id + '/invite', 'POST')).s === 200, 'the invitation goes out');
+  const mail = (await sent())[0];
+  const ver = mail && mail.body.messageVersions.find((v) => v.to.some((x) => x.email === 'sec@example.com'));
+  const code = ver && /#\/checkin\/([0-9.a-f]+)/.exec(ver.htmlContent)[1];
+  p = await pub(code);
+  check(p.s === 200 && !p.j.qr && p.j.member && p.j.marked === null, 'the personal link knows the member', p.j);
+  check((await pub(code, 'POST', {})).j.status === 'present', 'one tap checks them in');
+  const mins = (await sec('/committee-sessions/' + live.id + '/minutes')).j;
+  check(mins.attendance.length === 2 && mins.attendance.some((a) => a.method === 'qr') && mins.attendance.some((a) => a.method === 'link'), 'the minutes show who checked in and how', mins.attendance);
+  const later = (await owner('/committees/' + qid)).j.sessions.find((x) => x.date > nowDay && x.status !== 'cancelled' && !x.date_tbd);
+  if (later) {
+    const lq = (await sec('/committee-sessions/' + later.id + '/checkin')).j.code;
+    check((await pub(lq, 'POST', { who: 'chair@example.com' })).j.error === 'checkin_not_open', 'check-in is closed before the day');
+  }
+  const rep = (await owner('/committees/attendance')).j;
+  const row = rep && rep.committees.find((c) => c.id === qid);
+  check(row && row.held >= 1 && row.pct !== null && rep.summary.held >= 1, 'the attendance report counts held sessions per committee', row);
+  check(Array.isArray(rep.low) && rep.low.some((m) => m.pct === 0), 'and lists members under 75%', rep.low);
+  check((await tech('/committees/attendance')).s === 403, 'someone with no meetings access cannot see it');
+}
 
 console.log(failed ? `\n${failed} check(s) failed` : '\nall checks passed');
 process.exit(failed ? 1 : 0);
