@@ -3,6 +3,9 @@
 // Who reported is kept in its own table (ovr_reporters) and only the quality manager ever reads it.
 // The patient's file number and name show only to quality staff, the reporter and the people the report is sent to.
 // Emails and push notifications never carry the reporter's or the patient's name: only the number, type and place.
+// Phase 2: an action opens a corrective action (CAPA) tied to the report; major harm and sentinel events get a root
+// cause analysis (team, timeline, five whys, fishbone, root causes, action plan, measure) with staged deadlines; and
+// approved minutes with a member absent without excuse, several times in a row, open a report sent to human resources.
 import { getUser, readJson } from '../lib/auth.js';
 import { appName } from '../lib/config.js';
 import { changes, getSettings, logStmt } from '../lib/db.js';
@@ -19,6 +22,13 @@ export const CLOSE_DAYS = { near_miss: 14, no_harm: 14, minor: 14, moderate: 7, 
 export const REPLY_WORKDAYS = 3; // a reply is due this many working days after the report is sent
 export const OVR_PER_HOUR = 20; // reports per device address and hour
 export const OVR_STATUS = ['new', 'review', 'reply', 'action', 'closed'];
+// From moderate harm up, a report closes only after at least one corrective action.
+export const CAPA_HARMS = ['moderate', 'major', 'sentinel'];
+// Root cause analysis: days from the day it opens to name the team, finish the analysis and approve the action plan.
+export const RCA_DAYS = { team: 3, analysis: 21, plan: 30 };
+export const RCA_TEAM_MIN = 2;
+// The fishbone's six branches.
+export const FISH = ['people', 'methods', 'equipment', 'environment', 'materials', 'communication'];
 const OPEN = "o.status <> 'closed'";
 
 // Working days in Saudi Arabia: Friday and Saturday off.
@@ -119,8 +129,11 @@ const MAIL = {
       new: 'بلاغ حادث جديد', severe: 'بلاغ حادث جسيم', route_reply: 'بلاغ حادث محوّل إليك للرد', route_action: 'بلاغ حادث محوّل إليك لاتخاذ إجراء',
       reply: 'تم الرد على بلاغ حادث', action: 'تم تسجيل إجراء على بلاغ حادث', closed: 'تم إغلاق بلاغ الحادث', reopened: 'أعيد فتح بلاغ الحادث',
       late_task: 'تذكير: بلاغ حادث متأخر الرد', late_ovr: 'بلاغات حوادث تجاوزت موعد الإغلاق', received: 'تم استلام بلاغك',
+      rca_team: 'أُضفت إلى فريق تحليل السبب الجذري', rca_soon: 'تذكير: موعد مرحلة في تحليل السبب الجذري', rca_late: 'تحليل سبب جذري متأخر',
+      rca_approved: 'اعتُمدت خطة عمل تحليل السبب الجذري',
     },
-    labels: { type: 'النوع', place: 'المكان', harm: 'الضرر', due: 'الموعد', note: 'ملاحظة' },
+    labels: { type: 'النوع', place: 'المكان', harm: 'الضرر', due: 'الموعد', note: 'ملاحظة', stage: 'المرحلة' },
+    stage: { team: 'تشكيل الفريق', analysis: 'التحليل', plan: 'خطة العمل' },
     harm: { near_miss: 'قريب من الخطأ', no_harm: 'بدون ضرر', minor: 'ضرر بسيط', moderate: 'ضرر متوسط', major: 'ضرر جسيم', sentinel: 'حدث جسيم' },
     open: 'فتح البلاغ',
     footer: (app) => `رسالة تلقائية من ${app}.`,
@@ -131,8 +144,11 @@ const MAIL = {
       new: 'New incident report', severe: 'Serious incident report', route_reply: 'Incident report sent to you for a reply', route_action: 'Incident report sent to you for action',
       reply: 'Reply on an incident report', action: 'Action recorded on an incident report', closed: 'Incident report closed', reopened: 'Incident report reopened',
       late_task: 'Reminder: incident report reply overdue', late_ovr: 'Incident reports past their closing date', received: 'Your report was received',
+      rca_team: 'You were added to a root cause analysis team', rca_soon: 'Reminder: root cause analysis stage due', rca_late: 'Root cause analysis overdue',
+      rca_approved: 'Root cause analysis action plan approved',
     },
-    labels: { type: 'Type', place: 'Place', harm: 'Harm', due: 'Due', note: 'Note' },
+    labels: { type: 'Type', place: 'Place', harm: 'Harm', due: 'Due', note: 'Note', stage: 'Stage' },
+    stage: { team: 'Team', analysis: 'Analysis', plan: 'Action plan' },
     harm: { near_miss: 'Near miss', no_harm: 'No harm', minor: 'Minor harm', moderate: 'Moderate harm', major: 'Major harm', sentinel: 'Sentinel event' },
     open: 'Open the report',
     footer: (app) => `Automatic message from ${app}.`,
@@ -160,7 +176,7 @@ export async function notifyOvr(env, settings, userIds, kind, o, extra = {}) {
       const row = (k, v) => (v ? `<tr><td style="padding:4px 10px;color:#6e6553;text-align:${align}">${escHtml(L.labels[k])}</td><td style="padding:4px 10px;text-align:${align}">${escHtml(v)}</td></tr>` : '');
       const html = `<div dir="${L.dir}" style="font-family:Tahoma,Segoe UI,sans-serif;color:#1f1a12;text-align:${align}">${emailHeader(s)}
         <p style="font-size:16px;font-weight:bold;color:${urgent ? '#7d2f27' : '#1f1a12'}">${escHtml(L.kind[kind])} <span dir="ltr">#${o.id}</span></p>
-        <table style="border-collapse:collapse">${row('type', typeText(o, en))}${row('place', placeText(o, en))}${row('harm', L.harm[harm])}${row('due', extra.due)}${row('note', extra.note)}</table>
+        <table style="border-collapse:collapse">${row('type', typeText(o, en))}${row('place', placeText(o, en))}${row('harm', L.harm[harm])}${row('stage', extra.stage && L.stage[extra.stage])}${row('due', extra.due)}${row('note', extra.note)}</table>
         <p style="margin:20px 0"><a href="${escHtml(ovrLink(s, o.id))}" style="display:inline-block;background:#8a6420;color:#ffffff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:bold">${escHtml(L.open)}</a></p>
         <p style="margin:16px 0 0;font-size:12px;color:#6e6553">${escHtml(L.footer(app))}</p></div>`;
       return { subject: `${L.kind[kind]} #${o.id} - ${app}`, html };
@@ -224,6 +240,41 @@ async function checkCategory(env, catId, subId) {
   if (!sub) fail(400, 'ovr_bad_sub');
   return { sub: sub.id, sentinel: !!sub.sentinel };
 }
+
+/* ------------------------ corrective actions and RCA ----------------------- */
+
+// A corrective action (CAPA) tied to the report: from an action sent to a person, or a line of the RCA's plan.
+// The chapter is kept only when it is a CBAHI chapter the system knows, so the CAPA page can still save it.
+async function addCapa(env, o, x) {
+  const now = nowIso();
+  const res = await env.DB.prepare(
+    `INSERT INTO capa (source, ovr_id, title, detail, location_id, department_id, chapter, owner, due, status, created_by, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, (SELECT code FROM std_chapters WHERE framework = 'cbahi' AND code = ?), ?, ?, 'open', ?, ?, ?)`,
+  )
+    .bind(x.source, o.id, x.title, x.detail || null, o.location_id || null, o.department_id || null, o.chapter || '', x.owner || null, x.due, x.by || null, now, now)
+    .run();
+  return res.meta.last_row_id;
+}
+const capaTitle = (o) => `#${o.id} ${typeText(o, false) || ''}`.trim().slice(0, 500);
+
+// Stages: the team, then the analysis, then the action plan until the quality manager approves it.
+export const rcaStage = (r) => (r.approved_at ? 'approved' : !r.team_at ? 'team' : !r.analysis_at ? 'analysis' : 'plan');
+const teamOf = (r) => (r ? String(r.team || '').split(',').filter(Boolean).map(Number) : []);
+const openRcaStmt = (env, id, by, today) => {
+  const now = nowIso();
+  return env.DB.prepare(
+    'INSERT INTO ovr_rca (ovr_id, opened_at, opened_by, team_due, analysis_due, plan_due, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(ovr_id) DO NOTHING',
+  ).bind(id, now, by || null, plusDays(today, RCA_DAYS.team), plusDays(today, RCA_DAYS.analysis), plusDays(today, RCA_DAYS.plan), now);
+};
+const rcaData = (r) => {
+  try {
+    return JSON.parse(r.data || '{}') || {};
+  } catch {
+    return {};
+  }
+};
+// The analysis is done once it names at least one root cause (written, or a fishbone cause marked as root).
+const hasRoot = (d) => (d.roots || []).length > 0 || FISH.some((k) => ((d.bones || {})[k] || []).some((x) => x.root));
 
 /* ------------------------------ public routes ----------------------------- */
 
@@ -332,6 +383,8 @@ export async function handlePublicOvr(request, env, url, seg, method, ctx) {
         env.DB.prepare("INSERT INTO ovr_steps (ovr_id, at, kind, by_id, by_name, text) VALUES (?, ?, 'create', NULL, NULL, NULL)").bind(id, now),
         env.DB.prepare('INSERT INTO public_hits (ip_hash, at) VALUES (?, ?)').bind('ovr:' + ipHash, now),
         logStmt(env, null, 'create', 'ovr', id, '#' + id),
+        // Major harm and sentinel events open their root cause analysis at once.
+        ...(SEVERE.includes(harm) ? [openRcaStmt(env, id, null, today), stepStmt(env, id, 'rca_open', null, null, null)] : []),
       ]);
     } catch (e) {
       if (photo) await env.FILES.delete(photo.key);
@@ -441,13 +494,34 @@ export async function handleOvr(request, env, url, seg, method, user, ctx) {
     fail(405, 'method_not_allowed');
   }
 
-  /* the list: quality sees every report; everyone else their own reports and what was sent to them */
+  /* the module's settings (quality manager): who in human resources gets committee absences, and after how many */
+  if (seg[1] === 'settings' && seg.length === 2) {
+    if (!role.manager) fail(403, 'forbidden');
+    if (method === 'GET') return json({ hr_user: Number(settings.ovr_hr_user) || null, absence_after: Number(settings.ovr_absence_after) || 0 });
+    if (method === 'PUT') {
+      const body = await readJson(request);
+      const hr = body.hr_user ? toId(body.hr_user) : null;
+      if (body.hr_user && (!hr || !(await env.DB.prepare('SELECT id FROM users WHERE id = ? AND active = 1').bind(hr).first()))) fail(400, 'ovr_bad_person');
+      const after = Number(body.absence_after);
+      if (!Number.isInteger(after) || after < 0 || after > 20) fail(400, 'ovr_bad_absence');
+      await env.DB.batch([
+        env.DB.prepare("INSERT INTO settings (key, value) VALUES ('ovr_hr_user', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(hr ? String(hr) : ''),
+        env.DB.prepare("INSERT INTO settings (key, value) VALUES ('ovr_absence_after', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(String(after)),
+        logStmt(env, user, 'update', 'settings', null, 'ovr', { ovr_hr_user: [settings.ovr_hr_user, hr ? String(hr) : ''], ovr_absence_after: [settings.ovr_absence_after, String(after)] }),
+      ]);
+      return json({ ok: true });
+    }
+    fail(405, 'method_not_allowed');
+  }
+
+  /* the list: quality sees every report; everyone else their own reports, what was sent to them and their RCA teams */
   if (method === 'GET' && seg.length === 1) {
     const [{ results: rows }, { results: tasks }] = await Promise.all([
       role.viewer
         ? env.DB.prepare(`${SELECT} ORDER BY CASE WHEN ${OPEN} THEN 0 ELSE 1 END, o.id DESC LIMIT 3000`).all()
         : env.DB.prepare(
             `${SELECT} WHERE o.id IN (SELECT ovr_id FROM ovr_reporters WHERE user_id = ?1) OR o.id IN (SELECT ovr_id FROM ovr_tasks WHERE user_id = ?1)
+                OR o.id IN (SELECT ovr_id FROM ovr_rca WHERE team LIKE '%,' || CAST(?1 AS INTEGER) || ',%')
               ORDER BY CASE WHEN ${OPEN} THEN 0 ELSE 1 END, o.id DESC LIMIT 1000`,
           ).bind(user.id).all(),
       env.DB.prepare("SELECT ovr_id, kind, due, status, user_id FROM ovr_tasks WHERE status = 'open'").all(),
@@ -469,9 +543,9 @@ export async function handleOvr(request, env, url, seg, method, user, ctx) {
     return json({ ovr: list, today, role: { officer: role.officer, manager: role.manager, viewer: role.viewer, sees_reporter: role.seesReporter } });
   }
 
-  // GET /ovr/people: the active accounts a report can be sent to.
+  // GET /ovr/people: the active accounts a report can be sent to (also for an RCA team member picking plan owners).
   if (method === 'GET' && seg[1] === 'people' && seg.length === 2) {
-    if (!role.officer) fail(403, 'forbidden');
+    if (!role.officer && !(await env.DB.prepare("SELECT 1 AS x FROM ovr_rca WHERE team LIKE '%,' || CAST(? AS INTEGER) || ',%' LIMIT 1").bind(user.id).first())) fail(403, 'forbidden');
     const { results } = await env.DB.prepare(
       `SELECT u.id, u.name, u.name_en, u.job_title, d.name_ar AS dept_ar, d.name_en AS dept_en FROM users u LEFT JOIN departments d ON d.id = u.department_id
         WHERE u.active = 1 AND u.id <> (SELECT MIN(id) FROM users) ORDER BY u.name`,
@@ -488,8 +562,10 @@ export async function handleOvr(request, env, url, seg, method, user, ctx) {
     `SELECT t.*, u.name AS user_name, u.name_en AS user_name_en FROM ovr_tasks t LEFT JOIN users u ON u.id = t.user_id WHERE t.ovr_id = ? ORDER BY t.id`,
   ).bind(id).all();
   const myTasks = allTasks.filter((t) => t.user_id === user.id);
-  if (!role.viewer && !isReporter && !myTasks.length) fail(404, 'not_found');
-  const seesPatient = role.officer || isReporter || myTasks.length > 0;
+  const rca = await env.DB.prepare('SELECT * FROM ovr_rca WHERE ovr_id = ?').bind(id).first();
+  const inTeam = teamOf(rca).includes(user.id);
+  if (!role.viewer && !isReporter && !myTasks.length && !inTeam) fail(404, 'not_found');
+  const seesPatient = role.officer || isReporter || myTasks.length > 0 || inTeam;
 
   if (method === 'GET' && seg.length === 2) {
     const out = ovrOut(o, today, seesPatient);
@@ -498,10 +574,29 @@ export async function handleOvr(request, env, url, seg, method, user, ctx) {
     const taskOut = (t) => ({
       id: t.id, kind: t.kind, status: t.status, user_id: t.user_id, user_name: t.user_name || '', user_name_en: t.user_name_en || '', due: t.due, late: t.status === 'open' && t.due < today,
       note: t.note || '', routed_by: t.routed_by || '', reply: t.reply || '', correction: t.correction || '', improvement: t.improvement || '', done_at: t.done_at, created_at: t.created_at,
+      capa_id: role.viewer ? t.capa_id || null : null,
     });
     // Quality sees every task and step; the person a report was sent to, their own tasks; the reporter, neither.
     out.tasks = role.viewer ? allTasks.map(taskOut) : myTasks.map(taskOut);
     if (role.viewer) out.steps = (await env.DB.prepare('SELECT at, kind, by_name, to_id, text FROM ovr_steps WHERE ovr_id = ? ORDER BY id').bind(id).all()).results;
+    if (role.viewer) out.capa = (await env.DB.prepare('SELECT id, status, title, owner, due FROM capa WHERE ovr_id = ? ORDER BY id').bind(id).all()).results;
+    out.capa_needed = CAPA_HARMS.includes(o.harm_final || o.harm);
+    if (rca && (role.viewer || inTeam)) {
+      const data = rcaData(rca);
+      const team = teamOf(rca);
+      const people = team.length
+        ? (await env.DB.prepare(`SELECT id, name, name_en FROM users WHERE id IN (${team.map(() => '?').join(',')})`).bind(...team).all()).results
+        : [];
+      const stage = rcaStage(rca);
+      out.rca = {
+        stage, opened_at: rca.opened_at, opened_by: rca.opened_by || '', team, team_people: people,
+        team_due: rca.team_due, analysis_due: rca.analysis_due, plan_due: rca.plan_due, team_at: rca.team_at, analysis_at: rca.analysis_at,
+        approved_at: rca.approved_at, approved_by: rca.approved_by || '', late: stage !== 'approved' && rca[stage + '_due'] < today,
+        problem: data.problem || '', timeline: data.timeline || [], whys: data.whys || [], bones: data.bones || {}, roots: data.roots || [], plan: data.plan || [], measure: data.measure || '',
+        can_edit: stage !== 'approved' && o.status !== 'closed' && (role.officer || inTeam),
+        can_approve: stage === 'plan' && o.status !== 'closed' && role.manager,
+      };
+    }
     return json({ ovr: out, today, role: { officer: role.officer, manager: role.manager, viewer: role.viewer, sees_reporter: role.seesReporter } });
   }
 
@@ -509,6 +604,88 @@ export async function handleOvr(request, env, url, seg, method, user, ctx) {
     const obj = o.photo_key ? await env.FILES.get(o.photo_key) : null;
     if (!obj) fail(404, 'not_found');
     return new Response(obj.body, { headers: { 'content-type': o.photo_type || 'image/jpeg', 'content-length': String(obj.size), 'cache-control': 'private, max-age=3600', 'x-content-type-options': 'nosniff' } });
+  }
+
+  // PUT /ovr/<id>/rca: quality or a team member saves the analysis. The team stage ends once it has enough members,
+  // the analysis stage once a root cause is named; the plan waits for the quality manager's approval.
+  if (method === 'PUT' && seg[2] === 'rca' && seg.length === 3) {
+    if (!rca) fail(404, 'not_found');
+    if (!role.officer && !inTeam) fail(403, 'forbidden');
+    if (rca.approved_at || o.status === 'closed') fail(409, 'ovr_rca_locked');
+    const body = await readJson(request);
+    const arr = (v, n) => (Array.isArray(v) ? v.slice(0, n) : []);
+    let team = [...new Set(arr(body.team, 30).map(toId).filter(Boolean))];
+    if (team.length) {
+      const ok = new Set((await env.DB.prepare(`SELECT id FROM users WHERE active = 1 AND id IN (${team.map(() => '?').join(',')})`).bind(...team).all()).results.map((x) => x.id));
+      team = team.filter((x) => ok.has(x));
+    }
+    // A team member cannot take themselves or others off; quality can.
+    if (!role.officer && teamOf(rca).some((x) => !team.includes(x))) fail(403, 'forbidden');
+    const data = {
+      problem: str(body.problem, 1000),
+      timeline: arr(body.timeline, 50).map((x) => ({ at: str(x && x.at, 20), text: str(x && x.text, 500) })).filter((x) => x.text),
+      whys: arr(body.whys, 5).map((x) => str(x, 500)),
+      bones: Object.fromEntries(FISH.map((k) => [k, arr(body.bones && body.bones[k], 20).map((x) => ({ t: str(x && x.t, 200), root: !!(x && x.root) })).filter((x) => x.t)])),
+      roots: arr(body.roots, 20).map((x) => str(x, 500)).filter(Boolean),
+      plan: arr(body.plan, 30).map((x) => ({ text: str(x && x.text, 500), owner_id: toId(x && x.owner_id), due: optDate(x && x.due) || null })).filter((x) => x.text),
+      measure: str(body.measure, 1000),
+    };
+    while (data.whys.length && !data.whys[data.whys.length - 1]) data.whys.pop();
+    const now = nowIso();
+    const teamAt = rca.team_at || (team.length >= RCA_TEAM_MIN ? now : null);
+    const analysisAt = rca.analysis_at || (teamAt && hasRoot(data) ? now : null);
+    const added = team.filter((x) => !teamOf(rca).includes(x) && x !== user.id);
+    const stmts = [
+      env.DB.prepare('UPDATE ovr_rca SET team = ?, data = ?, team_at = ?, analysis_at = ?, updated_at = ? WHERE ovr_id = ?').bind(',' + team.join(',') + (team.length ? ',' : ''), JSON.stringify(data), teamAt, analysisAt, now, id),
+      logStmt(env, user, 'rca_save', 'ovr', id, '#' + id),
+    ];
+    if (teamAt && !rca.team_at) stmts.push(stepStmt(env, id, 'rca_team', user, null, null));
+    if (analysisAt && !rca.analysis_at) stmts.push(stepStmt(env, id, 'rca_analysis', user, null, null));
+    await env.DB.batch(stmts);
+    if (added.length) later(notifyOvr(env, settings, added, 'rca_team', o, { stage: rcaStage({ team_at: teamAt, analysis_at: analysisAt }), due: !teamAt ? rca.team_due : !analysisAt ? rca.analysis_due : rca.plan_due }));
+    return json({ ok: true, stage: rcaStage({ team_at: teamAt, analysis_at: analysisAt }) });
+  }
+
+  // POST /ovr/<id>/rca/approve: the quality manager approves the plan. Each line goes to its owner as an action
+  // (a correction and an improvement) and opens its corrective action.
+  if (method === 'POST' && seg[2] === 'rca' && seg[3] === 'approve' && seg.length === 4) {
+    if (!rca) fail(404, 'not_found');
+    if (!role.manager) fail(403, 'forbidden');
+    if (rca.approved_at || o.status === 'closed') fail(409, 'ovr_rca_locked');
+    if (rcaStage(rca) !== 'plan') fail(409, 'ovr_rca_incomplete');
+    const data = rcaData(rca);
+    const plan = data.plan || [];
+    if (!plan.length) fail(400, 'ovr_rca_plan');
+    const owners = Object.fromEntries(
+      (await env.DB.prepare(`SELECT id, name FROM users WHERE active = 1 AND id IN (${plan.map(() => '?').join(',')})`).bind(...plan.map((x) => x.owner_id || 0)).all()).results.map((x) => [x.id, x]),
+    );
+    if (plan.some((x) => !owners[x.owner_id] || !x.due || x.due < today)) fail(400, 'ovr_rca_plan');
+    if (!data.measure) fail(400, 'ovr_rca_measure');
+    const now = nowIso();
+    const stmts = [];
+    for (const x of plan) {
+      const capaId = await addCapa(env, o, { source: 'rca', title: x.text, detail: capaTitle(o), owner: owners[x.owner_id].name, due: x.due, by: user.name });
+      x.capa_id = capaId;
+      stmts.push(
+        env.DB.prepare("INSERT INTO ovr_tasks (ovr_id, kind, user_id, due, status, note, routed_by_id, routed_by, capa_id, created_at) VALUES (?, 'action', ?, ?, 'open', ?, ?, ?, ?, ?)")
+          .bind(id, x.owner_id, x.due, x.text, user.id, user.name, capaId, now),
+      );
+    }
+    stmts.push(
+      env.DB.prepare('UPDATE ovr_rca SET status = ?, data = ?, approved_at = ?, approved_by = ?, updated_at = ? WHERE ovr_id = ?').bind('approved', JSON.stringify(data), now, user.name, now, id),
+      env.DB.prepare("UPDATE ovr SET status = 'review' WHERE id = ? AND status = 'new'").bind(id),
+      stepStmt(env, id, 'rca_approve', user, null, null),
+      syncStatusStmt(env, id),
+      logStmt(env, user, 'rca_approve', 'ovr', id, '#' + id),
+    );
+    await env.DB.batch(stmts);
+    later(
+      (async () => {
+        for (const x of plan) await notifyOvr(env, settings, [x.owner_id], 'route_action', o, { due: x.due, note: x.text });
+        await notifyOvr(env, settings, teamOf(rca).filter((x) => x !== user.id), 'rca_approved', o);
+      })(),
+    );
+    return json({ ok: true });
   }
 
   // POST /ovr/<id>/tasks/<task>: the person it was sent to answers (a reply, or a correction and an improvement).
@@ -523,8 +700,13 @@ export async function handleOvr(request, env, url, seg, method, user, ctx) {
     const improvement = str(body.improvement, 2000);
     if (t.kind === 'reply' && !reply) fail(400, 'ovr_reply_required');
     if (t.kind === 'action' && (!correction || !improvement)) fail(400, 'ovr_action_required');
+    const now = nowIso();
     await env.DB.batch([
-      env.DB.prepare("UPDATE ovr_tasks SET status = 'done', reply = ?, correction = ?, improvement = ?, done_at = ? WHERE id = ?").bind(reply || null, correction || null, improvement || null, nowIso(), t.id),
+      env.DB.prepare("UPDATE ovr_tasks SET status = 'done', reply = ?, correction = ?, improvement = ?, done_at = ? WHERE id = ?").bind(reply || null, correction || null, improvement || null, now, t.id),
+      // Its corrective action is done with the same words; quality still checks it worked on the CAPA page.
+      ...(t.capa_id
+        ? [env.DB.prepare("UPDATE capa SET status = 'done', action = ?, done_at = ?, done_by = ?, updated_at = ? WHERE id = ? AND status IN ('open', 'doing')").bind(`${correction}\n${improvement}`, now, user.name, now, t.capa_id)]
+        : []),
       stepStmt(env, id, t.kind === 'action' ? 'action' : 'reply', user, null, null),
       syncStatusStmt(env, id),
       logStmt(env, user, t.kind === 'action' ? 'action' : 'reply', 'ovr', id, '#' + id),
@@ -548,12 +730,19 @@ export async function handleOvr(request, env, url, seg, method, user, ctx) {
     if (!deptId || !(await env.DB.prepare('SELECT id FROM departments WHERE id = ?').bind(deptId).first())) fail(400, 'ovr_dept_required');
     const due = harmFinal !== (o.harm_final || o.harm) ? plusDays(o.created_at.slice(0, 10), CLOSE_DAYS[harmFinal]) : o.due;
     const first = o.status === 'new';
+    // Root cause analysis: always for major harm and sentinel events; for anything else when the quality manager asks.
+    // The quality manager can take back one they asked for, until its plan is approved.
+    const wantRca = SEVERE.includes(harmFinal) || (body.rca === undefined ? !!rca : !!body.rca);
+    if (!!body.rca !== !!rca && body.rca !== undefined && !SEVERE.includes(harmFinal) && !role.manager) fail(403, 'forbidden');
+    if (rca && !wantRca && rca.approved_at) fail(409, 'ovr_rca_locked');
+    const rcaStmts = wantRca && !rca ? [openRcaStmt(env, id, user.name, today), stepStmt(env, id, 'rca_open', user, null, null)] : !wantRca && rca ? [env.DB.prepare('DELETE FROM ovr_rca WHERE ovr_id = ?').bind(id), stepStmt(env, id, 'rca_cancel', user, null, null)] : [];
     const next = { category_id: catId, sub_id: sub, harm_final: harmFinal, department_id: deptId, due };
     await env.DB.batch([
       env.DB.prepare("UPDATE ovr SET category_id = ?, sub_id = ?, harm_final = ?, department_id = ?, due = ?, status = CASE WHEN status = 'new' THEN 'review' ELSE status END, updated_at = ? WHERE id = ?")
         .bind(catId, sub, harmFinal, deptId, due, nowIso(), id),
       stepStmt(env, id, first ? 'receive' : 'classify', user, null, null),
       logStmt(env, user, first ? 'receive' : 'update', 'ovr', id, '#' + id, changes(o, next, ['category_id', 'sub_id', 'harm_final', 'department_id', 'due'])),
+      ...rcaStmts,
     ]);
     // Raised to major harm or a sentinel event: quality and leadership are told at once.
     if (SEVERE.includes(harmFinal) && !SEVERE.includes(o.harm_final || o.harm)) {
@@ -575,9 +764,11 @@ export async function handleOvr(request, env, url, seg, method, user, ctx) {
     const due = optDate(body.due) || plusWorkdays(today, REPLY_WORKDAYS);
     if (due < today) fail(400, 'invalid_date');
     const note = str(body.note, 1000);
+    // An action opens its corrective action, tied to the report (not for the system's own absence reports).
+    const capaId = kind === 'action' && o.source !== 'system' ? await addCapa(env, o, { source: 'ovr', title: capaTitle(o), detail: note, owner: person.name, due, by: user.name }) : null;
     await env.DB.batch([
-      env.DB.prepare("INSERT INTO ovr_tasks (ovr_id, kind, user_id, due, status, note, routed_by_id, routed_by, created_at) VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?)")
-        .bind(id, kind, to, due, note || null, user.id, user.name, nowIso()),
+      env.DB.prepare("INSERT INTO ovr_tasks (ovr_id, kind, user_id, due, status, note, routed_by_id, routed_by, capa_id, created_at) VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?)")
+        .bind(id, kind, to, due, note || null, user.id, user.name, capaId, nowIso()),
       env.DB.prepare("UPDATE ovr SET status = 'review' WHERE id = ? AND status = 'new'").bind(id),
       stepStmt(env, id, 'route_' + kind, user, note, to),
       syncStatusStmt(env, id),
@@ -594,6 +785,7 @@ export async function handleOvr(request, env, url, seg, method, user, ctx) {
     if (t.status !== 'open') fail(409, 'ovr_task_done');
     await env.DB.batch([
       env.DB.prepare('DELETE FROM ovr_tasks WHERE id = ?').bind(t.id),
+      env.DB.prepare("DELETE FROM capa WHERE id = ? AND status IN ('open', 'doing')").bind(t.capa_id || 0),
       stepStmt(env, id, 'withdraw', user, null, t.user_id),
       syncStatusStmt(env, id),
       logStmt(env, user, 'withdraw', 'ovr', id, '#' + id),
@@ -605,6 +797,8 @@ export async function handleOvr(request, env, url, seg, method, user, ctx) {
   if (method === 'POST' && seg[2] === 'close' && seg.length === 3) {
     if (o.status === 'closed') fail(409, 'ovr_closed');
     if (allTasks.some((t) => t.status === 'open')) fail(409, 'ovr_tasks_open');
+    if (rca && !rca.approved_at) fail(409, 'ovr_rca_open');
+    if (CAPA_HARMS.includes(o.harm_final || o.harm) && !(await env.DB.prepare('SELECT 1 AS x FROM capa WHERE ovr_id = ? LIMIT 1').bind(id).first())) fail(409, 'ovr_capa_required');
     const note = str((await readJson(request)).note, 2000);
     if (!note) fail(400, 'ovr_note_required');
     const now = nowIso();
@@ -639,6 +833,8 @@ export async function handleOvr(request, env, url, seg, method, user, ctx) {
       env.DB.prepare('DELETE FROM ovr_tasks WHERE ovr_id = ?').bind(id),
       env.DB.prepare('DELETE FROM ovr_steps WHERE ovr_id = ?').bind(id),
       env.DB.prepare('DELETE FROM ovr_reporters WHERE ovr_id = ?').bind(id),
+      env.DB.prepare('DELETE FROM ovr_rca WHERE ovr_id = ?').bind(id),
+      env.DB.prepare('DELETE FROM capa WHERE ovr_id = ?').bind(id),
       env.DB.prepare('DELETE FROM ovr WHERE id = ?').bind(id),
       logStmt(env, user, 'delete', 'ovr', id, '#' + id),
     ]);
@@ -646,6 +842,69 @@ export async function handleOvr(request, env, url, seg, method, user, ctx) {
     return json({ ok: true });
   }
   fail(405, 'method_not_allowed');
+}
+
+/* ------------------------------ committee absence -------------------------- */
+
+// When minutes are approved: a member absent without excuse this many sessions in a row (ovr_absence_after) gets a
+// report made by the system, "Administrative / Absent from a committee meeting", sent at once to human resources for
+// action and to the member (when they have an account) for a reply. One report per member and session.
+export async function absenceReports(env, c, s, code) {
+  const settings = await getSettings(env);
+  const after = Number(settings.ovr_absence_after) || 0;
+  if (!after) return [];
+  const { results: absent } = await env.DB.prepare(
+    "SELECT m.id, m.name, m.emp_no, m.email FROM session_attendance a JOIN committee_members m ON m.id = a.member_id WHERE a.session_id = ? AND a.status = 'absent'",
+  ).bind(s.id).all();
+  if (!absent.length) return [];
+  await seedOvrCategories(env);
+  const today = todayIn(settings.timezone);
+  const sub = await env.DB.prepare("SELECT id, parent_id FROM ovr_categories WHERE parent_id IS NOT NULL AND name_en = 'Absent from a committee meeting' ORDER BY active DESC, id LIMIT 1").first();
+  const top = sub ? { id: sub.parent_id } : await env.DB.prepare("SELECT id FROM ovr_categories WHERE parent_id IS NULL AND name_en = 'Administrative' LIMIT 1").first();
+  const hr = Number(settings.ovr_hr_user) ? await env.DB.prepare('SELECT id, name FROM users WHERE id = ? AND active = 1').bind(Number(settings.ovr_hr_user)).first() : null;
+  const made = [];
+  for (const m of absent) {
+    const ref = `absence:${s.id}:${m.id}`;
+    if (await env.DB.prepare('SELECT 1 AS x FROM ovr WHERE ref = ?').bind(ref).first()) continue;
+    // Unexcused absences in a row, this session included, over the committee's approved minutes.
+    const { results: past } = await env.DB.prepare(
+      `SELECT a.status FROM session_attendance a JOIN committee_sessions x ON x.id = a.session_id
+        WHERE x.committee_id = ? AND a.member_id = ? AND x.minutes_status = 'approved' AND (x.date < ? OR (x.date = ? AND x.start_time <= ?))
+        ORDER BY x.date DESC, x.start_time DESC LIMIT 50`,
+    ).bind(c.id, m.id, s.date, s.date, s.start_time).all();
+    let n = 0;
+    while (n < past.length && past[n].status === 'absent') n++;
+    if (n < after) continue;
+    const [staff, account] = await Promise.all([
+      m.emp_no ? env.DB.prepare('SELECT department_id FROM staff WHERE emp_no = ?').bind(m.emp_no).first() : null,
+      m.email ? env.DB.prepare('SELECT id, department_id FROM users WHERE lower(email) = lower(?) AND active = 1').bind(m.email).first() : null,
+    ]);
+    const dept = (staff && staff.department_id) || (account && account.department_id) || c.department_id || null;
+    const description = `غياب بدون عذر عن ${c.name_ar} (${code}) بتاريخ ${s.date}، ${n} مرات متتالية.\nUnexcused absence from ${c.name_en} (${code}) on ${s.date}, ${n} in a row.`;
+    const now = nowIso();
+    const res = await env.DB.prepare(
+      `INSERT INTO ovr (status, source, occurred_at, department_id, category_id, sub_id, harm, description, involved, patient, due, ref, created_at, updated_at)
+       VALUES ('new', 'system', ?, ?, ?, ?, 'no_harm', ?, ?, 0, ?, ?, ?, ?)`,
+    ).bind(`${s.date}T${s.start_time}`, dept, top ? top.id : null, sub ? sub.id : null, description, m.name, plusDays(today, CLOSE_DAYS.no_harm), ref, now, now).run();
+    const id = res.meta.last_row_id;
+    const due = plusWorkdays(today, REPLY_WORKDAYS);
+    const task = (kind, uid) =>
+      env.DB.prepare("INSERT INTO ovr_tasks (ovr_id, kind, user_id, due, status, routed_by, created_at) VALUES (?, ?, ?, ?, 'open', ?, ?)").bind(id, kind, uid, due, 'النظام | System', now);
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO ovr_reporters (ovr_id, user_id, emp_no, name, department_id) VALUES (?, NULL, NULL, 'النظام | System', NULL)").bind(id),
+      stepStmt(env, id, 'create', null, null, null),
+      ...(hr ? [task('action', hr.id), stepStmt(env, id, 'route_action', null, null, hr.id)] : []),
+      ...(account ? [task('reply', account.id), stepStmt(env, id, 'route_reply', null, null, account.id)] : []),
+      ...(hr || account ? [env.DB.prepare("UPDATE ovr SET status = 'review' WHERE id = ?").bind(id), syncStatusStmt(env, id)] : []),
+      logStmt(env, null, 'create', 'ovr', id, '#' + id),
+    ]);
+    const o = await getOvr(env, id);
+    await notifyOvr(env, settings, await qualityStaffIds(env), 'new', o);
+    if (hr) await notifyOvr(env, settings, [hr.id], 'route_action', o, { due });
+    if (account) await notifyOvr(env, settings, [account.id], 'route_reply', o, { due });
+    made.push(id);
+  }
+  return made;
 }
 
 /* --------------------------------- home ----------------------------------- */
@@ -690,5 +949,23 @@ export async function runOvrReminders(env) {
     }
     await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('ovr_late_sent', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(today).run();
   }
-  return { tasks: tasks.length, late };
+  // Root cause analyses: the day before a stage is due, its team is reminded; once late, the team and the quality
+  // managers are told every day until the stage is done.
+  const tomorrow = plusDays(today, 1);
+  const { results: rcas } = await env.DB.prepare(
+    "SELECT r.* FROM ovr_rca r JOIN ovr o ON o.id = r.ovr_id WHERE r.approved_at IS NULL AND o.status <> 'closed' AND (r.reminded_on IS NULL OR r.reminded_on < ?) ORDER BY r.ovr_id LIMIT 50",
+  ).bind(today).all();
+  let rcaSent = 0;
+  for (const r of rcas) {
+    const stage = rcaStage(r);
+    const due = r[stage + '_due'];
+    if (due > tomorrow || rcaSent >= 10) continue;
+    const late = due < today;
+    const o = await getOvr(env, r.ovr_id);
+    const to = [...teamOf(r), ...(late || !teamOf(r).length ? await qualityManagerIds(env) : [])];
+    await notifyOvr(env, settings, to, late ? 'rca_late' : 'rca_soon', o, { stage, due });
+    await env.DB.prepare('UPDATE ovr_rca SET reminded_on = ? WHERE ovr_id = ?').bind(today, r.ovr_id).run();
+    rcaSent++;
+  }
+  return { tasks: tasks.length, late, rca: rcaSent };
 }

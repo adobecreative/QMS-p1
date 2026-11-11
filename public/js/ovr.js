@@ -312,6 +312,7 @@ async function ovrDetail(root, id, alive) {
   if (!alive()) return;
   const o = d.ovr;
   const r = d.role;
+  S.ovrRole = r;
   const closed = o.status === 'closed';
   const reload = () => render();
   const act = async (path, body, msg) => {
@@ -361,6 +362,7 @@ async function ovrDetail(root, id, alive) {
       tk.reply ? h('div', {}, h('span', { class: 'muted' }, t('ovr.reply') + ': '), para(tk.reply)) : '',
       tk.correction ? h('div', {}, h('span', { class: 'muted' }, t('ovr.correction') + ': '), para(tk.correction)) : '',
       tk.improvement ? h('div', {}, h('span', { class: 'muted' }, t('ovr.improvement') + ': '), para(tk.improvement)) : '',
+      tk.capa_id ? h('div', { class: 'small' }, link('quality/capa/' + tk.capa_id, {}, 'CAPA #' + tk.capa_id)) : '',
       mineOpen ? h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn btn-primary btn-small', onclick: () => answerDialog(o, tk, reload) }, t(tk.kind === 'action' ? 'ovr.do_action' : 'ovr.do_reply'))) : '',
       r.officer && tk.status === 'open' && !closed ? h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn btn-small', onclick: () => simpleDelete(t('ovr.withdraw_q'), '/ovr/' + o.id + '/tasks/' + tk.id, t('ovr.withdrawn'), reload) }, t('ovr.withdraw'))) : '',
     );
@@ -371,6 +373,17 @@ async function ovrDetail(root, id, alive) {
     h('div', { class: 'page-head' }, h('div', {}, h('h1', {}, t('ovr.track', { n: o.id }), ' ', ovrChip(o.status)), h('p', { class: 'muted' }, fmtTime(o.created_at))), actions.length ? h('div', { class: 'actions' }, actions) : ''),
     h('section', { class: 'panel pad' }, facts),
     o.tasks.length ? h('section', { class: 'panel pad stack' }, h('h2', {}, t('ovr.tasks')), h('ul', { class: 'steps' }, o.tasks.map(taskEl))) : '',
+    o.rca ? rcaPanel(o, o.rca, reload) : '',
+    o.capa && (o.capa.length || (o.capa_needed && !closed))
+      ? h(
+          'section',
+          { class: 'panel pad stack' },
+          h('h2', {}, t('nav.capa')),
+          o.capa.length
+            ? h('ul', { class: 'ack-list' }, o.capa.map((c) => h('li', {}, link('quality/capa/' + c.id, {}, h('span', { dir: 'ltr', class: 'mono' }, '#' + c.id), ' ', c.title), h('span', { class: 'small muted' }, c.owner || '', ' · ', t('capa.st.' + c.status)))))
+            : h('p', { class: 'notice notice-warn' }, t('ovr.capa_needed')),
+        )
+      : '',
     steps.length ? h('section', { class: 'panel pad stack' }, h('h2', {}, t('ovr.history')), h('ul', { class: 'steps' }, steps)) : '',
   );
 }
@@ -395,11 +408,22 @@ async function classifyDialog(o, done) {
   fill();
   const harm = select(OVR_HARMS.map((x) => [x, t('ovr.harm.' + x)]), harmOf(o));
   const dept = select(meta.departments.map((x) => [x.id, pick(x.name_ar, x.name_en)]), o.department_id);
+  // Root cause analysis: always for major harm and sentinel events; the quality manager can ask for one on any report.
+  const severe = () => harm.value === 'major' || harm.value === 'sentinel';
+  const rca = input({ type: 'checkbox', checked: !!o.rca });
+  const syncRca = () => {
+    if (severe()) rca.checked = true;
+    rca.disabled = severe() || !S.ovrRole?.manager || !!(o.rca && o.rca.approved_at);
+  };
+  harm.addEventListener('change', syncRca);
+  syncRca();
   openDialog({
     title: t(o.status === 'new' ? 'ovr.receive' : 'ovr.classify') + ' #' + o.id,
-    body: h('div', { class: 'stack' }, h('div', { class: 'form-grid' }, field(t('ovr.category'), cat), field(t('ovr.sub'), sub)), h('div', { class: 'form-grid' }, field(t('ovr.harm'), harm), field(t('ovr.dept'), dept))),
+    body: h('div', { class: 'stack' }, h('div', { class: 'form-grid' }, field(t('ovr.category'), cat), field(t('ovr.sub'), sub)), h('div', { class: 'form-grid' }, field(t('ovr.harm'), harm), field(t('ovr.dept'), dept)), checkField(t('rca.title'), rca)),
     onSubmit: async () => {
-      await api('/ovr/' + o.id, { method: 'PUT', body: { category_id: Number(cat.value), sub_id: sub.value ? Number(sub.value) : null, harm_final: harm.value, department_id: Number(dept.value) } });
+      const body = { category_id: Number(cat.value), sub_id: sub.value ? Number(sub.value) : null, harm_final: harm.value, department_id: Number(dept.value) };
+      if (S.ovrRole?.manager) body.rca = rca.checked;
+      await api('/ovr/' + o.id, { method: 'PUT', body });
       toast(t('capa.saved'));
       done();
     },
@@ -453,8 +477,42 @@ export async function ovrCatsPage(root, _param, alive) {
   const tops = d.categories.filter((c) => !c.parent_id);
   const subs = (id) => d.categories.filter((c) => c.parent_id === id);
   const name = (c) => h('span', { class: c.active ? '' : 'muted' }, pick(c.name_ar, c.name_en), c.active ? '' : ' (' + t('ovr.inactive') + ')', c.sentinel ? h('span', { class: 'note note-expired' }, ' ', t('ovr.harm.sentinel')) : '');
+  // Committee absences: who in human resources gets them, and after how many unexcused absences in a row.
+  let setBox = '';
+  if (d.can_edit) {
+    try {
+      const [cfg, { people }] = await Promise.all([api('/ovr/settings'), api('/ovr/people')]);
+      if (!alive()) return;
+      const hr = select([['', t('ovr.hr_none')], ...people.map((p) => [p.id, pick(p.name, p.name_en) + (p.dept_ar ? ' - ' + pick(p.dept_ar, p.dept_en) : '')])], cfg.hr_user || '');
+      const after = input({ type: 'number', min: 0, max: 20, step: 1, required: true, inputmode: 'numeric', value: cfg.absence_after });
+      const err = h('p', { class: 'form-error', role: 'alert', hidden: true });
+      const form = h(
+        'form',
+        { class: 'panel pad stack' },
+        h('h2', {}, t('ovr.absence')),
+        h('div', { class: 'form-grid' }, field(t('ovr.hr_user'), hr), field(t('ovr.absence_after'), after, t('ovr.absence_hint'))),
+        err,
+        h('div', {}, h('button', { type: 'submit', class: 'btn btn-primary' }, t('common.save'))),
+      );
+      form.addEventListener('submit', async (ev) => {
+        ev.preventDefault();
+        err.hidden = true;
+        try {
+          await api('/ovr/settings', { method: 'PUT', body: { hr_user: hr.value ? Number(hr.value) : null, absence_after: Number(after.value) } });
+          toast(t('capa.saved'));
+        } catch (e) {
+          err.textContent = errText(e);
+          err.hidden = false;
+        }
+      });
+      setBox = form;
+    } catch (e) {
+      setBox = errorBox(e);
+    }
+  }
   root.replaceChildren(
     h('div', { class: 'page-head' }, h('div', {}, h('h1', {}, t('nav.ovrcats'))), d.can_edit ? h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn btn-primary', onclick: () => catDialog(null, null) }, icon('plus'), t('ovr.cat_add'))) : ''),
+    setBox,
     ...tops.map((c) =>
       h(
         'section',
@@ -495,3 +553,278 @@ function catDialog(c, parent) {
   });
 }
 
+
+/* --------------------------- root cause analysis --------------------------- */
+
+const FISH = ['people', 'methods', 'equipment', 'environment', 'materials', 'communication'];
+const RCA_STEPS = ['team', 'analysis', 'plan'];
+const SVG_NS = 'http://www.w3.org/2000/svg';
+// An SVG element; text is set as text, never as markup.
+const sv = (tag, attrs, text) => {
+  const el = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs || {})) if (v !== null && v !== undefined) el.setAttribute(k, v);
+  if (text !== undefined) el.textContent = text;
+  return el;
+};
+const cut = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
+
+// The fishbone: the problem at the head, six branches, each with its causes; root causes stand out.
+// Clicking a branch's name takes you to its box below.
+function fishbone(st, onBranch) {
+  const W = 760;
+  const rtl = document.documentElement.dir === 'rtl';
+  const X = (x) => (rtl ? W - x : x);
+  // Anchors are physical (the drawing sets direction ltr); causes sit on the side the bone leans away from.
+  const away = rtl ? 'end' : 'start';
+  const svg = sv('svg', { viewBox: `0 0 ${W} 330`, class: 'fish', role: 'img', 'aria-label': t('rca.fish'), direction: 'ltr' });
+  svg.append(sv('line', { x1: X(20), y1: 165, x2: X(600), y2: 165, class: 'fish-spine' }));
+  svg.append(sv('rect', { x: rtl ? W - 750 : 600, y: 120, width: 150, height: 90, rx: 10, class: 'fish-head' }));
+  const prob = cut(st.problem || t('rca.problem'), 60);
+  const lines = [prob.slice(0, 22), prob.slice(22, 44), prob.slice(44)].filter(Boolean);
+  lines.forEach((l, i) => svg.append(sv('text', { x: X(675), y: 165 - (lines.length - 1) * 9 + i * 18, 'text-anchor': 'middle', class: 'fish-head-text' }, l)));
+  FISH.forEach((k, i) => {
+    const top = i < 3;
+    const bx = 190 + (i % 3) * 170;
+    const tip = bx - 95;
+    const ty = top ? 45 : 285;
+    svg.append(sv('line', { x1: X(bx), y1: 165, x2: X(tip), y2: ty, class: 'fish-bone' }));
+    const label = sv('text', { x: X(tip), y: top ? 30 : 310, 'text-anchor': 'middle', class: 'fish-label', tabindex: '0', role: 'button' }, t('rca.b.' + k));
+    label.addEventListener('click', () => onBranch(k));
+    label.addEventListener('keydown', (e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onBranch(k)));
+    svg.append(label);
+    const causes = (st.bones[k] || []).slice(0, 4);
+    causes.forEach((c, j) => {
+      const y = top ? 70 + j * 22 : 260 - j * 22;
+      const x = bx - ((165 - y) / (165 - ty)) * 95;
+      svg.append(sv('text', { x: X(x + 8), y: y + 4, 'text-anchor': away, class: 'fish-cause' + (c.root ? ' is-root' : '') }, cut(c.t, 20)));
+    });
+    const more = (st.bones[k] || []).length - causes.length;
+    if (more > 0) svg.append(sv('text', { x: X(bx + 8), y: top ? 155 : 185, 'text-anchor': away, class: 'fish-cause' }, '+' + more));
+  });
+  return svg;
+}
+
+// The analysis on the report's page: seven steps, saved together; the quality manager approves the plan.
+function rcaPanel(o, rca, reload) {
+  const edit = rca.can_edit;
+  const st = {
+    team: [...rca.team],
+    problem: rca.problem || typeOf(o),
+    timeline: rca.timeline.map((x) => ({ ...x })),
+    whys: [...rca.whys],
+    bones: Object.fromEntries(FISH.map((k) => [k, (rca.bones[k] || []).map((x) => ({ ...x }))])),
+    roots: [...rca.roots],
+    plan: rca.plan.map((x) => ({ ...x })),
+    measure: rca.measure || '',
+  };
+  const names = Object.fromEntries(rca.team_people.map((p) => [p.id, pick(p.name, p.name_en)]));
+  let people = rca.team_people;
+  const peopleReady = edit ? api('/ovr/people').then((r) => (people = r.people)).catch(() => null) : Promise.resolve();
+  const nameOf = (id) => names[id] || (people.find((p) => p.id === id) && pick(people.find((p) => p.id === id).name, people.find((p) => p.id === id).name_en)) || '#' + id;
+  const del = (onclick) => (edit ? h('button', { type: 'button', class: 'btn btn-small', 'aria-label': t('common.delete'), onclick }, '×') : '');
+  const step = (n, title, ...kids) => h('div', { class: 'rca-step stack' }, h('h3', {}, h('span', { class: 'rca-n' }, String(n)), ' ', title), ...kids);
+
+  // 1. Team
+  const teamBox = h('div', { class: 'chips' });
+  const teamPick = select([['', t('req.pick')]], '');
+  const drawTeam = () => {
+    teamBox.replaceChildren(...(st.team.length ? st.team.map((id) => h('span', { class: 'tag rca-chip' }, nameOf(id), del(() => ((st.team = st.team.filter((x) => x !== id)), drawTeam())))) : [h('span', { class: 'muted small' }, t('rca.team_none'))]));
+    teamPick.replaceChildren(...[['', t('rca.team_add')], ...people.filter((p) => !st.team.includes(p.id)).map((p) => [p.id, pick(p.name, p.name_en) + (p.dept_ar ? ' - ' + pick(p.dept_ar, p.dept_en) : '')])].map(([v, x]) => h('option', { value: v }, x)));
+  };
+  teamPick.addEventListener('change', () => {
+    if (teamPick.value) st.team.push(Number(teamPick.value));
+    drawTeam();
+  });
+  peopleReady.then(drawTeam);
+  drawTeam();
+
+  // 2. Timeline
+  const tlBox = h('div', { class: 'stack' });
+  const drawTl = () =>
+    tlBox.replaceChildren(
+      ...st.timeline.map((x, i) =>
+        edit
+          ? h('div', { class: 'rca-row' }, input({ type: 'datetime-local', value: x.at, oninput: (e) => (x.at = e.target.value), 'aria-label': t('rca.when') }), input({ type: 'text', maxlength: 500, dir: 'auto', value: x.text, oninput: (e) => (x.text = e.target.value), 'aria-label': t('rca.event') }), del(() => (st.timeline.splice(i, 1), drawTl())))
+          : h('div', { class: 'rca-row' }, h('span', { class: 'mono small', dir: 'ltr' }, (x.at || '').replace('T', ' ')), para(x.text)),
+      ),
+      edit ? h('div', {}, h('button', { type: 'button', class: 'btn btn-small', onclick: () => (st.timeline.push({ at: '', text: '' }), drawTl(), tlBox.querySelector('.rca-row:last-of-type input[type=text]')?.focus()) }, icon('plus'), t('rca.event_add'))) : '',
+    );
+  drawTl();
+
+  // 3. Five whys: each answer opens the next question.
+  const problem = input({ type: 'text', maxlength: 1000, dir: 'auto', value: st.problem, disabled: !edit });
+  const whyInputs = [0, 1, 2, 3, 4].map((i) => input({ type: 'text', maxlength: 500, dir: 'auto', value: st.whys[i] || '', disabled: !edit }));
+  const whyRows = whyInputs.map((inp, i) => h('div', { class: 'rca-why' }, h('label', { for: (inp.id = 'why' + i) }, t('rca.why_n', { n: i + 1 })), inp));
+  const showWhys = () => whyRows.forEach((row, i) => (row.hidden = i > 0 && !whyInputs[i - 1].value.trim() && !whyInputs[i].value.trim()));
+  whyInputs.forEach((inp, i) =>
+    inp.addEventListener('input', () => {
+      st.whys[i] = inp.value;
+      showWhys();
+    }),
+  );
+  showWhys();
+
+  // 4. Fishbone
+  const fishWrap = h('div', { class: 'fish-wrap' });
+  const branchBoxes = {};
+  const drawFish = () => fishWrap.replaceChildren(fishbone(st, (k) => branchBoxes[k].querySelector('input')?.focus()));
+  problem.addEventListener('input', () => ((st.problem = problem.value), drawFish()));
+  const branch = (k) => {
+    const box = h('div', { class: 'rca-branch' });
+    const add = input({ type: 'text', maxlength: 200, dir: 'auto', placeholder: t('rca.cause_add'), 'aria-label': t('rca.b.' + k) + ' - ' + t('rca.cause_add') });
+    const draw = () =>
+      box.replaceChildren(
+        h('b', {}, t('rca.b.' + k)),
+        h(
+          'div',
+          { class: 'chips' },
+          st.bones[k].map((c, i) =>
+            h(
+              'span',
+              { class: 'tag rca-chip' + (c.root ? ' is-root' : '') },
+              edit ? h('button', { type: 'button', class: 'rca-star', 'aria-pressed': String(!!c.root), title: t('rca.mark_root'), onclick: () => ((c.root = !c.root), draw(), drawFish(), drawRoots()) }, c.root ? '★' : '☆') : c.root ? '★ ' : '',
+              c.t,
+              del(() => (st.bones[k].splice(i, 1), draw(), drawFish(), drawRoots())),
+            ),
+          ),
+        ),
+        edit ? add : '',
+      );
+    add.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      const v = add.value.trim();
+      if (!v || st.bones[k].length >= 20) return;
+      st.bones[k].push({ t: v, root: false });
+      add.value = '';
+      draw();
+      drawFish();
+      add.focus();
+    });
+    add.addEventListener('blur', () => {
+      const v = add.value.trim();
+      if (v && st.bones[k].length < 20) {
+        st.bones[k].push({ t: v, root: false });
+        add.value = '';
+        draw();
+        drawFish();
+      }
+    });
+    draw();
+    branchBoxes[k] = box;
+    return box;
+  };
+  const branches = h('div', { class: 'rca-branches' }, FISH.map(branch));
+  drawFish();
+
+  // 5. Root causes: the fishbone's marked causes, and any written here.
+  const rootsBox = h('div', { class: 'stack' });
+  const rootAdd = input({ type: 'text', maxlength: 500, dir: 'auto', placeholder: t('rca.root_add'), 'aria-label': t('rca.root_add') });
+  rootAdd.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    if (rootAdd.value.trim()) st.roots.push(rootAdd.value.trim());
+    rootAdd.value = '';
+    drawRoots();
+    rootAdd.focus();
+  });
+  const drawRoots = () => {
+    const marked = FISH.flatMap((k) => st.bones[k].filter((c) => c.root).map((c) => [k, c.t]));
+    rootsBox.replaceChildren(
+      marked.length || st.roots.length
+        ? h(
+            'ul',
+            { class: 'ack-list' },
+            marked.map(([k, v]) => h('li', {}, h('span', {}, '★ ', v, h('span', { class: 'muted small' }, ' · ', t('rca.b.' + k))))),
+            st.roots.map((v, i) => h('li', {}, h('span', { dir: 'auto' }, v), del(() => (st.roots.splice(i, 1), drawRoots())))),
+          )
+        : h('p', { class: 'muted small' }, t('rca.roots_none')),
+      edit ? rootAdd : '',
+    );
+  };
+  drawRoots();
+
+  // 6. Action plan: each line goes to its owner as an action and opens a CAPA once approved.
+  const planBox = h('div', { class: 'stack' });
+  const drawPlan = () =>
+    planBox.replaceChildren(
+      ...st.plan.map((x, i) => {
+        if (!edit) return h('div', { class: 'rca-row' }, para(x.text), h('span', { class: 'small muted' }, nameOf(x.owner_id), ' · ', dateEl(x.due)));
+        const owner = select([['', t('capa.owner')], ...people.map((p) => [p.id, pick(p.name, p.name_en)])], x.owner_id || '', { 'aria-label': t('capa.owner') });
+        owner.addEventListener('change', () => (x.owner_id = Number(owner.value) || null));
+        return h(
+          'div',
+          { class: 'rca-row rca-plan' },
+          input({ type: 'text', maxlength: 500, dir: 'auto', value: x.text, oninput: (e) => (x.text = e.target.value), 'aria-label': t('rca.action') }),
+          owner,
+          input({ type: 'date', min: S.today, value: x.due || '', oninput: (e) => (x.due = e.target.value), 'aria-label': t('ovr.due') }),
+          del(() => (st.plan.splice(i, 1), drawPlan())),
+        );
+      }),
+      edit ? h('div', {}, h('button', { type: 'button', class: 'btn btn-small', onclick: () => (st.plan.push({ text: '', owner_id: null, due: '' }), drawPlan()) }, icon('plus'), t('rca.action_add'))) : '',
+      !edit && !st.plan.length ? h('p', { class: 'muted small' }, '-') : '',
+    );
+  peopleReady.then(drawPlan);
+  drawPlan();
+
+  // 7. Measure
+  const measure = h('textarea', { rows: 2, maxlength: 1000, dir: 'auto', disabled: !edit }, st.measure);
+  measure.addEventListener('input', () => (st.measure = measure.value));
+
+  const save = async () => {
+    const body = { ...st, team: st.team, whys: whyInputs.map((x) => x.value), problem: problem.value, measure: measure.value };
+    await api('/ovr/' + o.id + '/rca', { method: 'PUT', body });
+  };
+  const err = h('p', { class: 'form-error', role: 'alert', hidden: true });
+  const run = (fn, msg) => async (ev) => {
+    const b = ev.currentTarget;
+    b.disabled = true;
+    err.hidden = true;
+    try {
+      await fn();
+      toast(t(msg));
+      reload();
+    } catch (e) {
+      err.textContent = errText(e);
+      err.hidden = false;
+      b.disabled = false;
+    }
+  };
+  const stages = h(
+    'ol',
+    { class: 'rca-stages' },
+    RCA_STEPS.map((k, i) => {
+      const done = k === 'team' ? rca.team_at : k === 'analysis' ? rca.analysis_at : rca.approved_at;
+      const cur = rca.stage === k;
+      return h(
+        'li',
+        { class: (done ? 'is-done' : cur ? 'is-current' : '') + (cur && rca.late ? ' is-late' : '') },
+        h('b', {}, (done ? '✓ ' : i + 1 + '. ') + t('rca.st.' + k)),
+        h('span', { class: 'small muted' }, ' ', dateEl(rca[k + '_due'])),
+        cur && rca.late ? h('span', { class: 'note note-expired' }, ' ', t('rnd.late')) : '',
+      );
+    }),
+  );
+  return h(
+    'section',
+    { class: 'panel pad stack', id: 'rca' },
+    h('div', { class: 'section-head' }, h('h2', {}, t('rca.title')), rca.approved_at ? h('span', { class: 'chip chip-valid' }, t('rca.approved'), ' · ', rca.approved_by) : ''),
+    stages,
+    step(1, t('rca.team'), teamBox, edit ? teamPick : ''),
+    step(2, t('rca.timeline'), tlBox),
+    step(3, t('rca.whys'), field(t('rca.problem'), problem), ...whyRows),
+    step(4, t('rca.fish'), fishWrap, branches),
+    step(5, t('rca.roots'), rootsBox),
+    step(6, t('rca.plan'), planBox),
+    step(7, t('rca.measure'), measure),
+    err,
+    edit || rca.can_approve
+      ? h(
+          'div',
+          { class: 'actions' },
+          edit ? h('button', { type: 'button', class: 'btn' + (rca.can_approve ? '' : ' btn-primary'), onclick: run(save, 'capa.saved') }, t('common.save')) : '',
+          rca.can_approve ? h('button', { type: 'button', class: 'btn btn-primary', onclick: run(async () => (edit ? await save() : null, await api('/ovr/' + o.id + '/rca/approve', { method: 'POST' })), 'rca.approved_ok') }, icon('check'), t('rca.approve')) : '',
+        )
+      : '',
+  );
+}

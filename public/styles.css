@@ -4031,3 +4031,147 @@ tr.is-off td {
     gap: 2px;
   }
 }
+
+/* root cause analysis */
+.rca-stages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.rca-stages li {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 12px;
+  background: var(--ground);
+}
+.rca-stages li.is-current {
+  border-color: var(--accent);
+  background: var(--gold-tint);
+}
+.rca-stages li.is-done b {
+  color: var(--green-ink);
+}
+.rca-stages li.is-late {
+  border-color: var(--red);
+}
+.rca-step {
+  border-top: 1px solid var(--line-soft);
+  padding-top: 14px;
+}
+.rca-step h3 {
+  margin: 0;
+  font-size: 16px;
+}
+.rca-n {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 13px;
+}
+.rca-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.rca-row input[type='text'] {
+  flex: 1 1 220px;
+}
+.rca-plan select {
+  flex: 0 1 200px;
+}
+.rca-why {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 8px;
+  align-items: center;
+}
+.rca-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 500;
+}
+.rca-chip .btn-small {
+  min-height: 0;
+  height: 22px;
+  padding: 0 6px;
+}
+.rca-chip.is-root {
+  background: var(--red-bg);
+  color: var(--red-ink);
+}
+.rca-star {
+  border: 0;
+  background: none;
+  cursor: pointer;
+  color: inherit;
+  font-size: 15px;
+  padding: 0 2px;
+}
+.rca-branches {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 12px;
+}
+.rca-branch {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+}
+.fish-wrap {
+  overflow-x: auto;
+}
+.fish {
+  direction: ltr;
+  width: 100%;
+  min-width: 560px;
+  height: auto;
+  display: block;
+}
+.fish-spine,
+.fish-bone {
+  stroke: var(--accent);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+.fish-bone {
+  stroke-width: 2;
+}
+.fish-head {
+  fill: var(--gold-tint);
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.fish-head-text {
+  fill: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+.fish-label {
+  fill: var(--accent);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.fish-cause {
+  fill: var(--ink-2);
+  font-size: 12px;
+}
+.fish-cause.is-root {
+  fill: var(--red-ink);
+  font-weight: 700;
+}
+@media (max-width: 600px) {
+  .rca-why {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}

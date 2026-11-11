@@ -163,6 +163,15 @@ export async function ensureSchema(env) {
   if (!sesCols.some((c) => c.name === 'checkin_key')) await env.DB.prepare('ALTER TABLE committee_sessions ADD COLUMN checkin_key TEXT').run();
   const { results: attCols } = await env.DB.prepare('PRAGMA table_info(session_attendance)').all();
   if (!attCols.some((c) => c.name === 'method')) await env.DB.batch([env.DB.prepare('ALTER TABLE session_attendance ADD COLUMN checked_at TEXT'), env.DB.prepare('ALTER TABLE session_attendance ADD COLUMN method TEXT')]);
+  // Incident reports and corrective actions: the action a report or its root cause analysis opened, and
+  // a reference that keeps a report made by the system (a committee absence) from being made twice.
+  const { results: capaCols } = await env.DB.prepare('PRAGMA table_info(capa)').all();
+  if (!capaCols.some((c) => c.name === 'ovr_id')) await env.DB.prepare('ALTER TABLE capa ADD COLUMN ovr_id INTEGER').run();
+  const { results: taskCols } = await env.DB.prepare('PRAGMA table_info(ovr_tasks)').all();
+  if (!taskCols.some((c) => c.name === 'capa_id')) await env.DB.prepare('ALTER TABLE ovr_tasks ADD COLUMN capa_id INTEGER').run();
+  const { results: ovrCols } = await env.DB.prepare('PRAGMA table_info(ovr)').all();
+  if (!ovrCols.some((c) => c.name === 'ref')) await env.DB.prepare('ALTER TABLE ovr ADD COLUMN ref TEXT').run();
+  await env.DB.batch([env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_capa_ovr ON capa(ovr_id)'), env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_ovr_ref ON ovr(ref)')]);
   // Hospital departments, teams and common problem types, once per database.
   if (!(await env.DB.prepare("SELECT 1 AS x FROM settings WHERE key = 'starter_seeded'").first())) await seedStarter(env);
   // Common device types, once, after the teams they belong to exist.

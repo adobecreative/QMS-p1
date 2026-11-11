@@ -858,4 +858,23 @@ export const MIGRATIONS = [
      to_id INTEGER,
      text TEXT)`,
   `CREATE INDEX IF NOT EXISTS idx_ovr_steps ON ovr_steps(ovr_id)`,
+  // Root cause analysis of a report: opened on its own for major harm and sentinel events, or by the quality manager.
+  // Deadlines from the day it opens: the team, the analysis, the approved action plan. team holds the members' account
+  // ids as ",3,8," (to find a member's analyses); data the rest as JSON (timeline, five whys, fishbone, causes, plan, measure).
+  `CREATE TABLE IF NOT EXISTS ovr_rca (
+     ovr_id INTEGER PRIMARY KEY,
+     status TEXT NOT NULL DEFAULT 'open',
+     team TEXT NOT NULL DEFAULT ',',
+     data TEXT NOT NULL DEFAULT '{}',
+     opened_at TEXT NOT NULL,
+     opened_by TEXT,
+     team_due TEXT NOT NULL,
+     analysis_due TEXT NOT NULL,
+     plan_due TEXT NOT NULL,
+     team_at TEXT,
+     analysis_at TEXT,
+     approved_at TEXT,
+     approved_by TEXT,
+     reminded_on TEXT,
+     updated_at TEXT NOT NULL)`,
 ];

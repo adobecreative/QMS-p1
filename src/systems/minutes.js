@@ -7,6 +7,7 @@ import { readJson } from '../lib/auth.js';
 import { logStmt } from '../lib/db.js';
 import { fail, isDate, json, nowIso, str } from '../lib/util.js';
 import { sessionEnded } from './checkin.js';
+import { absenceReports } from './ovr.js';
 
 export const ATTENDANCE = ['present', 'late', 'absent', 'excused'];
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -135,6 +136,12 @@ export async function handleMinutes(request, env, method, seg, ctx) {
       ),
       logStmt(env, user, approve ? 'minutes_approve' : 'minutes_return', 'committee_session', s.id, code, { minutes_status: [status, approve ? 'approved' : 'draft'] }),
     ]);
+    // Members absent without excuse too many times in a row get an incident report sent to human resources.
+    if (approve) {
+      const job = absenceReports(env, c, s, code).catch((e) => console.error('absence reports', e));
+      if (ctx.exec && ctx.exec.waitUntil) ctx.exec.waitUntil(job);
+      else await job;
+    }
     return json({ ok: true });
   }
 
