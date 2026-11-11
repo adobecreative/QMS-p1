@@ -456,6 +456,7 @@ check((await qv('/bootstrap')).j.portal_url === '', 'and the systems button stay
 r = await owner('/logs');
 check(r.s === 200 && r.j.logs.some((l) => l.action === 'assess' && l.entity === 'standard'), 'assessments are in the activity log');
 
+const emp_form_places = async () => (await owner('/public/ovr/form')).j.places;
 // Accounts kept in step with the portal's (users permission): a small stand-in portal on another port.
 {
   const { createServer } = await import('node:http');
@@ -466,11 +467,17 @@ check(r.s === 200 && r.j.logs.some((l) => l.action === 'assess' && l.entity === 
     { id: 103, name_ar: 'مطلع الجودة', name_en: 'QA viewer', email: 'qv@example.com', active: true, department: null },
     { id: 104, name_ar: 'المالك', name_en: 'Owner', email: 'owner@example.com', active: true, department: null },
   ];
+  const places = [
+    { id: 501, name_ar: 'غرفة الإنعاش', name_en: 'Resus room', department_id: 7 },
+    { id: 502, name_ar: 'مكان بوابة', name_en: 'Portal place', department_id: null },
+  ];
   const srv = createServer((req, res) => {
     const send = (code, body) => (res.writeHead(code, { 'content-type': 'application/json' }), res.end(JSON.stringify(body)));
     if (req.headers.authorization !== 'Bearer ' + KEY) return send(401, { error: 'api_key_invalid' });
     const u = new URL(req.url, 'http://x');
     if (u.pathname === '/api/v1/ping') return send(200, { ok: true, scopes: ['users_read'] });
+    if (u.pathname === '/api/v1/locations') return send(200, { locations: places });
+    if (u.pathname === '/api/v1/departments') return send(200, { departments: [{ id: 7, name_ar: 'الطوارئ', name_en: 'Emergency' }] });
     if (u.pathname === '/api/v1/users') {
       const after = Number(u.searchParams.get('after_id')) || 0;
       const limit = Number(u.searchParams.get('limit')) || 100;
@@ -483,6 +490,16 @@ check(r.s === 200 && r.j.logs.some((l) => l.action === 'assess' && l.entity === 
   const P = 'http://localhost:8799';
   r = await owner('/fms-link', 'PUT', { on: true, url: P, key: KEY });
   check(r.s === 200 && r.j.sync && r.j.sync.ok && r.j.snapshot.users && r.j.snapshot.users.linked === 3 && r.j.snapshot.users.missing === 1, 'the first read links the accounts with the same email', r.j);
+  // Places: the portal's places come here, with a QR code of this system's own.
+  let locs = (await owner('/locations')).j.locations;
+  const resus = locs.find((l) => l.portal_id === 501);
+  check(resus && resus.active && /^[0-9a-f]{16}$/.test(resus.code) && locs.some((l) => l.portal_id === 502), 'the portal places are added here', locs);
+  places.pop();
+  places[0].name_en = 'Resuscitation room';
+  await owner('/fms-link/sync', 'POST');
+  locs = (await owner('/locations')).j.locations;
+  check(locs.find((l) => l.portal_id === 501).name_en === 'Resuscitation room' && !locs.find((l) => l.portal_id === 502).active && locs.filter((l) => l.portal_id === 501).length === 1, 'renamed there, renamed here; gone there, off here; never doubled', locs.filter((l) => l.portal_id));
+  check((await emp_form_places()).some((p) => p.name_ar === 'غرفة الإنعاش'), 'the incident form lists the portal places');
   let users = (await owner('/users')).j.users;
   const qaU = users.find((u) => u.email === 'qa@example.com');
   check(qaU.portal === true && qaU.portal_off === false, 'a linked account is marked', qaU);

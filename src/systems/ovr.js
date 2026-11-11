@@ -126,9 +126,9 @@ const MAIL = {
   ar: {
     dir: 'rtl',
     kind: {
-      new: 'بلاغ حادث جديد', severe: 'بلاغ حادث جسيم', route_reply: 'بلاغ حادث محوّل إليك للرد', route_action: 'بلاغ حادث محوّل إليك لاتخاذ إجراء',
-      reply: 'تم الرد على بلاغ حادث', action: 'تم تسجيل إجراء على بلاغ حادث', closed: 'تم إغلاق بلاغ الحادث', reopened: 'أعيد فتح بلاغ الحادث',
-      late_task: 'تذكير: بلاغ حادث متأخر الرد', late_ovr: 'بلاغات حوادث تجاوزت موعد الإغلاق', received: 'تم استلام بلاغك',
+      new: 'بلاغ OVR جديد', severe: 'بلاغ OVR جسيم', route_reply: 'بلاغ OVR محوّل إليك للرد', route_action: 'بلاغ OVR محوّل إليك لاتخاذ إجراء',
+      reply: 'تم الرد على بلاغ OVR', action: 'تم تسجيل إجراء على بلاغ OVR', closed: 'تم إغلاق بلاغ OVR', reopened: 'أعيد فتح بلاغ OVR',
+      late_task: 'تذكير: بلاغ OVR متأخر الرد', late_ovr: 'بلاغات OVR تجاوزت موعد الإغلاق', received: 'تم استلام بلاغك',
       rca_team: 'أُضفت إلى فريق تحليل السبب الجذري', rca_soon: 'تذكير: موعد مرحلة في تحليل السبب الجذري', rca_late: 'تحليل سبب جذري متأخر',
       rca_approved: 'اعتُمدت خطة عمل تحليل السبب الجذري',
     },
@@ -141,9 +141,9 @@ const MAIL = {
   en: {
     dir: 'ltr',
     kind: {
-      new: 'New incident report', severe: 'Serious incident report', route_reply: 'Incident report sent to you for a reply', route_action: 'Incident report sent to you for action',
-      reply: 'Reply on an incident report', action: 'Action recorded on an incident report', closed: 'Incident report closed', reopened: 'Incident report reopened',
-      late_task: 'Reminder: incident report reply overdue', late_ovr: 'Incident reports past their closing date', received: 'Your report was received',
+      new: 'New OVR report', severe: 'Serious OVR report', route_reply: 'OVR report sent to you for a reply', route_action: 'OVR report sent to you for action',
+      reply: 'Reply on an OVR report', action: 'Action recorded on an OVR report', closed: 'OVR report closed', reopened: 'OVR report reopened',
+      late_task: 'Reminder: OVR report reply overdue', late_ovr: 'OVR reports past their closing date', received: 'Your report was received',
       rca_team: 'You were added to a root cause analysis team', rca_soon: 'Reminder: root cause analysis stage due', rca_late: 'Root cause analysis overdue',
       rca_approved: 'Root cause analysis action plan approved',
     },
