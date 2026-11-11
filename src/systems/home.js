@@ -6,6 +6,7 @@ import { json, nowIso, todayIn } from '../lib/util.js';
 import { statusOf, plusDays } from './docs.js';
 import { portalDocsOn } from './fmslink.js';
 import { meetingsHome } from './meetings.js';
+import { ovrHome } from './ovr.js';
 import { qualityHome } from './quality.js';
 import { aiReady, ticketScope } from './tickets.js';
 
@@ -46,6 +47,7 @@ export async function handleHome(env, user) {
 
   if (has(user.quality)) jobs.push(qualityHome(env).then((r) => (out.quality = r)));
   jobs.push(meetingsHome(env, user, today).then((r) => r && (out.meetings = r)));
+  jobs.push(ovrHome(env, user, today).then((r) => (out.ovr = r)));
 
   if (has(user.assets)) {
     jobs.push(

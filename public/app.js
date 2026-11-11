@@ -11,6 +11,7 @@ import { IDB, OFF, api, drawOffBar, errText, loading, personName, syncQueue, toa
 import { attendancePage, calendarPage, checkinPage, committeesPage } from './js/meetings.js';
 import { assessPage, chaptersPage, portalDocsPage, standardsPage } from './js/quality.js';
 import { capaPage } from './js/capa.js';
+import { incidentPage, ovrCatsPage, ovrListPage, ovrNewPage, ovrTrackPage } from './js/ovr.js';
 import { kpisPage, readinessPage } from './js/kpis.js';
 import { compliancePage, reportsPage } from './js/reports.js';
 import { checklistsPage, duePage, roundLogPage, roundScanPage } from './js/rounds.js';
@@ -22,6 +23,7 @@ let renderSeq = 0;
 // The first page after signing in: a greeting with today's date, the systems this person can open
 // (each with its own few numbers, only from what they may see) and the meetings coming up.
 const HOME_STATS = {
+  ovr: (d) => d.ovr && (d.ovr.open !== undefined ? [[d.ovr.new, 'home.ovr_new'], [d.ovr.open, 'home.ovr_open'], [d.ovr.late, 'home.ovr_late', true]] : [[d.ovr.tasks, 'home.ovr_tasks'], [d.ovr.late, 'home.ovr_late', true], [d.ovr.mine, 'home.ovr_mine']]),
   meetings: (d) => d.meetings && [[d.meetings.today, 'home.meetings_today'], [d.meetings.upcoming, 'home.meetings_upcoming'], [d.meetings.late, 'home.meetings_late', true]],
   quality: (d) => d.quality && [[d.quality.pct === null ? '-' : d.quality.pct + '%', 'home.quality_pct'], [d.quality.esr_gap, 'home.quality_esr', true], [d.quality.capa_open, 'home.capa_open', d.quality.capa_late > 0]],
   desk: (d) => d.desk && [[d.desk.new, 'home.desk_new'], [d.desk.doing, 'home.desk_doing'], [d.desk.late, 'home.desk_late', true]],
@@ -111,7 +113,7 @@ function portalPage(root, alive) {
 
 /* --------------------------------- start -------------------------------- */
 
-const PAGES = { dashboard: dashboardPage, tickets: ticketsPage, categories: categoriesPage, locations: locationsPage, staff: staffPage, api: apiPage, documents: documentsPage, departments: departmentsPage, types: typesPage, users: usersPage, logs: logsPage, health: healthPage, settings: settingsPage, register: registerPage, pm: pmPage, devtypes: devTypesPage, contracts: contractsPage, vendors: vendorsPage, parts: partsPage, moves: movesPage, requests: requestsPage, costs: costsPage, due: duePage, rlog: roundLogPage, checklists: checklistsPage, scan: roundScanPage, overview: reportsPage, compliance: compliancePage, chapters: chaptersPage, standards: standardsPage, assess: assessPage, committees: committeesPage, calendar: calendarPage, attendance: attendancePage, pdocs: portalDocsPage, capa: capaPage, kpis: kpisPage, readiness: readinessPage };
+const PAGES = { dashboard: dashboardPage, tickets: ticketsPage, categories: categoriesPage, locations: locationsPage, staff: staffPage, api: apiPage, documents: documentsPage, departments: departmentsPage, types: typesPage, users: usersPage, logs: logsPage, health: healthPage, settings: settingsPage, register: registerPage, pm: pmPage, devtypes: devTypesPage, contracts: contractsPage, vendors: vendorsPage, parts: partsPage, moves: movesPage, requests: requestsPage, costs: costsPage, due: duePage, rlog: roundLogPage, checklists: checklistsPage, scan: roundScanPage, overview: reportsPage, compliance: compliancePage, chapters: chaptersPage, standards: standardsPage, assess: assessPage, committees: committeesPage, calendar: calendarPage, attendance: attendancePage, pdocs: portalDocsPage, capa: capaPage, ovrs: ovrListPage, ovrnew: ovrNewPage, ovrcats: ovrCatsPage, kpis: kpisPage, readiness: readinessPage };
 
 export function render() {
   const seq = ++renderSeq;
@@ -144,6 +146,15 @@ export function render() {
   if (ck) {
     $app.replaceChildren(h('div', { class: 'auth public' }, loading()));
     checkinPage(ck[1]).then((page) => {
+      if (seq === renderSeq) $app.replaceChildren(page);
+    });
+    return;
+  }
+  // Incident reports from a place's QR code (signed in or with an employee number), and their tracking link.
+  const ot = /^ovr-track\/(\d+)\/([0-9a-f]{32})$/.exec(S.route);
+  if (ot || S.route === 'incident' || (location.pathname === '/incident' && !S.route)) {
+    $app.replaceChildren(h('div', { class: 'auth public' }, loading()));
+    (ot ? ovrTrackPage(Number(ot[1]), ot[2]) : incidentPage()).then((page) => {
       if (seq === renderSeq) $app.replaceChildren(page);
     });
     return;

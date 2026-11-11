@@ -106,6 +106,8 @@ export const DEFAULT_SETTINGS = {
   link_error: '',
   link_snapshot: '',
   link_portal: '',
+  // Incident reports: the day the quality managers were last told of reports past their closing date.
+  ovr_late_sent: '',
 };
 export const SLA_KEYS = [1, 2, 3, 4].flatMap((p) => [`sla_p${p}_resp`, `sla_p${p}_res`]);
 export const MAX_LOGO_BYTES = 1024 * 1024;

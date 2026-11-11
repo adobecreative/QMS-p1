@@ -21,6 +21,7 @@ import { handleFmsLink, handlePortalDocs, handlePortalUsers, portalDocsOn, runFm
 import { handleQuality, seedChapters } from './systems/quality.js';
 import { portalSignIn } from './systems/sso.js';
 import { handleCapa } from './systems/capa.js';
+import { handleOvr, handlePublicOvr, runOvrReminders } from './systems/ovr.js';
 import { handleKpis, refreshAutoKpis, snapshotReadiness } from './systems/kpis.js';
 import { handleRounds, runRoundReminders } from './systems/rounds.js';
 import { handlePublicTickets, handleTickets, runTicketAlerts } from './systems/tickets.js';
@@ -229,6 +230,8 @@ async function handleApi(request, env, url, ctx) {
     return json({ ok: true });
   }
 
+  // Incident reports: the form works signed in or with an employee number (a place's QR code).
+  if (seg[0] === 'public' && seg[1] === 'ovr') return handlePublicOvr(request, env, url, seg, method, ctx);
   // Maintenance requests from the public page (no account).
   if (seg[0] === 'public') return handlePublicTickets(request, env, url, seg, method, ctx);
 
@@ -679,6 +682,8 @@ async function handleApi(request, env, url, ctx) {
 
   // Corrective actions (CAPA), from failed round lines or added by hand.
   if (seg[0] === 'capa') return handleCapa(request, env, url, seg, method, user);
+  // Incident reports (OVR): quality's register, and what was sent to each person.
+  if (seg[0] === 'ovr') return handleOvr(request, env, url, seg, method, user, ctx);
   // Quality indicators and the accreditation readiness report.
   if (seg[0] === 'kpis' || seg[0] === 'readiness') {
     const res = await handleKpis(request, env, url, seg, method, user);
@@ -1130,6 +1135,7 @@ export default {
             console.log('stock reminders', JSON.stringify(await runStockReminders(env)));
             console.log('monthly report', JSON.stringify(await runMonthlyReport(env, null, false)));
             console.log('meeting jobs', JSON.stringify(await runMeetingJobs(env)));
+            console.log('ovr reminders', JSON.stringify(await runOvrReminders(env)));
             // Indicators worked out from the system, and this month's readiness for the trend.
             const day = todayIn((await getSettings(env)).timezone);
             console.log('kpis', JSON.stringify(await refreshAutoKpis(env, day)));

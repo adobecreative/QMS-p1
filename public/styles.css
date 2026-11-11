@@ -4020,3 +4020,14 @@ tr.is-off td {
   align-self: flex-start;
   margin-top: 8px;
 }
+
+/* incident reports */
+.pre-wrap {
+  white-space: pre-wrap;
+}
+@media (max-width: 600px) {
+  .ovr-facts .kv {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}
