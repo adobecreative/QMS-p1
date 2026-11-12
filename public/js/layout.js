@@ -200,7 +200,8 @@ export function header(app, active) {
     });
   // Inside one of this system's parts the systems button goes to this system's home; from there, linked with the
   // operations system, to the Fikra portal. The logo always goes to this system's home.
-  const homeKids = [icon('grid', 20), app ? h('span', { class: 'app-name' }, t('app.' + app)) : null];
+  const homeLabel = app ? t('app.' + app) : S.portalUrl ? t('portal.fikra') : null;
+  const homeKids = [icon('grid', 20), homeLabel ? h('span', { class: 'app-name' }, homeLabel) : null];
   const home = S.portalUrl && !app
     ? h('a', { class: 'app-switch', href: S.portalUrl, 'aria-label': t('portal.fikra'), title: t('portal.fikra') }, ...homeKids)
     : link('', { class: 'app-switch', 'aria-label': t('portal.title'), title: t('portal.title') }, ...homeKids);
