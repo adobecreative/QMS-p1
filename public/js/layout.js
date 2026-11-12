@@ -200,7 +200,7 @@ export function header(app, active) {
     });
   // Inside one of this system's parts the systems button goes to this system's home; from there, linked with the
   // operations system, to the Fikra portal. The logo always goes to this system's home.
-  const homeLabel = app ? t('app.' + app) : S.portalUrl ? t('portal.fikra') : null;
+  const homeLabel = app ? t('app.' + app) : S.portalUrl ? t('nav.home') : null;
   const homeKids = [icon('grid', 20), homeLabel ? h('span', { class: 'app-name' }, homeLabel) : null];
   const home = S.portalUrl && !app
     ? h('a', { class: 'app-switch', href: S.portalUrl, 'aria-label': t('portal.fikra'), title: t('portal.fikra') }, ...homeKids)
@@ -271,7 +271,7 @@ export function accountDialog() {
     'button',
     {
       type: 'button',
-      class: 'btn btn-end',
+      class: 'btn acc-logout',
       onclick: async () => {
         // Waiting entries go out under this person's sign-in, so they must leave first.
         await syncQueue();
@@ -329,7 +329,10 @@ export function accountDialog() {
       push.disabled = false;
     }
   });
-  dlg.querySelector('.dialog-actions').append(push, tfa, logout);
+  // Password first; the device and account settings below it, two per row, and signing out last.
+  dlg.classList.add('acc-dialog');
+  if (push.hidden) tfa.classList.add('acc-wide');
+  dlg.querySelector('form').append(h('div', { class: 'acc-more' }, push.hidden ? null : push, tfa, logout));
 }
 
 export function authPage(isSetup) {
