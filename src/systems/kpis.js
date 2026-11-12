@@ -11,7 +11,7 @@ import { FRAMEWORKS, STD_SCORES, fwOn, readiness } from './quality.js';
 export const KPI_UNITS = { pct: 100, per1000: 1000, value: 1 };
 export const KPI_FREQ = ['monthly', 'quarterly'];
 // Worked out from the system: rounds on time, corrective actions closed by their date, documents in date, meetings held.
-export const KPI_AUTO = ['rounds', 'capa', 'docs', 'meetings'];
+export const KPI_AUTO = ['rounds', 'capa', 'docs', 'meetings', 'ovr_close', 'ovr_nm'];
 const KPI_CODE_RE = /^[A-Za-z0-9.\-_]{1,20}$/;
 
 // Common hospital indicators to start from. Generic names only; each hospital sets its own targets.
@@ -31,6 +31,8 @@ export const KPI_LIBRARY = [
   { code: 'QM-ROUNDS', name_ar: 'جولات الجودة في موعدها', name_en: 'Quality rounds on time', chapter: 'QM', unit: 'pct', direction: 'up', target: 90, auto: 'rounds' },
   { code: 'QM-CAPA', name_ar: 'إغلاق الإجراءات التصحيحية في موعدها', name_en: 'Corrective actions closed on time', chapter: 'QM', unit: 'pct', direction: 'up', target: 85, auto: 'capa' },
   { code: 'QM-DOCS', name_ar: 'الوثائق السارية', name_en: 'Documents in date', chapter: 'QM', unit: 'pct', direction: 'up', target: 95, auto: 'docs' },
+  { code: 'QM-OVR', name_ar: 'إغلاق بلاغات OVR في موعدها', name_en: 'OVR reports closed on time', chapter: 'QM', unit: 'pct', direction: 'up', target: 85, auto: 'ovr_close' },
+  { code: 'QM-NM', name_ar: 'نسبة قريب من الخطأ في بلاغات OVR', name_en: 'Near misses among OVR reports', chapter: 'QM', unit: 'pct', direction: 'up', target: 30, auto: 'ovr_nm' },
   { code: 'LD-MTG', name_ar: 'اجتماعات اللجان المنعقدة في موعدها', name_en: 'Committee meetings held', chapter: 'LD', unit: 'pct', direction: 'up', target: 90, auto: 'meetings' },
 ];
 
@@ -74,6 +76,19 @@ async function autoFigures(env, auto, period, today) {
   if (auto === 'meetings') {
     const r = await env.DB.prepare(
       "SELECT COUNT(*) AS den, COALESCE(SUM(status = 'held'), 0) AS num FROM committee_sessions WHERE date >= ? AND date <= ? AND status <> 'cancelled' AND date_tbd = 0",
+    ).bind(from, to).first();
+    return r.den ? r : null;
+  }
+  if (auto === 'ovr_close') {
+    // Reports due in the period (up to today): closed by their date.
+    const r = await env.DB.prepare(
+      "SELECT COUNT(*) AS den, COALESCE(SUM(status = 'closed' AND substr(closed_at, 1, 10) <= due), 0) AS num FROM ovr WHERE due >= ? AND due <= ?",
+    ).bind(from, to).first();
+    return r.den ? r : null;
+  }
+  if (auto === 'ovr_nm') {
+    const r = await env.DB.prepare(
+      "SELECT COUNT(*) AS den, COALESCE(SUM(COALESCE(harm_final, harm) = 'near_miss'), 0) AS num FROM ovr WHERE substr(occurred_at, 1, 10) >= ? AND substr(occurred_at, 1, 10) <= ?",
     ).bind(from, to).first();
     return r.den ? r : null;
   }

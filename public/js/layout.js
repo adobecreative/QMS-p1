@@ -118,7 +118,7 @@ export function langToggle() {
 export const APPS = {
   quality: { icon: 'award', pages: (r) => (r === 'none' ? [] : ['chapters', 'standards', 'assess', 'capa']) },
   // Incident reports: everyone reports; quality runs the register; the quality manager keeps the categories.
-  ovr: { icon: 'alert', pages: (r) => (r === 'admin' || r === 'manager' ? ['ovrs', 'ovrnew', 'ovrcats'] : r === 'officer' || r === 'viewer' ? ['ovrs', 'ovrnew'] : ['ovrnew', 'ovrs']) },
+  ovr: { icon: 'alert', pages: (r) => (r === 'admin' || r === 'manager' ? ['ovrs', 'ovrnew', 'ovrrep', 'ovrcats'] : r === 'officer' || r === 'viewer' ? ['ovrs', 'ovrnew', 'ovrrep'] : ['ovrnew', 'ovrs']) },
   // Investigations: quality and human resources run them; the committee and the person investigated take part.
   inv: { icon: 'scale', pages: (r) => (r === 'manager' ? ['invs', 'invset'] : r === 'none' ? [] : ['invs']) },
   meetings: { icon: 'users', pages: (r) => (r === 'none' ? [] : ['committees', 'calendar', 'attendance']) },
@@ -146,7 +146,7 @@ export const myApps = () => APP_ORDER.filter((a) => appPages(a).length);
 // Pages opened from inside another page, not shown in the menu.
 export const HIDDEN_ROUTES = { categories: 'tickets', ...(OFF_APPS.includes('desk') ? {} : { locations: 'tickets' }), scan: 'due', vendors: 'contracts', moves: 'parts', requests: 'parts', assess: 'standards' };
 // Addresses from before the portal (bookmarks, links in emails) still open their page.
-export const PAGE_APP = { dashboard: 'docs', documents: 'docs', types: 'docs', pdocs: 'docs', tickets: 'desk', categories: 'desk', locations: 'admin', users: 'admin', departments: 'admin', staff: 'admin', api: 'admin', logs: 'admin', health: 'admin', register: 'assets', pm: 'assets', devtypes: 'assets', contracts: 'assets', vendors: 'assets', parts: 'assets', moves: 'assets', requests: 'assets', costs: 'assets', due: 'rounds', rlog: 'rounds', checklists: 'rounds', scan: 'rounds', overview: 'reports', compliance: 'reports', kpis: 'reports', readiness: 'reports', chapters: 'quality', standards: 'quality', assess: 'quality', capa: 'quality', ovrs: 'ovr', ovrnew: 'ovr', ovrcats: 'ovr', invs: 'inv', invset: 'inv', committees: 'meetings', calendar: 'meetings', attendance: 'meetings' };
+export const PAGE_APP = { dashboard: 'docs', documents: 'docs', types: 'docs', pdocs: 'docs', tickets: 'desk', categories: 'desk', locations: 'admin', users: 'admin', departments: 'admin', staff: 'admin', api: 'admin', logs: 'admin', health: 'admin', register: 'assets', pm: 'assets', devtypes: 'assets', contracts: 'assets', vendors: 'assets', parts: 'assets', moves: 'assets', requests: 'assets', costs: 'assets', due: 'rounds', rlog: 'rounds', checklists: 'rounds', scan: 'rounds', overview: 'reports', compliance: 'reports', kpis: 'reports', readiness: 'reports', chapters: 'quality', standards: 'quality', assess: 'quality', capa: 'quality', ovrs: 'ovr', ovrnew: 'ovr', ovrcats: 'ovr', ovrrep: 'ovr', invs: 'inv', invset: 'inv', committees: 'meetings', calendar: 'meetings', attendance: 'meetings' };
 // A link written as a page name ("tickets/5") goes to that page in the system it belongs to.
 export function fullPath(path) {
   const first = path.split('/')[0];

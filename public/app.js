@@ -11,7 +11,7 @@ import { IDB, OFF, api, drawOffBar, errText, loading, personName, syncQueue, toa
 import { attendancePage, calendarPage, checkinPage, committeesPage } from './js/meetings.js';
 import { assessPage, chaptersPage, portalDocsPage, standardsPage } from './js/quality.js';
 import { capaPage } from './js/capa.js';
-import { incidentPage, ovrCatsPage, ovrListPage, ovrNewPage, ovrTrackPage } from './js/ovr.js';
+import { incidentPage, ovrCatsPage, ovrListPage, ovrNewPage, ovrReportPage, ovrTrackPage } from './js/ovr.js';
 import { kpisPage, readinessPage } from './js/kpis.js';
 import { invListPage, invSettingsPage } from './js/inv.js';
 import { compliancePage, reportsPage } from './js/reports.js';
@@ -115,7 +115,7 @@ function portalPage(root, alive) {
 
 /* --------------------------------- start -------------------------------- */
 
-const PAGES = { dashboard: dashboardPage, tickets: ticketsPage, categories: categoriesPage, locations: locationsPage, staff: staffPage, api: apiPage, documents: documentsPage, departments: departmentsPage, types: typesPage, users: usersPage, logs: logsPage, health: healthPage, settings: settingsPage, register: registerPage, pm: pmPage, devtypes: devTypesPage, contracts: contractsPage, vendors: vendorsPage, parts: partsPage, moves: movesPage, requests: requestsPage, costs: costsPage, due: duePage, rlog: roundLogPage, checklists: checklistsPage, scan: roundScanPage, overview: reportsPage, compliance: compliancePage, chapters: chaptersPage, standards: standardsPage, assess: assessPage, committees: committeesPage, calendar: calendarPage, attendance: attendancePage, pdocs: portalDocsPage, capa: capaPage, ovrs: ovrListPage, ovrnew: ovrNewPage, ovrcats: ovrCatsPage, invs: invListPage, invset: invSettingsPage, kpis: kpisPage, readiness: readinessPage };
+const PAGES = { dashboard: dashboardPage, tickets: ticketsPage, categories: categoriesPage, locations: locationsPage, staff: staffPage, api: apiPage, documents: documentsPage, departments: departmentsPage, types: typesPage, users: usersPage, logs: logsPage, health: healthPage, settings: settingsPage, register: registerPage, pm: pmPage, devtypes: devTypesPage, contracts: contractsPage, vendors: vendorsPage, parts: partsPage, moves: movesPage, requests: requestsPage, costs: costsPage, due: duePage, rlog: roundLogPage, checklists: checklistsPage, scan: roundScanPage, overview: reportsPage, compliance: compliancePage, chapters: chaptersPage, standards: standardsPage, assess: assessPage, committees: committeesPage, calendar: calendarPage, attendance: attendancePage, pdocs: portalDocsPage, capa: capaPage, ovrs: ovrListPage, ovrnew: ovrNewPage, ovrcats: ovrCatsPage, ovrrep: ovrReportPage, invs: invListPage, invset: invSettingsPage, kpis: kpisPage, readiness: readinessPage };
 
 export function render() {
   const seq = ++renderSeq;

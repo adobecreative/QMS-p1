@@ -2352,6 +2352,24 @@ a.app-card:hover {
   background: var(--accent-soft);
   border-radius: 4px 4px 0 0;
 }
+.rep-trend .rep-columns {
+  overflow-x: auto;
+}
+@media (max-width: 600px) {
+  .rep-trend .rep-columns {
+    gap: 6px;
+    padding-inline: 10px;
+  }
+  .rep-trend .rep-col {
+    min-width: 34px;
+  }
+}
+.rep-none {
+  padding: 6px 18px 14px;
+}
+.rep-col-severe {
+  border-top: 3px solid var(--danger, #c0392b);
+}
 .rep-col-now .rep-col-bar {
   background: var(--accent);
 }

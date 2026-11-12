@@ -136,6 +136,19 @@ check((await qm('/ovr/' + idM, 'PUT', { rca: true })).s === 200 && (await qm('/o
 check((await qm('/ovr/' + idM, 'PUT', { rca: false })).s === 200 && (await qm('/ovr/' + idM)).j.ovr.rca === undefined, 'and takes it back');
 check((await qm('/ovr/' + idS, 'PUT', { rca: false })).j.error === 'ovr_closed', 'a closed report cannot change');
 
+// The report: totals for quality only, never a name.
+r = await qo('/ovr/report');
+check(r.s === 200 && r.j.totals.n >= 2 && r.j.months.length === 12 && r.j.harms.length === 6 && r.j.totals.sentinel >= 1 && r.j.totals.rca >= 1 && r.j.totals.capa >= 1, 'quality reads the report', r.j && r.j.totals);
+check(!JSON.stringify(r.j).includes('patient_') && !JSON.stringify(r.j).includes('reporter'), 'the report holds no patient or reporter');
+check((await qo('/ovr/report?from=2000-01&to=2000-02')).j.totals.n === 0, 'a range without reports is empty');
+check((await head('/ovr/report')).s === 403, 'staff cannot read the report');
+check((await qm('/kpis/library', 'POST', { codes: ['QM-OVR', 'QM-NM'] })).s === 200, 'the OVR indicators come from the library');
+check((await owner('/settings/run-reminders', 'POST')).s !== 500, 'the daily run works them out');
+const ks = (await qm('/kpis')).j.kpis.filter((k) => k.code === 'QM-OVR' || k.code === 'QM-NM');
+check(ks.length === 2 && ks.every((k) => k.source !== 'manual'), 'both are automatic', ks);
+const nm = ks.find((k) => k.code === 'QM-NM');
+check(nm.values.length >= 1 && nm.values.every((v) => v.entered_by === 'system' && v.den >= 1), 'the near-miss share is worked out', nm.values);
+
 // The daily run reminds without failing; deleting a report removes its analysis and corrective actions.
 check((await owner('/settings/run-reminders', 'POST')).s !== 500, 'the daily run works with analyses open');
 check((await qm('/ovr/' + idS, 'DELETE')).s === 200 && !(await qm('/capa')).j.capa.some((x) => x.ovr_id === idS), 'deleting a report removes its corrective actions');
