@@ -27,7 +27,7 @@ export const HORIZON_DAYS = 365;
 export const INVITE_DAYS = 7;
 const FILE_KINDS = ['tor', 'reference'];
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
-const FILE_TYPES = {
+export const FILE_TYPES = {
   pdf: 'application/pdf',
   doc: 'application/msword',
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',

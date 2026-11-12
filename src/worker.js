@@ -22,6 +22,7 @@ import { handleQuality, seedChapters } from './systems/quality.js';
 import { portalSignIn } from './systems/sso.js';
 import { handleCapa } from './systems/capa.js';
 import { handleOvr, handlePublicOvr, runOvrReminders } from './systems/ovr.js';
+import { handleInv, invAccess, runInvReminders } from './systems/inv.js';
 import { handleKpis, refreshAutoKpis, snapshotReadiness } from './systems/kpis.js';
 import { handleRounds, runRoundReminders } from './systems/rounds.js';
 import { handlePublicTickets, handleTickets, runTicketAlerts } from './systems/tickets.js';
@@ -52,7 +53,7 @@ async function handleApi(request, env, url, ctx) {
     const isOwnerUser = user ? user.id === (await env.DB.prepare('SELECT MIN(id) AS id FROM users').first()).id : false;
     return json({
       needsSetup: count.n === 0,
-      user: user ? Object.assign(userOut(user), isOwnerUser ? { is_owner: true } : {}, portalDocsOn(settings) ? { portal_docs: true } : {}) : null,
+      user: user ? Object.assign(userOut(user), isOwnerUser ? { is_owner: true } : {}, portalDocsOn(settings) ? { portal_docs: true } : {}, { inv: await invAccess(env, user, settings) }) : null,
       defaults: { near_days: settings.near_days },
       today: todayIn(settings.timezone),
       brand: brandOut(settings),
@@ -126,7 +127,7 @@ async function handleApi(request, env, url, ctx) {
       logStmt(env, { id: u.id, name: u.name }, 'login', 'user', u.id, u.name, loginFrom(request)),
     ]);
     const token = await createSession(env, u.id);
-    return json({ ok: true, user: userOut(withAccess(u)) }, 200, { 'set-cookie': sessionCookie(token, SESSION_DAYS * 86400) });
+    return json({ ok: true, user: { ...userOut(withAccess(u)), inv: await invAccess(env, u, await getSettings(env)) } }, 200, { 'set-cookie': sessionCookie(token, SESSION_DAYS * 86400) });
   }
 
   // The second step: a code from the app, or a recovery code (each works once).
@@ -684,6 +685,8 @@ async function handleApi(request, env, url, ctx) {
   if (seg[0] === 'capa') return handleCapa(request, env, url, seg, method, user);
   // Incident reports (OVR): quality's register, and what was sent to each person.
   if (seg[0] === 'ovr') return handleOvr(request, env, url, seg, method, user, ctx);
+  // Investigations: quality and human resources, the committee, and the person investigated.
+  if (seg[0] === 'inv') return handleInv(request, env, url, seg, method, user, ctx);
   // Quality indicators and the accreditation readiness report.
   if (seg[0] === 'kpis' || seg[0] === 'readiness') {
     const res = await handleKpis(request, env, url, seg, method, user);
@@ -1136,6 +1139,7 @@ export default {
             console.log('monthly report', JSON.stringify(await runMonthlyReport(env, null, false)));
             console.log('meeting jobs', JSON.stringify(await runMeetingJobs(env)));
             console.log('ovr reminders', JSON.stringify(await runOvrReminders(env)));
+            console.log('inv reminders', JSON.stringify(await runInvReminders(env)));
             // Indicators worked out from the system, and this month's readiness for the trend.
             const day = todayIn((await getSettings(env)).timezone);
             console.log('kpis', JSON.stringify(await refreshAutoKpis(env, day)));

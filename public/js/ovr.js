@@ -477,42 +477,8 @@ export async function ovrCatsPage(root, _param, alive) {
   const tops = d.categories.filter((c) => !c.parent_id);
   const subs = (id) => d.categories.filter((c) => c.parent_id === id);
   const name = (c) => h('span', { class: c.active ? '' : 'muted' }, pick(c.name_ar, c.name_en), c.active ? '' : ' (' + t('ovr.inactive') + ')', c.sentinel ? h('span', { class: 'note note-expired' }, ' ', t('ovr.harm.sentinel')) : '');
-  // Committee absences: who in human resources gets them, and after how many unexcused absences in a row.
-  let setBox = '';
-  if (d.can_edit) {
-    try {
-      const [cfg, { people }] = await Promise.all([api('/ovr/settings'), api('/ovr/people')]);
-      if (!alive()) return;
-      const hr = select([['', t('ovr.hr_none')], ...people.map((p) => [p.id, pick(p.name, p.name_en) + (p.dept_ar ? ' - ' + pick(p.dept_ar, p.dept_en) : '')])], cfg.hr_user || '');
-      const after = input({ type: 'number', min: 0, max: 20, step: 1, required: true, inputmode: 'numeric', value: cfg.absence_after });
-      const err = h('p', { class: 'form-error', role: 'alert', hidden: true });
-      const form = h(
-        'form',
-        { class: 'panel pad stack' },
-        h('h2', {}, t('ovr.absence')),
-        h('div', { class: 'form-grid' }, field(t('ovr.hr_user'), hr), field(t('ovr.absence_after'), after, t('ovr.absence_hint'))),
-        err,
-        h('div', {}, h('button', { type: 'submit', class: 'btn btn-primary' }, t('common.save'))),
-      );
-      form.addEventListener('submit', async (ev) => {
-        ev.preventDefault();
-        err.hidden = true;
-        try {
-          await api('/ovr/settings', { method: 'PUT', body: { hr_user: hr.value ? Number(hr.value) : null, absence_after: Number(after.value) } });
-          toast(t('capa.saved'));
-        } catch (e) {
-          err.textContent = errText(e);
-          err.hidden = false;
-        }
-      });
-      setBox = form;
-    } catch (e) {
-      setBox = errorBox(e);
-    }
-  }
   root.replaceChildren(
     h('div', { class: 'page-head' }, h('div', {}, h('h1', {}, t('nav.ovrcats'))), d.can_edit ? h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn btn-primary', onclick: () => catDialog(null, null) }, icon('plus'), t('ovr.cat_add'))) : ''),
-    setBox,
     ...tops.map((c) =>
       h(
         'section',

@@ -1,6 +1,6 @@
 // End-to-end checks for incident reports, phase 2: the corrective action an action opens, the root cause analysis
-// (automatic for sentinel events, staged, approved by the quality manager into actions), the module's settings and
-// the report the system opens for repeated committee absences. Runs after ovr.mjs, on the same data and accounts.
+// (automatic for sentinel events, staged, approved by the quality manager into actions). Committee absences open an
+// investigation instead (inv.mjs). Runs after ovr.mjs, on the same data and accounts.
 
 const B = process.env.BASE || 'http://localhost:8787';
 let failed = 0;
@@ -135,71 +135,6 @@ check((await qo('/ovr/' + idM, 'PUT', { rca: true })).s === 403, 'a quality offi
 check((await qm('/ovr/' + idM, 'PUT', { rca: true })).s === 200 && (await qm('/ovr/' + idM)).j.ovr.rca.stage === 'team', 'the quality manager opens one');
 check((await qm('/ovr/' + idM, 'PUT', { rca: false })).s === 200 && (await qm('/ovr/' + idM)).j.ovr.rca === undefined, 'and takes it back');
 check((await qm('/ovr/' + idS, 'PUT', { rca: false })).j.error === 'ovr_closed', 'a closed report cannot change');
-
-// Settings: the quality manager names human resources and the absence count.
-check((await qo('/ovr/settings')).s === 403, 'a quality officer cannot open the settings');
-check((await qm('/ovr/settings', 'PUT', { hr_user: hrId, absence_after: 50 })).j.error === 'ovr_bad_absence', 'the absence count is checked');
-check((await qm('/ovr/settings', 'PUT', { hr_user: 999999, absence_after: 2 })).j.error === 'ovr_bad_person', 'human resources must be an active account');
-check((await qm('/ovr/settings', 'PUT', { hr_user: hrId, absence_after: 2 })).s === 200, 'the quality manager saves the settings');
-r = await qm('/ovr/settings');
-check(r.j.hr_user === hrId && r.j.absence_after === 2, 'the settings are kept', r.j);
-
-// Committee absences: two unexcused absences in a row open a report for human resources.
-r = await owner('/committees', 'POST', { name_ar: 'لجنة التجربة', name_en: 'Test Committee', frequency: 'monthly', first_date: plus(today, 40), start_time: '10:00', duration_min: 60, quorum_pct: 50 });
-const cid = r.j.id;
-await owner('/committees/' + cid + '/members', 'POST', { name: 'رئيس القسم', email: 'head@example.com', role: 'chair' });
-await owner('/committees/' + cid + '/members', 'POST', { name: 'موظف مبلغ', email: 'emp@example.com', role: 'member' });
-const members = (await owner('/committees/' + cid)).j.members;
-const absentM = members.find((m) => m.email === 'emp@example.com');
-const meet = async (time) => {
-  await owner('/committees/' + cid + '/sessions', 'POST', { date: today, start_time: time, reason: 'اختبار' });
-  const ses = (await owner('/committees/' + cid)).j.sessions.find((x) => x.date === today && x.start_time === time);
-  const attendance = members.map((m) => ({ member_id: m.id, status: m.id === absentM.id ? 'absent' : 'present' }));
-  await owner('/committee-sessions/' + ses.id + '/minutes', 'PUT', { submit: true, items: [{ subject: 'افتتاح' }], attendance });
-  return { ses, approve: await owner('/committee-sessions/' + ses.id + '/minutes/approve', 'POST') };
-};
-const absenceReports = async () => (await qo('/ovr')).j.ovr.filter((o) => o.source === 'system');
-const before = (await absenceReports()).length;
-let m1 = await meet('06:00');
-check(m1.approve.s === 200, 'the first minutes with the member absent are approved');
-await wait(800);
-check((await absenceReports()).length === before, 'one absence opens nothing');
-await sent();
-const m2 = await meet('06:30');
-check(m2.approve.s === 200, 'the second minutes with the member absent again are approved');
-let found = [];
-for (let i = 0; i < 20 && !found.length; i++) {
-  await wait(300);
-  found = (await absenceReports()).slice(0, (await absenceReports()).length - before);
-}
-const abs = found[0];
-check(abs && abs.cat_en === 'Administrative' && abs.sub_en === 'Absent from a committee meeting', 'two absences in a row open a report, filed as a committee absence', abs);
-r = await qm('/ovr/' + abs.id);
-check(r.j.ovr.reporter.name.includes('النظام') && r.j.ovr.involved === 'موظف مبلغ' && r.j.ovr.description.includes('لجنة التجربة') && r.j.ovr.description.includes('2'), 'the system is the reporter, the member is named, the committee and count are given', r.j.ovr);
-const hrTask = r.j.ovr.tasks.find((x) => x.kind === 'action');
-const memberTask = r.j.ovr.tasks.find((x) => x.kind === 'reply');
-check(hrTask && hrTask.user_id === hrId && !hrTask.capa_id && memberTask && memberTask.user_id === empId && r.j.ovr.status === 'action', 'it went to human resources for action (no CAPA) and to the member for a reply', r.j.ovr.tasks);
-mail = await sent();
-check(mail.includes('hr@example.com') && mail.includes('emp@example.com') && mail.includes('qo@example.com'), 'human resources, the member and quality are told');
-r = await hrApi('/ovr');
-check(r.j.ovr.length === 1 && r.j.ovr[0].my_task && r.j.ovr[0].my_task.kind === 'action', 'human resources sees it waiting for their action');
-// Reopening and approving the same minutes again does not make a second report.
-await owner('/committee-sessions/' + m2.ses.id + '/minutes/reopen', 'POST');
-await owner('/committee-sessions/' + m2.ses.id + '/minutes', 'PUT', { submit: true, items: [{ subject: 'افتتاح' }], attendance: members.map((m) => ({ member_id: m.id, status: m.id === absentM.id ? 'absent' : 'present' })) });
-await owner('/committee-sessions/' + m2.ses.id + '/minutes/approve', 'POST');
-await wait(800);
-check((await absenceReports()).length === before + 1, 'approving the same minutes again does not repeat the report');
-// An excused absence breaks the run.
-await qm('/ovr/settings', 'PUT', { hr_user: hrId, absence_after: 1 });
-m1 = await (async () => {
-  await owner('/committees/' + cid + '/sessions', 'POST', { date: today, start_time: '07:00', reason: 'اختبار' });
-  const ses = (await owner('/committees/' + cid)).j.sessions.find((x) => x.date === today && x.start_time === '07:00');
-  await owner('/committee-sessions/' + ses.id + '/minutes', 'PUT', { submit: true, items: [{ subject: 'افتتاح' }], attendance: members.map((m) => ({ member_id: m.id, status: m.id === absentM.id ? 'excused' : 'present' })) });
-  return owner('/committee-sessions/' + ses.id + '/minutes/approve', 'POST');
-})();
-await wait(800);
-check(m1.s === 200 && (await absenceReports()).length === before + 1, 'an excused absence opens nothing');
-await qm('/ovr/settings', 'PUT', { hr_user: hrId, absence_after: 0 });
 
 // The daily run reminds without failing; deleting a report removes its analysis and corrective actions.
 check((await owner('/settings/run-reminders', 'POST')).s !== 500, 'the daily run works with analyses open');
