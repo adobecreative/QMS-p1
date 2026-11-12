@@ -689,6 +689,30 @@ select:disabled {
   gap: 10px;
 }
 
+/* The account window: equal buttons, the settings two per row under a line, signing out across the bottom. */
+.acc-dialog .dialog-actions > .btn {
+  flex: 1 1 0;
+  justify-content: center;
+}
+.acc-more {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.acc-more > .btn {
+  justify-content: center;
+  min-width: 0;
+}
+.acc-more > .acc-wide,
+.acc-more > .acc-logout {
+  grid-column: 1 / -1;
+}
+.acc-more > .acc-logout {
+  color: var(--red-ink);
+}
+
 .toast {
   position: fixed;
   inset-block-end: 20px;
@@ -2771,6 +2795,14 @@ a.app-card:hover {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  /* On a phone the logo stands alone: the system's name is on the button below it. */
+  .top .brand-text {
+    display: none;
+  }
+  .top .brand-logo-fikra {
+    padding-inline-end: 0;
+    border-inline-end: 0;
   }
   .top .brand-mark {
     width: 36px;
