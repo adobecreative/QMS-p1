@@ -8,7 +8,7 @@ import { getSettings, logStmt } from '../lib/db.js';
 import { bothLangs, emailHeader, mailReady, sendMail } from '../lib/mail.js';
 import { escHtml, fail, isDate, json, nowIso, str } from '../lib/util.js';
 import { sessionEnded } from './checkin.js';
-import { absenceReports } from './ovr.js';
+import { absenceInvestigations } from './inv.js';
 
 export const ATTENDANCE = ['present', 'late', 'absent', 'excused'];
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -171,9 +171,9 @@ export async function handleMinutes(request, env, method, seg, ctx) {
       logStmt(env, user, approve ? 'minutes_approve' : 'minutes_return', 'committee_session', s.id, code, { minutes_status: [status, approve ? 'approved' : 'draft'] }),
     ]);
     await later(ctx, notifyMinutes(env, c, s, code, approve ? 'approved' : 'returned'));
-    // Members absent without excuse too many times in a row get an incident report sent to human resources.
+    // Members absent without excuse too many times in a row get an investigation (quality and human resources).
     if (approve) {
-      const job = absenceReports(env, c, s, code).catch((e) => console.error('absence reports', e));
+      const job = absenceInvestigations(env, c, s, code).catch((e) => console.error('absence investigations', e));
       if (ctx.exec && ctx.exec.waitUntil) ctx.exec.waitUntil(job);
       else await job;
     }

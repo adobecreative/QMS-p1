@@ -112,6 +112,14 @@ export const DEFAULT_SETTINGS = {
   // unexcused absences in a row (0: none).
   ovr_hr_user: '',
   ovr_absence_after: '2',
+  // Investigations: who approves the decision (the human resources manager; empty: the account in ovr_hr_user),
+  // the human resources staff who run them with quality (",3,8,"), and the working days for each stage.
+  inv_approver: '',
+  inv_staff: '',
+  inv_answer_days: '2',
+  inv_minutes_days: '5',
+  inv_decision_days: '3',
+  inv_pen_seeded: '',
 };
 export const SLA_KEYS = [1, 2, 3, 4].flatMap((p) => [`sla_p${p}_resp`, `sla_p${p}_res`]);
 export const MAX_LOGO_BYTES = 1024 * 1024;

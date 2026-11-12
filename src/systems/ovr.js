@@ -4,8 +4,8 @@
 // The patient's file number and name show only to quality staff, the reporter and the people the report is sent to.
 // Emails and push notifications never carry the reporter's or the patient's name: only the number, type and place.
 // Phase 2: an action opens a corrective action (CAPA) tied to the report; major harm and sentinel events get a root
-// cause analysis (team, timeline, five whys, fishbone, root causes, action plan, measure) with staged deadlines; and
-// approved minutes with a member absent without excuse, several times in a row, open a report sent to human resources.
+// cause analysis (team, timeline, five whys, fishbone, root causes, action plan, measure) with staged deadlines.
+// A report never leads to a penalty: repeated committee absences open an investigation instead (systems/inv.js).
 import { getUser, readJson } from '../lib/auth.js';
 import { appName } from '../lib/config.js';
 import { changes, getSettings, logStmt } from '../lib/db.js';
@@ -494,26 +494,6 @@ export async function handleOvr(request, env, url, seg, method, user, ctx) {
     fail(405, 'method_not_allowed');
   }
 
-  /* the module's settings (quality manager): who in human resources gets committee absences, and after how many */
-  if (seg[1] === 'settings' && seg.length === 2) {
-    if (!role.manager) fail(403, 'forbidden');
-    if (method === 'GET') return json({ hr_user: Number(settings.ovr_hr_user) || null, absence_after: Number(settings.ovr_absence_after) || 0 });
-    if (method === 'PUT') {
-      const body = await readJson(request);
-      const hr = body.hr_user ? toId(body.hr_user) : null;
-      if (body.hr_user && (!hr || !(await env.DB.prepare('SELECT id FROM users WHERE id = ? AND active = 1').bind(hr).first()))) fail(400, 'ovr_bad_person');
-      const after = Number(body.absence_after);
-      if (!Number.isInteger(after) || after < 0 || after > 20) fail(400, 'ovr_bad_absence');
-      await env.DB.batch([
-        env.DB.prepare("INSERT INTO settings (key, value) VALUES ('ovr_hr_user', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(hr ? String(hr) : ''),
-        env.DB.prepare("INSERT INTO settings (key, value) VALUES ('ovr_absence_after', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(String(after)),
-        logStmt(env, user, 'update', 'settings', null, 'ovr', { ovr_hr_user: [settings.ovr_hr_user, hr ? String(hr) : ''], ovr_absence_after: [settings.ovr_absence_after, String(after)] }),
-      ]);
-      return json({ ok: true });
-    }
-    fail(405, 'method_not_allowed');
-  }
-
   /* the list: quality sees every report; everyone else their own reports, what was sent to them and their RCA teams */
   if (method === 'GET' && seg.length === 1) {
     const [{ results: rows }, { results: tasks }] = await Promise.all([
@@ -842,69 +822,6 @@ export async function handleOvr(request, env, url, seg, method, user, ctx) {
     return json({ ok: true });
   }
   fail(405, 'method_not_allowed');
-}
-
-/* ------------------------------ committee absence -------------------------- */
-
-// When minutes are approved: a member absent without excuse this many sessions in a row (ovr_absence_after) gets a
-// report made by the system, "Administrative / Absent from a committee meeting", sent at once to human resources for
-// action and to the member (when they have an account) for a reply. One report per member and session.
-export async function absenceReports(env, c, s, code) {
-  const settings = await getSettings(env);
-  const after = Number(settings.ovr_absence_after) || 0;
-  if (!after) return [];
-  const { results: absent } = await env.DB.prepare(
-    "SELECT m.id, m.name, m.emp_no, m.email FROM session_attendance a JOIN committee_members m ON m.id = a.member_id WHERE a.session_id = ? AND a.status = 'absent'",
-  ).bind(s.id).all();
-  if (!absent.length) return [];
-  await seedOvrCategories(env);
-  const today = todayIn(settings.timezone);
-  const sub = await env.DB.prepare("SELECT id, parent_id FROM ovr_categories WHERE parent_id IS NOT NULL AND name_en = 'Absent from a committee meeting' ORDER BY active DESC, id LIMIT 1").first();
-  const top = sub ? { id: sub.parent_id } : await env.DB.prepare("SELECT id FROM ovr_categories WHERE parent_id IS NULL AND name_en = 'Administrative' LIMIT 1").first();
-  const hr = Number(settings.ovr_hr_user) ? await env.DB.prepare('SELECT id, name FROM users WHERE id = ? AND active = 1').bind(Number(settings.ovr_hr_user)).first() : null;
-  const made = [];
-  for (const m of absent) {
-    const ref = `absence:${s.id}:${m.id}`;
-    if (await env.DB.prepare('SELECT 1 AS x FROM ovr WHERE ref = ?').bind(ref).first()) continue;
-    // Unexcused absences in a row, this session included, over the committee's approved minutes.
-    const { results: past } = await env.DB.prepare(
-      `SELECT a.status FROM session_attendance a JOIN committee_sessions x ON x.id = a.session_id
-        WHERE x.committee_id = ? AND a.member_id = ? AND x.minutes_status = 'approved' AND (x.date < ? OR (x.date = ? AND x.start_time <= ?))
-        ORDER BY x.date DESC, x.start_time DESC LIMIT 50`,
-    ).bind(c.id, m.id, s.date, s.date, s.start_time).all();
-    let n = 0;
-    while (n < past.length && past[n].status === 'absent') n++;
-    if (n < after) continue;
-    const [staff, account] = await Promise.all([
-      m.emp_no ? env.DB.prepare('SELECT department_id FROM staff WHERE emp_no = ?').bind(m.emp_no).first() : null,
-      m.email ? env.DB.prepare('SELECT id, department_id FROM users WHERE lower(email) = lower(?) AND active = 1').bind(m.email).first() : null,
-    ]);
-    const dept = (staff && staff.department_id) || (account && account.department_id) || c.department_id || null;
-    const description = `غياب بدون عذر عن ${c.name_ar} (${code}) بتاريخ ${s.date}، ${n} مرات متتالية.\nUnexcused absence from ${c.name_en} (${code}) on ${s.date}, ${n} in a row.`;
-    const now = nowIso();
-    const res = await env.DB.prepare(
-      `INSERT INTO ovr (status, source, occurred_at, department_id, category_id, sub_id, harm, description, involved, patient, due, ref, created_at, updated_at)
-       VALUES ('new', 'system', ?, ?, ?, ?, 'no_harm', ?, ?, 0, ?, ?, ?, ?)`,
-    ).bind(`${s.date}T${s.start_time}`, dept, top ? top.id : null, sub ? sub.id : null, description, m.name, plusDays(today, CLOSE_DAYS.no_harm), ref, now, now).run();
-    const id = res.meta.last_row_id;
-    const due = plusWorkdays(today, REPLY_WORKDAYS);
-    const task = (kind, uid) =>
-      env.DB.prepare("INSERT INTO ovr_tasks (ovr_id, kind, user_id, due, status, routed_by, created_at) VALUES (?, ?, ?, ?, 'open', ?, ?)").bind(id, kind, uid, due, 'النظام | System', now);
-    await env.DB.batch([
-      env.DB.prepare("INSERT INTO ovr_reporters (ovr_id, user_id, emp_no, name, department_id) VALUES (?, NULL, NULL, 'النظام | System', NULL)").bind(id),
-      stepStmt(env, id, 'create', null, null, null),
-      ...(hr ? [task('action', hr.id), stepStmt(env, id, 'route_action', null, null, hr.id)] : []),
-      ...(account ? [task('reply', account.id), stepStmt(env, id, 'route_reply', null, null, account.id)] : []),
-      ...(hr || account ? [env.DB.prepare("UPDATE ovr SET status = 'review' WHERE id = ?").bind(id), syncStatusStmt(env, id)] : []),
-      logStmt(env, null, 'create', 'ovr', id, '#' + id),
-    ]);
-    const o = await getOvr(env, id);
-    await notifyOvr(env, settings, await qualityStaffIds(env), 'new', o);
-    if (hr) await notifyOvr(env, settings, [hr.id], 'route_action', o, { due });
-    if (account) await notifyOvr(env, settings, [account.id], 'route_reply', o, { due });
-    made.push(id);
-  }
-  return made;
 }
 
 /* --------------------------------- home ----------------------------------- */

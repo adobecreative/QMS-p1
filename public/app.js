@@ -13,6 +13,7 @@ import { assessPage, chaptersPage, portalDocsPage, standardsPage } from './js/qu
 import { capaPage } from './js/capa.js';
 import { incidentPage, ovrCatsPage, ovrListPage, ovrNewPage, ovrTrackPage } from './js/ovr.js';
 import { kpisPage, readinessPage } from './js/kpis.js';
+import { invListPage, invSettingsPage } from './js/inv.js';
 import { compliancePage, reportsPage } from './js/reports.js';
 import { checklistsPage, duePage, roundLogPage, roundScanPage } from './js/rounds.js';
 import { categoriesPage, locationsPage, refreshBadge, requestPage, staffPage, ticketsPage, trackPage } from './js/tickets.js';
@@ -24,6 +25,7 @@ let renderSeq = 0;
 // (each with its own few numbers, only from what they may see) and the meetings coming up.
 const HOME_STATS = {
   ovr: (d) => d.ovr && (d.ovr.open !== undefined ? [[d.ovr.new, 'home.ovr_new'], [d.ovr.open, 'home.ovr_open'], [d.ovr.late, 'home.ovr_late', true]] : [[d.ovr.tasks, 'home.ovr_tasks'], [d.ovr.late, 'home.ovr_late', true], [d.ovr.mine, 'home.ovr_mine']]),
+  inv: (d) => d.inv && (d.inv.open !== undefined ? [[d.inv.open, 'home.inv_open'], [d.inv.decision, 'home.inv_decision'], [d.inv.late, 'home.inv_late', true]] : [[d.inv.questions, 'home.inv_questions', true], [d.inv.reply, 'home.inv_reply', true], [d.inv.committee, 'home.inv_committee']]),
   meetings: (d) => d.meetings && [[d.meetings.today, 'home.meetings_today'], [d.meetings.upcoming, 'home.meetings_upcoming'], [d.meetings.late, 'home.meetings_late', true]],
   quality: (d) => d.quality && [[d.quality.pct === null ? '-' : d.quality.pct + '%', 'home.quality_pct'], [d.quality.esr_gap, 'home.quality_esr', true], [d.quality.capa_open, 'home.capa_open', d.quality.capa_late > 0]],
   desk: (d) => d.desk && [[d.desk.new, 'home.desk_new'], [d.desk.doing, 'home.desk_doing'], [d.desk.late, 'home.desk_late', true]],
@@ -113,7 +115,7 @@ function portalPage(root, alive) {
 
 /* --------------------------------- start -------------------------------- */
 
-const PAGES = { dashboard: dashboardPage, tickets: ticketsPage, categories: categoriesPage, locations: locationsPage, staff: staffPage, api: apiPage, documents: documentsPage, departments: departmentsPage, types: typesPage, users: usersPage, logs: logsPage, health: healthPage, settings: settingsPage, register: registerPage, pm: pmPage, devtypes: devTypesPage, contracts: contractsPage, vendors: vendorsPage, parts: partsPage, moves: movesPage, requests: requestsPage, costs: costsPage, due: duePage, rlog: roundLogPage, checklists: checklistsPage, scan: roundScanPage, overview: reportsPage, compliance: compliancePage, chapters: chaptersPage, standards: standardsPage, assess: assessPage, committees: committeesPage, calendar: calendarPage, attendance: attendancePage, pdocs: portalDocsPage, capa: capaPage, ovrs: ovrListPage, ovrnew: ovrNewPage, ovrcats: ovrCatsPage, kpis: kpisPage, readiness: readinessPage };
+const PAGES = { dashboard: dashboardPage, tickets: ticketsPage, categories: categoriesPage, locations: locationsPage, staff: staffPage, api: apiPage, documents: documentsPage, departments: departmentsPage, types: typesPage, users: usersPage, logs: logsPage, health: healthPage, settings: settingsPage, register: registerPage, pm: pmPage, devtypes: devTypesPage, contracts: contractsPage, vendors: vendorsPage, parts: partsPage, moves: movesPage, requests: requestsPage, costs: costsPage, due: duePage, rlog: roundLogPage, checklists: checklistsPage, scan: roundScanPage, overview: reportsPage, compliance: compliancePage, chapters: chaptersPage, standards: standardsPage, assess: assessPage, committees: committeesPage, calendar: calendarPage, attendance: attendancePage, pdocs: portalDocsPage, capa: capaPage, ovrs: ovrListPage, ovrnew: ovrNewPage, ovrcats: ovrCatsPage, invs: invListPage, invset: invSettingsPage, kpis: kpisPage, readiness: readinessPage };
 
 export function render() {
   const seq = ++renderSeq;
