@@ -206,7 +206,7 @@ export async function runFmsSync(env, actor, force) {
       const byName = new Map();
       for (const d of mine) for (const n of [d.name_ar, d.name_en]) if (n) byName.set(norm(n), d.id);
       const deptOf = new Map((pdeps || []).map((d) => [d.id, byName.get(norm(d.name_ar)) || byName.get(norm(d.name_en)) || null]));
-      const rows = (staff || []).map((m) => ({ emp_no: m.emp_no, name: m.name, name_en: m.name_en, department_id: deptOf.get(m.department_id) || null, phone: m.phone, active: m.active }));
+      const rows = (staff || []).map((m) => ({ emp_no: m.emp_no, name: m.name, name_en: m.name_en, department_id: deptOf.get(m.department_id) || null, phone: m.phone, email: m.email, job_title: m.job_title, active: m.active }));
       // Only when the list changed, so the activity log is not filled with the same import every hour.
       const hash = await sha256Hex(JSON.stringify(rows));
       if (hash !== s.link_staff_hash) {

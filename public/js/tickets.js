@@ -1411,7 +1411,7 @@ export async function staffPage(root, _param, alive) {
   const box = h('div', {});
   const draw = () => {
     const q = normText(search.value);
-    const rows = list.filter((m) => !q || normText(m.emp_no + ' ' + m.name + ' ' + (m.name_en || '') + ' ' + (m.phone || '')).includes(q));
+    const rows = list.filter((m) => !q || normText(m.emp_no + ' ' + m.name + ' ' + (m.name_en || '') + ' ' + (m.phone || '') + ' ' + (m.email || '') + ' ' + (m.job_title || '')).includes(q));
     const shown = rows.slice(0, 300);
     box.replaceChildren(
       h(
@@ -1425,7 +1425,7 @@ export async function staffPage(root, _param, alive) {
               h(
                 'table',
                 {},
-                h('thead', {}, h('tr', {}, ['staff.emp_no', 'user.name', 'user.department', 'tk.phone', 'user.status', 'common.actions'].map((c) => h('th', { scope: 'col' }, t(c))))),
+                h('thead', {}, h('tr', {}, ['staff.emp_no', 'user.name', 'user.department', 'tk.phone', 'user.email', 'user.status', 'common.actions'].map((c) => h('th', { scope: 'col' }, t(c))))),
                 h(
                   'tbody',
                   {},
@@ -1434,9 +1434,10 @@ export async function staffPage(root, _param, alive) {
                       'tr',
                       {},
                       h('td', {}, h('span', { class: 'mono', dir: 'ltr' }, m.emp_no)),
-                      h('td', { class: 'strong' }, personName(m)),
+                      h('td', {}, h('div', { class: 'strong' }, personName(m)), m.job_title ? h('div', { class: 'small muted' }, m.job_title) : null),
                       h('td', {}, m.department_id ? deptName(deptById(m.department_id)) : h('span', { class: 'muted' }, t('common.none'))),
                       h('td', {}, m.phone ? h('span', { dir: 'ltr' }, m.phone) : h('span', { class: 'muted' }, t('common.none'))),
+                      h('td', {}, m.email ? h('bdi', { dir: 'ltr', class: 'small' }, m.email) : h('span', { class: 'muted' }, t('common.none'))),
                       h('td', {}, m.active ? h('span', { class: 'chip chip-valid' }, h('span', { class: 'dot', 'aria-hidden': 'true' }), t('field.active')) : h('span', { class: 'chip chip-review' }, t('user.inactive'))),
                       h(
                         'td',
@@ -1487,12 +1488,14 @@ export function staffDialog(m) {
   const nameEn = input({ type: 'text', required: true, maxlength: 100, dir: 'ltr', value: m ? m.name_en || '' : '' });
   const dept = select([['', t('common.none')], ...S.departments.map((d) => [d.id, deptName(d)])], m ? m.department_id : '', {});
   const phone = input({ type: 'tel', maxlength: 30, dir: 'ltr', value: m ? m.phone || '' : '' });
+  const email = input({ type: 'email', maxlength: 160, dir: 'ltr', value: m ? m.email || '' : '' });
+  const job = input({ type: 'text', maxlength: 120, value: m ? m.job_title || '' : '' });
   const active = input({ type: 'checkbox', checked: m ? !!m.active : true });
   openDialog({
     title: t(m ? 'staff.edit' : 'staff.add'),
-    body: h('div', { class: 'stack' }, field(t('staff.emp_no'), no), field(t('user.name_ar'), name), field(t('user.name_en'), nameEn), field(t('user.department'), dept), field(t('tk.phone'), phone), checkField(t('staff.active'), active)),
+    body: h('div', { class: 'stack' }, field(t('staff.emp_no'), no), field(t('user.name_ar'), name), field(t('user.name_en'), nameEn), field(t('user.department'), dept), field(t('user.job_title'), job), field(t('tk.phone'), phone), field(t('user.email'), email), checkField(t('staff.active'), active)),
     onSubmit: async () => {
-      await api(m ? '/staff/' + m.id : '/staff', { method: m ? 'PUT' : 'POST', body: { emp_no: no.value, name: name.value, name_en: nameEn.value, department_id: dept.value ? Number(dept.value) : null, phone: phone.value, active: active.checked } });
+      await api(m ? '/staff/' + m.id : '/staff', { method: m ? 'PUT' : 'POST', body: { emp_no: no.value, name: name.value, name_en: nameEn.value, department_id: dept.value ? Number(dept.value) : null, phone: phone.value, email: email.value, job_title: job.value, active: active.checked } });
       toast(t('tk.saved'));
       render();
     },
@@ -1503,8 +1506,8 @@ export function staffTemplate() {
     fileName: 'staff-template',
     sheet: t('nav.staff'),
     title: null,
-    head: [t('staff.emp_no'), t('user.name_ar'), t('user.name_en'), t('user.department'), t('tk.phone')],
-    widths: [16, 30, 30, 26, 16],
-    rows: [[{ v: '1001' }, { v: t('staff.sample_name') }, { v: t('staff.sample_name_en') }, { v: S.departments[0] ? deptName(S.departments[0]) : '' }, { v: '0500000000' }]],
+    head: [t('staff.emp_no'), t('user.name_ar'), t('user.name_en'), t('user.department'), t('tk.phone'), t('user.email'), t('user.job_title')],
+    widths: [16, 30, 30, 26, 16, 28, 24],
+    rows: [[{ v: '1001' }, { v: t('staff.sample_name') }, { v: t('staff.sample_name_en') }, { v: S.departments[0] ? deptName(S.departments[0]) : '' }, { v: '0500000000' }, { v: 'name@example.com' }, { v: '' }]],
   });
 }

@@ -4,8 +4,9 @@
 // Who approves: the chair or co-chair, the head of the department for a department meeting, or a manager.
 // An action still open at the last session with minutes is carried into a new session's minutes.
 import { readJson } from '../lib/auth.js';
-import { logStmt } from '../lib/db.js';
-import { fail, isDate, json, nowIso, str } from '../lib/util.js';
+import { getSettings, logStmt } from '../lib/db.js';
+import { bothLangs, emailHeader, mailReady, sendMail } from '../lib/mail.js';
+import { escHtml, fail, isDate, json, nowIso, str } from '../lib/util.js';
 import { sessionEnded } from './checkin.js';
 import { absenceReports } from './ovr.js';
 
@@ -26,6 +27,38 @@ export async function attendanceStats(env, committeeId) {
   for (const r of results) out[r.member_id] = { n: r.n, present: r.present, absent: r.absent, excused: r.excused, pct: r.n ? Math.round((100 * r.present) / r.n) : null };
   return out;
 }
+
+const MINUTES_MAIL = {
+  ar: { dir: 'rtl', pending: 'محضر بانتظار اعتمادك', returned: 'أُرجع المحضر للتعديل', approved: 'اعتُمد المحضر', open: 'فتح المحضر' },
+  en: { dir: 'ltr', pending: 'Minutes waiting for your approval', returned: 'Minutes returned for changes', approved: 'Minutes approved', open: 'Open the minutes' },
+};
+// pending: to the chair and co-chair; returned: to the secretary; approved: to every active member.
+async function notifyMinutes(env, c, s, code, kind) {
+  const roles = kind === 'pending' ? ['chair', 'co_chair'] : kind === 'returned' ? ['secretary'] : null;
+  const { results } = await env.DB.prepare(
+    `SELECT email FROM committee_members WHERE committee_id = ? AND active = 1 AND email IS NOT NULL AND email <> ''${roles ? ` AND role IN (${roles.map(() => '?').join(',')})` : ''}`,
+  ).bind(c.id, ...(roles || [])).all();
+  const to = [...new Set(results.map((r) => r.email.toLowerCase()))];
+  const settings = await getSettings(env);
+  if (!to.length || !mailReady(settings)) return;
+  const link = `${settings.site_url || ''}/#/meetings/committees/s${s.id}`;
+  const msg = bothLangs(settings, (st) => {
+    const L = MINUTES_MAIL[st.email_lang];
+    const name = st.email_lang === 'ar' ? c.name_ar : c.name_en || c.name_ar;
+    return {
+      subject: `${L[kind]}: ${name} - ${code}`,
+      html: `<div dir="${L.dir}" style="font-family:Tahoma,Segoe UI,sans-serif;color:#1f1a12;text-align:${L.dir === 'rtl' ? 'right' : 'left'}">${emailHeader(st)}
+        <h2 style="font-size:17px">${escHtml(L[kind])}</h2><p style="font-size:14px">${escHtml(name)} · <span dir="ltr">${escHtml(code)}</span></p>
+        <p style="margin:20px 0"><a href="${escHtml(link)}" style="display:inline-block;background:#8a6420;color:#ffffff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:bold">${escHtml(L.open)}</a></p></div>`,
+    };
+  });
+  await sendMail(settings, [{ to: to.join(','), ...msg }]);
+}
+const later = (ctx, job) => {
+  const p = job.catch((e) => console.error('minutes mail', e));
+  if (ctx.exec && ctx.exec.waitUntil) ctx.exec.waitUntil(p);
+  else return p;
+};
 
 // /api/committee-sessions/:id/minutes (GET, PUT) and /approve, /reopen (POST).
 export async function handleMinutes(request, env, method, seg, ctx) {
@@ -122,6 +155,7 @@ export async function handleMinutes(request, env, method, seg, ctx) {
       ),
       logStmt(env, user, submit ? 'minutes_submit' : 'minutes_save', 'committee_session', s.id, code, { minutes_status: [status, next] }),
     ]);
+    if (submit) await later(ctx, notifyMinutes(env, c, s, code, 'pending'));
     return json({ ok: true, minutes_status: next });
   }
 
@@ -136,6 +170,7 @@ export async function handleMinutes(request, env, method, seg, ctx) {
       ),
       logStmt(env, user, approve ? 'minutes_approve' : 'minutes_return', 'committee_session', s.id, code, { minutes_status: [status, approve ? 'approved' : 'draft'] }),
     ]);
+    await later(ctx, notifyMinutes(env, c, s, code, approve ? 'approved' : 'returned'));
     // Members absent without excuse too many times in a row get an incident report sent to human resources.
     if (approve) {
       const job = absenceReports(env, c, s, code).catch((e) => console.error('absence reports', e));

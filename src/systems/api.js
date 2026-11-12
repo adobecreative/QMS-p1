@@ -148,10 +148,10 @@ export async function handleIntegration(request, env, url, seg, method, ctx) {
 
   if (route === 'GET /staff') {
     need('staff');
-    const { results } = await env.DB.prepare('SELECT emp_no, name, name_en, department_id, phone, active, updated_at FROM staff ORDER BY emp_no').all();
+    const { results } = await env.DB.prepare('SELECT emp_no, name, name_en, department_id, phone, email, job_title, active, updated_at FROM staff ORDER BY emp_no').all();
     return json({ staff: results.map((m) => ({ ...m, active: !!m.active })) });
   }
-  // rows: [{ emp_no, name, name_en, department_id or department (its Arabic or English name), phone, active }].
+  // rows: [{ emp_no, name, name_en, department_id or department (its Arabic or English name), phone, email, job_title, active }].
   // full: true = this is everyone; anyone not in rows is switched off.
   if (route === 'POST /staff') {
     need('staff');

@@ -1,7 +1,7 @@
 // Requests and work orders: tickets, the public request form, alerts, staff list and the AI suggestion.
 import { readJson, requireRole } from '../lib/auth.js';
 import { ADMIN_ROLES, appName, logoType } from '../lib/config.js';
-import { changes, getSettings, logStmt } from '../lib/db.js';
+import { changes, getSettings, logStmt, membersFromStaffStmt } from '../lib/db.js';
 import { bothLangs, emailHeader, mailReady, sendMail } from '../lib/mail.js';
 import { PUSH_PER_EVENT, deliverPush, pushSubsOf, sendPush, ticketPush } from '../lib/push.js';
 import { checkLang, escHtml, fail, json, nowIso, sha256Hex, str, toHex, todayIn } from '../lib/util.js';
@@ -28,6 +28,7 @@ export const REPEAT_MIN = 3; // ...this many times is flagged as a repeated faul
 export const LOW_RATING = 2; // a rating this low or lower alerts the supervisors
 export const MAX_STAFF_ROWS = 2000; // per import request
 export const ALERTS_PER_RUN = 15; // the free plan allows 50 database queries per run
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export const addMinutes = (iso, min) => new Date(Date.parse(iso) + min * 60000).toISOString();
 export const shiftIso = (iso, ms) => (iso ? new Date(Date.parse(iso) + ms).toISOString() : iso);
@@ -703,7 +704,8 @@ export async function importStaff(env, user, input, keepList) {
     if (!emp_no || !name || !name_en || seen.has(emp_no)) continue;
     seen.add(emp_no);
     const dep = toInt(r.department_id);
-    clean.push({ emp_no, name, name_en, department_id: dep && dep > 0 ? dep : null, phone: str(r.phone, 30) || null, active: r.active === false ? 0 : 1 });
+    const email = str(r.email, 160).toLowerCase();
+    clean.push({ emp_no, name, name_en, department_id: dep && dep > 0 ? dep : null, phone: str(r.phone, 30) || null, email: EMAIL_RE.test(email) ? email : null, job_title: str(r.job_title, 120) || null, active: r.active === false ? 0 : 1 });
   }
   const known = new Set((await env.DB.prepare('SELECT emp_no FROM staff').all()).results.map((r) => r.emp_no));
   const now = nowIso();
@@ -712,11 +714,13 @@ export async function importStaff(env, user, input, keepList) {
     // One statement for the whole sheet (the free plan counts queries, not rows).
     stmts.push(
       env.DB.prepare(
-        `INSERT INTO staff (emp_no, name, name_en, department_id, phone, active, created_at, updated_at)
-         SELECT json_extract(value, '$.emp_no'), json_extract(value, '$.name'), json_extract(value, '$.name_en'), json_extract(value, '$.department_id'), json_extract(value, '$.phone'), json_extract(value, '$.active'), ?2, ?2
+        `INSERT INTO staff (emp_no, name, name_en, department_id, phone, email, job_title, active, created_at, updated_at)
+         SELECT json_extract(value, '$.emp_no'), json_extract(value, '$.name'), json_extract(value, '$.name_en'), json_extract(value, '$.department_id'), json_extract(value, '$.phone'),
+                json_extract(value, '$.email'), json_extract(value, '$.job_title'), json_extract(value, '$.active'), ?2, ?2
            FROM json_each(?1) WHERE true
          ON CONFLICT(emp_no) DO UPDATE SET name = excluded.name, name_en = excluded.name_en, department_id = COALESCE(excluded.department_id, staff.department_id),
-                                           phone = COALESCE(excluded.phone, staff.phone), active = excluded.active, updated_at = excluded.updated_at`,
+                                           phone = COALESCE(excluded.phone, staff.phone), email = COALESCE(excluded.email, staff.email), job_title = COALESCE(excluded.job_title, staff.job_title),
+                                           active = excluded.active, updated_at = excluded.updated_at`,
       ).bind(JSON.stringify(clean), now),
     );
   }
@@ -729,7 +733,7 @@ export async function importStaff(env, user, input, keepList) {
   }
   const added = clean.filter((r) => !known.has(r.emp_no)).length;
   const updated = clean.length - added;
-  stmts.push(logStmt(env, user, 'import', 'staff', null, null, { added, updated, deactivated }));
+  stmts.push(membersFromStaffStmt(env), logStmt(env, user, 'import', 'staff', null, null, { added, updated, deactivated }));
   await env.DB.batch(stmts);
   return { ok: true, added, updated, deactivated, skipped: rows.length - clean.length };
 }
@@ -1125,7 +1129,8 @@ export async function handleTickets(request, env, url, seg, method, user, ctx) {
     }
     const readMember = async () => {
       const body = await readJson(request);
-      const next = { emp_no: str(body.emp_no, 30), name: str(body.name, 100), name_en: str(body.name_en, 100), department_id: toInt(body.department_id), phone: str(body.phone, 30) || null, active: body.active === false ? 0 : 1 };
+      const next = { emp_no: str(body.emp_no, 30), name: str(body.name, 100), name_en: str(body.name_en, 100), department_id: toInt(body.department_id), phone: str(body.phone, 30) || null, email: str(body.email, 160).toLowerCase() || null, job_title: str(body.job_title, 120) || null, active: body.active === false ? 0 : 1 };
+      if (next.email && !EMAIL_RE.test(next.email)) fail(400, 'invalid_email');
       if (!next.emp_no) fail(400, 'requester_required');
       if (!next.name || !next.name_en) fail(400, 'name_required');
       if (next.department_id && !(await env.DB.prepare('SELECT id FROM departments WHERE id = ?').bind(next.department_id).first())) fail(400, 'department_required');
@@ -1138,10 +1143,10 @@ export async function handleTickets(request, env, url, seg, method, user, ctx) {
       const next = await readMember();
       await taken(next.emp_no, 0);
       const now = nowIso();
-      const res = await env.DB.prepare('INSERT INTO staff (emp_no, name, name_en, department_id, phone, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-        .bind(next.emp_no, next.name, next.name_en, next.department_id, next.phone, next.active, now, now)
+      const res = await env.DB.prepare('INSERT INTO staff (emp_no, name, name_en, department_id, phone, email, job_title, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .bind(next.emp_no, next.name, next.name_en, next.department_id, next.phone, next.email, next.job_title, next.active, now, now)
         .run();
-      await logStmt(env, user, 'create', 'staff', res.meta.last_row_id, `${next.name} (${next.emp_no})`).run();
+      await env.DB.batch([membersFromStaffStmt(env), logStmt(env, user, 'create', 'staff', res.meta.last_row_id, `${next.name} (${next.emp_no})`)]);
       return json({ ok: true, id: res.meta.last_row_id });
     }
     const member = id !== null ? await env.DB.prepare('SELECT * FROM staff WHERE id = ?').bind(id).first() : null;
@@ -1150,8 +1155,9 @@ export async function handleTickets(request, env, url, seg, method, user, ctx) {
       const next = await readMember();
       await taken(next.emp_no, id);
       await env.DB.batch([
-        env.DB.prepare('UPDATE staff SET emp_no = ?, name = ?, name_en = ?, department_id = ?, phone = ?, active = ?, updated_at = ? WHERE id = ?').bind(next.emp_no, next.name, next.name_en, next.department_id, next.phone, next.active, nowIso(), id),
-        logStmt(env, user, 'update', 'staff', id, `${next.name} (${next.emp_no})`, changes(member, next, ['emp_no', 'name', 'name_en', 'department_id', 'phone', 'active'])),
+        env.DB.prepare('UPDATE staff SET emp_no = ?, name = ?, name_en = ?, department_id = ?, phone = ?, email = ?, job_title = ?, active = ?, updated_at = ? WHERE id = ?').bind(next.emp_no, next.name, next.name_en, next.department_id, next.phone, next.email, next.job_title, next.active, nowIso(), id),
+        membersFromStaffStmt(env),
+        logStmt(env, user, 'update', 'staff', id, `${next.name} (${next.emp_no})`, changes(member, next, ['emp_no', 'name', 'name_en', 'department_id', 'phone', 'email', 'job_title', 'active'])),
       ]);
       return json({ ok: true });
     }

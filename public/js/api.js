@@ -271,7 +271,7 @@ export function parseCsv(text) {
   }
   return rows;
 }
-// Which column is which, from the header words; without a header: number, Arabic name, English name, department, phone.
+// Which column is which, from the header words; without a header: number, Arabic name, English name, department, phone, email, job title.
 export function staffRows(sheet) {
   const rows = sheet.filter((r) => r.some(Boolean));
   if (!rows.length) return [];
@@ -283,10 +283,12 @@ export function staffRows(sheet) {
     name_en: find(head, /نجليز|english|name_en|\(en\)/),
     dept: find(head, /قسم|اداره|dep/),
     phone: find(head, /جوال|هاتف|تليفون|موبايل|تحويله|phone|mobile|ext/),
+    email: find(head, /بريد|ايميل|email|mail/),
+    job_title: find(head, /مسمى|مسمي|وظيف|title|position|job/),
   };
   col.name = head.findIndex((x, i) => i !== col.name_en && i !== col.emp_no && (/اسم|name/.test(String(x || '').toLowerCase()) || /اسم|name/.test(normText(x))));
   const hasHead = col.emp_no >= 0 && col.name >= 0;
-  if (!hasHead) Object.assign(col, { emp_no: 0, name: 1, name_en: 2, dept: 3, phone: 4 });
+  if (!hasHead) Object.assign(col, { emp_no: 0, name: 1, name_en: 2, dept: 3, phone: 4, email: 5, job_title: 6 });
   const depts = new Map();
   for (const d of S.departments) {
     depts.set(normText(d.name_ar), d.id);
@@ -301,6 +303,8 @@ export function staffRows(sheet) {
       department_id: deptText ? depts.get(normText(deptText)) || null : null,
       dept_text: deptText,
       phone: col.phone >= 0 ? String(r[col.phone] || '').trim() : '',
+      email: col.email >= 0 ? String(r[col.email] || '').trim() : '',
+      job_title: col.job_title >= 0 ? String(r[col.job_title] || '').trim() : '',
     };
   });
 }

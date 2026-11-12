@@ -2,7 +2,7 @@
 // meetings), one committee's page (details, members, papers, sessions) and the calendar of every session.
 import { render } from '../app.js';
 import { kpiRow } from './assets.js';
-import { S, h, icon, t } from './core.js';
+import { ApiError, S, h, icon, t } from './core.js';
 import { link, navigate } from './layout.js';
 import { api, checkField, errText, errorBox, field, fmtDate, input, loading, openDialog, select, toast } from './offline.js';
 import { pick, printQr, publicShell, simpleDelete } from './tickets.js';
@@ -214,30 +214,50 @@ async function committeePage(root, id, alive) {
     c.purpose ? h('div', { class: 'mtg-purpose' }, h('h3', {}, t(c.kind === 'special' ? 'mtg.purpose_special' : 'mtg.purpose')), h('p', {}, c.purpose)) : null,
   );
 
-  // Members.
-  const memberRow = (m) =>
+  // Members: one compact card each, so a long list stays easy to read.
+  const memberCard = (m) =>
     h(
-      'tr',
-      { class: m.active ? '' : 'is-off' },
-      h('td', {}, h('div', { class: 'strong' }, pick(m.name, m.name_en)), m.emp_no ? h('div', { class: 'small muted' }, ltr(m.emp_no)) : null),
-      h('td', {}, m.position || h('span', { class: 'muted' }, '-')),
-      h('td', {}, h('span', { class: 'chip ' + (m.role === 'chair' ? 'chip-progress' : 'chip-review') }, t('mtg.role.' + m.role))),
-      h('td', {}, m.email ? h('bdi', { dir: 'ltr', class: 'small' }, m.email) : h('span', { class: 'small form-error' }, t('mtg.no_email'))),
-      h('td', { class: 'nowrap' }, attCell(m.attendance)),
-      h('td', { class: 'small' }, m.active ? (m.substitute_name ? t('mtg.substitute_is', { name: m.substitute_name }) : '') : h('span', { class: 'muted' }, t('mtg.inactive_since', { reason: m.inactive_reason || '' }))),
-      run
-        ? h(
-            'td',
-            {},
-            h(
+      'article',
+      { class: 'mtg-member' + (m.active ? '' : ' is-off') },
+      h(
+        'div',
+        { class: 'mtg-member-head' },
+        h('div', { class: 'mtg-member-name' }, h('span', { class: 'strong' }, pick(m.name, m.name_en)), m.emp_no ? h('span', { class: 'small muted' }, ltr(m.emp_no)) : null),
+        h('span', { class: 'chip ' + (m.role === 'chair' ? 'chip-progress' : 'chip-review') }, t('mtg.role.' + m.role)),
+      ),
+      m.position ? h('div', { class: 'small muted' }, m.position) : null,
+      h(
+        'div',
+        { class: 'mtg-member-contact small' },
+        m.phone ? h('a', { href: 'tel:' + m.phone.replace(/[^\d+]/g, ''), dir: 'ltr' }, icon('phone', 14), m.phone) : null,
+        m.email ? h('bdi', { dir: 'ltr' }, m.email) : h('span', { class: 'chip chip-expired' }, t('mtg.no_email')),
+      ),
+      m.active && m.substitute_name ? h('div', { class: 'small muted' }, t('mtg.substitute_is', { name: m.substitute_name })) : null,
+      m.active ? null : h('div', { class: 'small muted' }, t('mtg.inactive_since', { reason: m.inactive_reason || '' })),
+      h(
+        'div',
+        { class: 'mtg-member-foot' },
+        attCell(m.attendance),
+        run
+          ? h(
               'div',
               { class: 'row-actions' },
               h('button', { type: 'button', class: 'btn btn-icon', title: t('common.edit'), 'aria-label': t('common.edit') + ': ' + m.name, onclick: () => memberDialog(c, m) }, icon('edit')),
               h('button', { type: 'button', class: 'btn btn-icon', title: t('common.delete'), 'aria-label': t('common.delete') + ': ' + m.name, onclick: () => simpleDelete(t('mtg.member_delete_q', { name: m.name }), '/committees/' + c.id + '/members/' + m.id, t('mtg.member_deleted')) }, icon('trash')),
-            ),
-          )
-        : null,
+            )
+          : null,
+      ),
     );
+  const offMembers = d.members.filter((m) => !m.active);
+  const memberGrid = h('div', { class: 'mtg-members' });
+  const memberFind = input({ type: 'search', placeholder: t('mtg.member_search'), 'aria-label': t('mtg.member_search'), autocomplete: 'off' });
+  const drawMembers = () => {
+    const q = memberFind.value.trim().toLowerCase();
+    const list = activeMembers.filter((m) => !q || [m.name, m.name_en, m.emp_no, m.position, m.email, m.phone].some((v) => v && String(v).toLowerCase().includes(q)));
+    memberGrid.replaceChildren(...(list.length ? list.map(memberCard) : [h('p', { class: 'empty' }, t('mtg.members_empty'))]));
+  };
+  memberFind.addEventListener('input', drawMembers);
+  drawMembers();
   const members = h(
     'section',
     { class: 'panel' },
@@ -247,9 +267,9 @@ async function committeePage(root, id, alive) {
       h('div', { class: 'panel-title' }, h('h2', {}, t('mtg.members_title')), h('span', { class: 'muted small' }, t('mtg.members_n', { n: activeMembers.length }))),
       run ? h('div', { class: 'actions' }, c.kind === 'department' && c.department_id ? h('button', { type: 'button', class: 'btn', onclick: () => suggestDialog(c, d.members) }, icon('users'), t('mtg.suggest')) : null, h('button', { type: 'button', class: 'btn btn-primary', onclick: () => memberDialog(c, null) }, icon('plus'), t('mtg.member_add'))) : null,
     ),
-    d.members.length
-      ? h('div', { class: 'table-scroll' }, h('table', {}, h('thead', {}, h('tr', {}, ['mtg.member', 'mtg.position', 'mtg.member_role', 'user.email', 'mtg.attendance', 'mtg.notes', ...(run ? ['common.actions'] : [])].map((x) => h('th', { scope: 'col' }, t(x))))), h('tbody', {}, d.members.map(memberRow))))
-      : h('p', { class: 'empty' }, t('mtg.members_empty')),
+    activeMembers.length > 8 ? h('div', { class: 'mtg-member-filter' }, h('div', { class: 'doc-search', role: 'search' }, icon('search'), memberFind)) : null,
+    d.members.length ? memberGrid : h('p', { class: 'empty' }, t('mtg.members_empty')),
+    offMembers.length ? h('details', { class: 'mtg-past' }, h('summary', {}, t('mtg.inactive_n', { n: offMembers.length })), h('div', { class: 'mtg-members' }, offMembers.map(memberCard))) : null,
   );
 
   // Terms of reference and reference papers.
@@ -268,39 +288,50 @@ async function committeePage(root, id, alive) {
     d.files.length ? h('div', { class: 'mtg-files' }, d.files.map(fileTile)) : h('p', { class: 'empty' }, t('mtg.files_empty')),
   );
 
-  // Sessions.
+  // Sessions: one row each that wraps on a tablet or phone, so nothing scrolls sideways.
   const sessionRow = (s) =>
     h(
-      'tr',
-      {},
-      h('td', { class: 'nowrap' }, ltr(s.code), s.kind === 'extraordinary' ? h('div', { class: 'small muted' }, t('mtg.extraordinary')) : null),
-      h('td', { class: 'nowrap' }, when(s), s.original_date && s.original_date !== s.date ? h('div', { class: 'small muted' }, t('mtg.was', { d: fmtDate(s.original_date) })) : null),
-      h('td', {}, s.venue || h('span', { class: 'muted' }, '-')),
-      h('td', {}, statusChip(s), s.reason && s.status !== 'held' ? h('div', { class: 'small muted' }, s.reason) : null),
-      h('td', { class: 'small' }, s.invited_at ? t('mtg.invited') : h('span', { class: 'muted' }, t('mtg.not_invited'))),
+      'div',
+      { class: 'mtg-sess', role: 'listitem' },
       h(
-        'td',
-        {},
+        'div',
+        { class: 'mtg-sess-when' },
+        h('div', { class: 'strong' }, when(s)),
         h(
           'div',
-          { class: 'row-actions' },
-          run && !s.date_tbd && s.status !== 'cancelled' && s.date >= d.today && s.minutes_status !== 'approved' ? h('button', { type: 'button', class: 'btn btn-small', title: t('mtg.checkin_qr'), 'aria-label': t('mtg.checkin_qr') + ': ' + s.code, onclick: () => showCheckinQr(c, s) }, 'QR') : null,
-          s.minutes_status || (run && s.status !== 'cancelled' && !s.date_tbd && s.date <= d.today) ? link('meetings/committees/s' + s.id, { class: 'btn btn-small' }, icon('file'), t('mtg.minutes'), s.minutes_status ? [' ', minutesChip(s.minutes_status)] : null) : null,
-          !s.date_tbd && s.status !== 'cancelled' ? h('a', { class: 'btn btn-icon', href: '/api/committee-sessions/' + s.id + '/ics', title: t('mtg.ics'), 'aria-label': t('mtg.ics') + ': ' + s.code }, icon('download')) : null,
-          run ? sessionMenu(c, s, d.today) : null,
+          { class: 'small muted' },
+          ltr(s.code),
+          s.kind === 'extraordinary' ? ' · ' + t('mtg.extraordinary') : '',
+          s.venue && s.venue !== c.venue ? ' · ' + s.venue : '',
+          s.original_date && s.original_date !== s.date ? ' · ' + t('mtg.was', { d: fmtDate(s.original_date) }) : '',
         ),
       ),
+      h(
+        'div',
+        { class: 'mtg-sess-state' },
+        statusChip(s),
+        s.reason && s.status !== 'held' ? h('div', { class: 'small muted' }, s.reason) : null,
+        s.status !== 'held' && s.status !== 'cancelled' ? h('div', { class: 'small ' + (s.invited_at ? '' : 'muted') }, s.invited_at ? t('mtg.invited') : t('mtg.not_invited')) : null,
+      ),
+      h(
+        'div',
+        { class: 'mtg-sess-acts' },
+        s.minutes_status || (run && s.status !== 'cancelled' && !s.date_tbd && s.date <= d.today) ? link('meetings/committees/s' + s.id, { class: 'btn btn-small' }, icon('file'), t('mtg.minutes'), s.minutes_status ? [' ', minutesChip(s.minutes_status)] : null) : null,
+        run && !s.date_tbd && s.status !== 'cancelled' && s.date >= d.today && s.minutes_status !== 'approved' ? h('button', { type: 'button', class: 'btn btn-small', title: t('mtg.checkin_qr'), 'aria-label': t('mtg.checkin_qr') + ': ' + s.code, onclick: () => showCheckinQr(c, s) }, 'QR') : null,
+        !s.date_tbd && s.status !== 'cancelled' ? h('a', { class: 'btn btn-icon', href: '/api/committee-sessions/' + s.id + '/ics', title: t('mtg.ics'), 'aria-label': t('mtg.ics') + ': ' + s.code }, icon('download')) : null,
+        run ? sessionMenu(c, s, d.today) : null,
+      ),
     );
-  const sessionsTable = (list, empty) =>
-    list.length
-      ? h('div', { class: 'table-scroll' }, h('table', {}, h('thead', {}, h('tr', {}, ['mtg.session', 'mtg.when', 'mtg.venue', 'mtg.status', 'mtg.invitation', 'common.actions'].map((x) => h('th', { scope: 'col' }, t(x))))), h('tbody', {}, list.map(sessionRow))))
-      : h('p', { class: 'empty' }, t(empty));
+  const sessionList = (list, empty) => (list.length ? h('div', { class: 'mtg-sessions', role: 'list' }, list.map(sessionRow)) : h('p', { class: 'empty' }, t(empty)));
+  const SHOWN = 6;
+  const later = upcoming.slice(SHOWN, 24);
   const sessions = h(
     'section',
     { class: 'panel' },
     h('div', { class: 'panel-head' }, h('div', { class: 'panel-title' }, h('h2', {}, t('mtg.sessions_title'))), run && c.active ? h('button', { type: 'button', class: 'btn', onclick: () => extraDialog(c) }, icon('plus'), t(c.kind === 'special' ? 'mtg.session_add' : 'mtg.extra_add')) : null),
-    sessionsTable(upcoming.slice(0, 24), 'mtg.sessions_empty'),
-    past.length ? h('details', { class: 'mtg-past' }, h('summary', {}, t('mtg.past_n', { n: past.length })), sessionsTable(past, 'mtg.sessions_empty')) : null,
+    sessionList(upcoming.slice(0, SHOWN), 'mtg.sessions_empty'),
+    later.length ? h('details', { class: 'mtg-past' }, h('summary', {}, t('mtg.later_n', { n: later.length })), sessionList(later, 'mtg.sessions_empty')) : null,
+    past.length ? h('details', { class: 'mtg-past' }, h('summary', {}, t('mtg.past_n', { n: past.length })), sessionList(past, 'mtg.sessions_empty')) : null,
   );
 
   root.replaceChildren(
@@ -674,27 +705,48 @@ function extraDialog(c) {
   });
 }
 
-// A member: found by employee number (Arabic digits work too) or typed in.
+// A member: picked from the staff list (their details come from it) or, for someone outside it, typed in.
 function memberDialog(c, m) {
   const find = input({ type: 'search', placeholder: t('mtg.find_ph'), 'aria-label': t('mtg.find'), autocomplete: 'off' });
   const found = h('div', { class: 'mtg-found', role: 'listbox', 'aria-label': t('mtg.find') });
+  const card = h('div', { class: 'mtg-picked' });
   const empNo = input({ type: 'text', maxlength: 30, dir: 'ltr', value: m ? m.emp_no || '' : '' });
-  const nm = input({ type: 'text', required: true, maxlength: 120, value: m ? m.name : '' });
+  const nm = input({ type: 'text', maxlength: 120, value: m ? m.name : '' });
   const nmEn = input({ type: 'text', maxlength: 120, dir: 'ltr', value: m ? m.name_en || '' : '' });
   const email = input({ type: 'email', maxlength: 160, dir: 'ltr', value: m ? m.email || '' : '' });
+  const phone = input({ type: 'tel', maxlength: 30, dir: 'ltr', value: m ? m.phone || '' : '' });
   const position = input({ type: 'text', maxlength: 120, value: m ? m.position || '' : '' });
   const role = select(ROLES.map((r) => [r, t('mtg.role.' + r)]), m ? m.role : 'member', {});
   const subName = input({ type: 'text', maxlength: 120, value: m ? m.substitute_name || '' : '' });
   const subEmail = input({ type: 'email', maxlength: 160, dir: 'ltr', value: m ? m.substitute_email || '' : '' });
   const active = input({ type: 'checkbox', checked: m ? !!m.active : true });
   const reason = input({ type: 'text', maxlength: 300, value: m ? m.inactive_reason || '' : '' });
-  const reasonField = field(t('mtg.inactive_reason'), reason, t('mtg.inactive_hint'));
+  const reasonField = field(t('mtg.inactive_reason'), reason);
+  const manual = h('div', { class: 'stack' }, h('div', { class: 'form-grid' }, field(t('user.name_ar'), nm), field(t('user.name_en'), nmEn)), h('div', { class: 'form-grid' }, field(t('mtg.emp_no'), empNo), field(t('mtg.position'), position)), h('div', { class: 'form-grid' }, field(t('user.email'), email), field(t('mtg.phone'), phone)));
+  const findBox = h('div', { class: 'stack' }, field(t('mtg.find'), find), found);
+  // picked: the staff member chosen (or this member when they are on the list); null = typed in.
+  let picked = m && m.on_staff ? { emp_no: m.emp_no, name: m.name, name_en: m.name_en, email: m.email, job_title: m.position, phone: m.phone } : null;
+  let typed = !!m && !picked;
+  const draw = () => {
+    card.hidden = !picked;
+    if (picked)
+      card.replaceChildren(
+        h('div', { class: 'mtg-member-name' }, h('span', { class: 'strong' }, pick(picked.name, picked.name_en)), ltr(picked.emp_no)),
+        picked.job_title ? h('div', { class: 'small muted' }, picked.job_title) : null,
+        h('div', { class: 'mtg-member-contact small' }, picked.phone ? h('span', { dir: 'ltr' }, picked.phone) : null, picked.email ? h('bdi', { dir: 'ltr' }, picked.email) : h('span', { class: 'chip chip-expired' }, t('mtg.no_email'))),
+        m ? null : h('button', { type: 'button', class: 'btn btn-small', onclick: () => ((picked = null), draw(), find.focus()) }, t('mtg.change')),
+      );
+    findBox.hidden = !!m || !!picked || typed;
+    manual.hidden = !typed;
+    nm.required = typed;
+  };
   const sync = () => {
     reasonField.hidden = active.checked;
     reason.required = !active.checked;
   };
   active.addEventListener('change', sync);
   sync();
+  const outside = h('button', { type: 'button', class: 'btn-link small', onclick: () => ((typed = true), draw(), nm.focus()) }, t('mtg.outside'));
   let timer;
   find.addEventListener('input', () => {
     clearTimeout(timer);
@@ -708,47 +760,39 @@ function memberDialog(c, m) {
             ? r.staff.map((p) =>
                 h(
                   'button',
-                  {
-                    type: 'button',
-                    class: 'mtg-found-item',
-                    onclick: () => {
-                      empNo.value = p.emp_no;
-                      nm.value = p.name;
-                      nmEn.value = p.name_en || '';
-                      found.replaceChildren();
-                      find.value = '';
-                      email.focus();
-                    },
-                  },
+                  { type: 'button', class: 'mtg-found-item', onclick: () => ((picked = p), found.replaceChildren(), (find.value = ''), draw(), role.focus()) },
                   h('span', { class: 'mono' }, p.emp_no),
                   ' ',
                   h('b', {}, pick(p.name, p.name_en)),
-                  p.dept_ar ? h('span', { class: 'small muted' }, ' · ' + pick(p.dept_ar, p.dept_en)) : null,
+                  p.job_title || p.dept_ar ? h('span', { class: 'small muted' }, ' · ' + (p.job_title || pick(p.dept_ar, p.dept_en))) : null,
                 ),
               )
             : [h('p', { class: 'small muted' }, t('mtg.find_none'))]),
+          outside,
         );
       } catch (e) {
         found.replaceChildren(h('p', { class: 'small form-error' }, errText(e)));
       }
     }, 250);
   });
+  draw();
   openDialog({
     title: t(m ? 'mtg.member_edit' : 'mtg.member_add'),
     body: h(
       'div',
       { class: 'stack' },
-      m ? null : field(t('mtg.find'), find, t('mtg.find_hint')),
-      m ? null : found,
-      h('div', { class: 'form-grid' }, field(t('mtg.emp_no'), empNo), field(t('mtg.member_role'), role)),
-      h('div', { class: 'form-grid' }, field(t('user.name_ar'), nm), field(t('user.name_en'), nmEn)),
-      h('div', { class: 'form-grid' }, field(t('user.email'), email, t('mtg.email_hint')), field(t('mtg.position'), position)),
+      findBox,
+      card,
+      manual,
+      field(t('mtg.member_role'), role),
       h('fieldset', { class: 'app-roles' }, h('legend', {}, t('mtg.substitute')), h('div', { class: 'form-grid' }, field(t('mtg.substitute_name'), subName), field(t('mtg.substitute_email'), subEmail))),
       m ? checkField(t('mtg.member_active'), active) : null,
       m ? reasonField : null,
     ),
     onSubmit: async () => {
-      const body = { emp_no: arabicDigits(empNo.value), name: nm.value, name_en: nmEn.value, email: email.value, position: position.value, role: role.value, substitute_name: subName.value, substitute_email: subEmail.value, active: active.checked, inactive_reason: reason.value };
+      if (!picked && !typed) throw new ApiError('mtg_pick_member');
+      const who = picked ? { emp_no: picked.emp_no, name: picked.name } : { emp_no: arabicDigits(empNo.value), name: nm.value, name_en: nmEn.value, email: email.value, phone: phone.value, position: position.value };
+      const body = { ...who, role: role.value, substitute_name: subName.value, substitute_email: subEmail.value, active: active.checked, inactive_reason: reason.value };
       await api('/committees/' + c.id + '/members' + (m ? '/' + m.id : ''), { method: m ? 'PUT' : 'POST', body });
       toast(t('mtg.member_saved'));
       render();

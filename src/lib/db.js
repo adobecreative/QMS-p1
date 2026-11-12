@@ -138,6 +138,8 @@ export async function ensureSchema(env) {
   if (!raCols.some((c) => c.name === 'std_code')) await env.DB.prepare('ALTER TABLE round_answers ADD COLUMN std_code TEXT').run();
   const { results: staffCols } = await env.DB.prepare('PRAGMA table_info(staff)').all();
   if (!staffCols.some((c) => c.name === 'name_en')) await env.DB.batch([env.DB.prepare('ALTER TABLE staff ADD COLUMN name_en TEXT'), env.DB.prepare('UPDATE staff SET name_en = name')]);
+  // Email and job title come with the staff list; committee members take their details from it.
+  if (!staffCols.some((c) => c.name === 'email')) await env.DB.batch([env.DB.prepare('ALTER TABLE staff ADD COLUMN email TEXT'), env.DB.prepare('ALTER TABLE staff ADD COLUMN job_title TEXT')]);
   // A role per system. Accounts made before the portal keep what they could do: their old single role
   // becomes the matching role in each system (once, when the columns are added).
   if (!userCols.some((c) => c.name === 'docs_role')) {
@@ -161,6 +163,8 @@ export async function ensureSchema(env) {
     await env.DB.batch(['minutes_status', 'time_started', 'minutes_by', 'minutes_at', 'approved_by', 'approved_at'].map((c) => env.DB.prepare(`ALTER TABLE committee_sessions ADD COLUMN ${c} TEXT`)));
   }
   if (!sesCols.some((c) => c.name === 'checkin_key')) await env.DB.prepare('ALTER TABLE committee_sessions ADD COLUMN checkin_key TEXT').run();
+  const { results: memCols } = await env.DB.prepare('PRAGMA table_info(committee_members)').all();
+  if (!memCols.some((c) => c.name === 'phone')) await env.DB.batch([env.DB.prepare('ALTER TABLE committee_members ADD COLUMN phone TEXT'), membersFromStaffStmt(env)]);
   const { results: attCols } = await env.DB.prepare('PRAGMA table_info(session_attendance)').all();
   if (!attCols.some((c) => c.name === 'method')) await env.DB.batch([env.DB.prepare('ALTER TABLE session_attendance ADD COLUMN checked_at TEXT'), env.DB.prepare('ALTER TABLE session_attendance ADD COLUMN method TEXT')]);
   // Incident reports and corrective actions: the action a report or its root cause analysis opened, and
@@ -206,6 +210,17 @@ export function logStmt(env, user, action, entity, entityId, label, details) {
     label ?? null,
     details && Object.keys(details).length ? JSON.stringify(details) : null,
   );
+}
+
+// Committee members on the staff list take their name, email, job title and mobile from it (what the list
+// lacks stays as typed). Run after any change to the staff list. memberId: one member only.
+export function membersFromStaffStmt(env, memberId) {
+  return env.DB.prepare(
+    `UPDATE committee_members SET name = st.name, name_en = COALESCE(NULLIF(st.name_en, ''), committee_members.name_en),
+            email = COALESCE(NULLIF(lower(st.email), ''), committee_members.email), position = COALESCE(NULLIF(st.job_title, ''), committee_members.position),
+            phone = COALESCE(NULLIF(st.phone, ''), committee_members.phone)
+       FROM staff st WHERE st.emp_no = committee_members.emp_no AND st.active = 1${memberId ? ' AND committee_members.id = ?' : ''}`,
+  ).bind(...(memberId ? [memberId] : []));
 }
 
 export function changes(before, after, keys) {

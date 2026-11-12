@@ -83,6 +83,21 @@ check(stored && stored.role === 'chair' && r.j.members[0].role === 'chair' && r.
 check(r.j.committee.quorum_n === 1, 'the quorum counts the active members', r.j.committee);
 await owner('/committees/' + qid + '/members/' + memberId, 'PUT', { active: true });
 
+// A member on the staff list takes their details from it, and follows it when the list changes.
+{
+  const st = staff[1];
+  await owner('/staff/' + st.id, 'PUT', { emp_no: st.emp_no, name: st.name, name_en: st.name_en || 'Staff', department_id: st.department_id, phone: '0501112233', email: 'Staff.One@example.com', job_title: 'أخصائي جودة', active: true });
+  r = await owner('/committees/' + qid + '/members', 'POST', { emp_no: st.emp_no, role: 'member' });
+  check(r.s === 200, 'a member is added by picking the employee only', r.j);
+  const sid = r.j.id;
+  let mem = (await owner('/committees/' + qid)).j.members.find((x) => x.id === sid);
+  check(mem && mem.on_staff && mem.email === 'staff.one@example.com' && mem.position === 'أخصائي جودة' && mem.phone === '0501112233' && mem.name === st.name, 'the email, job title and mobile come from the staff list', mem);
+  await owner('/staff/' + st.id, 'PUT', { emp_no: st.emp_no, name: st.name, name_en: st.name_en || 'Staff', department_id: st.department_id, phone: '0509998877', email: 'new.mail@example.com', job_title: 'رئيس قسم', active: true });
+  mem = (await owner('/committees/' + qid)).j.members.find((x) => x.id === sid);
+  check(mem && mem.email === 'new.mail@example.com' && mem.position === 'رئيس قسم' && mem.phone === '0509998877', 'a change on the staff list reaches the member', mem);
+  await owner('/committees/' + qid + '/members/' + sid, 'DELETE');
+}
+
 // The secretary of this committee runs it; a viewer only reads.
 r = await sec('/committees');
 check(r.j.committees.find((c) => c.id === qid).can_run === true && r.j.can_create === false, 'the secretary runs the committee they keep the minutes of', r.j.committees);
@@ -220,8 +235,11 @@ check((await sec('/committees/' + did, 'DELETE')).s === 403, 'only a manager del
   check((await sec('/committee-sessions/' + ses.id + '/minutes', 'PUT', { submit: true, items, attendance: att.slice(1) })).j?.error === 'mtg_attendance_missing', 'every member is marked before sending');
   r = await sec('/committee-sessions/' + ses.id + '/minutes', 'PUT', { submit: true, items, attendance: att, time_started: '08:10' });
   check(r.s === 200 && r.j.minutes_status === 'pending', 'the minutes go to the chair', r.j);
+  const allSent = async () => (await (await fetch(B + '/api/__sent')).json()).map((x) => JSON.stringify(x));
+  check((await allSent()).some((x) => x.includes('chair@example.com') && x.includes('محضر بانتظار اعتمادك')), 'the chair is emailed that minutes wait for approval');
   check((await sec('/committee-sessions/' + ses.id + '/minutes/approve', 'POST')).s === 403, 'the secretary does not approve their own minutes');
   check((await owner('/committee-sessions/' + ses.id + '/minutes/approve', 'POST')).s === 200, 'a manager approves');
+  check((await allSent()).some((x) => x.includes('member@example.com') && x.includes('اعتُمد المحضر')), 'the members are emailed when the minutes are approved');
   check((await sec('/committee-sessions/' + ses.id + '/minutes', 'PUT', { items })).j?.error === 'mtg_minutes_locked', 'approved minutes are locked');
   const after = (await owner('/committees/' + qid)).j;
   check(after.sessions.find((x) => x.id === ses.id).status === 'held', 'writing the minutes marks the session held');
