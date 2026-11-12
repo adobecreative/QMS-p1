@@ -131,7 +131,7 @@ function peoplePicker(people, ids, exclude) {
     draw();
   });
   draw();
-  return { el: h('div', { class: 'stack' }, chips, pickOne), ids: () => st, draw };
+  return { el: h('div', { class: 'stack' }, pickOne, chips), ids: () => st, draw };
 }
 
 // Open (or edit) an investigation: the case, the person and the committee.
@@ -172,7 +172,8 @@ async function caseDialog(inv) {
       h('div', { class: 'form-grid' }, field(t('ivg.subject'), subj), field(t('ovr.dept'), dept)),
       other,
       field(t('ivg.requested_by'), requested),
-      h('div', { class: 'form-grid' }, field(t('ivg.head'), head), field(t('ivg.members'), members.el)),
+      field(t('ivg.head'), head),
+      field(t('ivg.members'), members.el),
     ),
     onSubmit: async () => {
       const body = {
@@ -539,7 +540,8 @@ export async function invSettingsPage(root, _param, alive) {
   const form = h(
     'form',
     { class: 'panel pad stack' },
-    h('div', { class: 'form-grid' }, field(t('ivg.approver'), approver), field(t('ivg.hr_staff'), staff.el)),
+    field(t('ivg.approver'), approver),
+    field(t('ivg.hr_staff'), staff.el),
     h('h2', {}, t('ivg.deadlines')),
     h('div', { class: 'form-grid' }, field(t('ivg.answer_days'), ans), field(t('ivg.minutes_days'), mins), field(t('ivg.decision_days'), dec)),
     h('h2', {}, t('ovr.absence')),
