@@ -120,6 +120,10 @@ export const APPS = {
   // Incident reports: everyone reports; quality runs the register; the quality manager keeps the categories.
   ovr: { icon: 'alert', pages: (r) => (r === 'admin' || r === 'manager' ? ['ovrs', 'ovrnew', 'ovrrep', 'ovrcats'] : r === 'officer' || r === 'viewer' ? ['ovrs', 'ovrnew', 'ovrrep'] : ['ovrnew', 'ovrs']) },
   // Investigations: quality and human resources run them; the committee and the person investigated take part.
+  // Risk register and FMEA: quality, department heads for their own department, risk owners and FMEA teams.
+  // Complaints and patient satisfaction: quality runs them; the person a complaint was sent to replies.
+  pex: { icon: 'heart', pages: (r) => (r === 'manager' ? ['pexs', 'pexrep', 'pexset'] : r === 'officer' || r === 'viewer' ? ['pexs', 'pexrep'] : r === 'none' ? [] : ['pexs']) },
+  risk: { icon: 'risk', pages: (r) => (r === 'none' ? [] : ['risks', 'fmea']) },
   inv: { icon: 'scale', pages: (r) => (r === 'manager' ? ['invs', 'invset'] : r === 'none' ? [] : ['invs']) },
   meetings: { icon: 'users', pages: (r) => (r === 'none' ? [] : ['committees', 'calendar', 'attendance']) },
   // With the link reading the Operations system's register, the dashboard and documents pages show those (read only).
@@ -131,14 +135,14 @@ export const APPS = {
   reports: { icon: 'chart', pages: (r) => (r === 'none' ? [] : ['kpis', 'readiness']) },
   admin: { icon: 'shield', pages: (r) => (r === 'admin' ? ['users', 'departments', 'staff', ...(OFF_APPS.includes('desk') ? ['locations'] : []), ...(S.user.is_owner ? ['api'] : []), 'logs', ...(S.user.is_owner ? ['health'] : []), 'settings'] : []) },
 };
-export const APP_ORDER = ['quality', 'ovr', 'inv', 'meetings', 'docs', 'desk', 'assets', 'rounds', 'reports', 'admin'];
+export const APP_ORDER = ['quality', 'ovr', 'risk', 'pex', 'inv', 'meetings', 'docs', 'desk', 'assets', 'rounds', 'reports', 'admin'];
 // Both admin roles run the Admin Center; only the super admin changes the user accounts.
 export const isAdminRole = (u) => u.role === 'super_admin' || u.role === 'systems_admin';
 // Systems of the Fikra platform that QMS does not use (they stay in the code, switched off here).
 // Asset Management, spare parts and maintenance requests belong to the facilities system (FMS); its evidence
 // comes over the optional link. With Requests off, the places (used by the rounds) move to the Admin Center.
 export const OFF_APPS = ['assets', 'desk'];
-export const access = (app) => OFF_APPS.includes(app) ? 'none' : app === 'ovr' ? ovrAccess(S.user) : app === 'inv' ? S.user.inv || 'none' : (app === 'admin' ? (isAdminRole(S.user) ? 'admin' : 'none') : app === 'reports' ? (isAdminRole(S.user) ? 'admin' : S.user.quality || 'none') : S.user[app] || 'none');
+export const access = (app) => OFF_APPS.includes(app) ? 'none' : app === 'ovr' ? ovrAccess(S.user) : app === 'inv' ? S.user.inv || 'none' : app === 'risk' ? S.user.risk || 'none' : app === 'pex' ? S.user.pex || 'none' : (app === 'admin' ? (isAdminRole(S.user) ? 'admin' : 'none') : app === 'reports' ? (isAdminRole(S.user) ? 'admin' : S.user.quality || 'none') : S.user[app] || 'none');
 // Incident reports are open to every account: quality staff by their quality role, everyone else to report and answer.
 export const ovrAccess = (u) => (u.quality === 'admin' ? 'admin' : u.quality === 'manager' ? 'manager' : u.quality === 'assessor' ? 'officer' : u.quality === 'viewer' ? 'viewer' : 'staff');
 export const appPages = (app) => APPS[app].pages(access(app));
@@ -146,7 +150,7 @@ export const myApps = () => APP_ORDER.filter((a) => appPages(a).length);
 // Pages opened from inside another page, not shown in the menu.
 export const HIDDEN_ROUTES = { categories: 'tickets', ...(OFF_APPS.includes('desk') ? {} : { locations: 'tickets' }), scan: 'due', vendors: 'contracts', moves: 'parts', requests: 'parts', assess: 'standards' };
 // Addresses from before the portal (bookmarks, links in emails) still open their page.
-export const PAGE_APP = { dashboard: 'docs', documents: 'docs', types: 'docs', pdocs: 'docs', tickets: 'desk', categories: 'desk', locations: 'admin', users: 'admin', departments: 'admin', staff: 'admin', api: 'admin', logs: 'admin', health: 'admin', register: 'assets', pm: 'assets', devtypes: 'assets', contracts: 'assets', vendors: 'assets', parts: 'assets', moves: 'assets', requests: 'assets', costs: 'assets', due: 'rounds', rlog: 'rounds', checklists: 'rounds', scan: 'rounds', overview: 'reports', compliance: 'reports', kpis: 'reports', readiness: 'reports', chapters: 'quality', standards: 'quality', assess: 'quality', capa: 'quality', ovrs: 'ovr', ovrnew: 'ovr', ovrcats: 'ovr', ovrrep: 'ovr', invs: 'inv', invset: 'inv', committees: 'meetings', calendar: 'meetings', attendance: 'meetings' };
+export const PAGE_APP = { dashboard: 'docs', documents: 'docs', types: 'docs', pdocs: 'docs', tickets: 'desk', categories: 'desk', locations: 'admin', users: 'admin', departments: 'admin', staff: 'admin', api: 'admin', logs: 'admin', health: 'admin', register: 'assets', pm: 'assets', devtypes: 'assets', contracts: 'assets', vendors: 'assets', parts: 'assets', moves: 'assets', requests: 'assets', costs: 'assets', due: 'rounds', rlog: 'rounds', checklists: 'rounds', scan: 'rounds', overview: 'reports', compliance: 'reports', kpis: 'reports', readiness: 'reports', chapters: 'quality', standards: 'quality', assess: 'quality', capa: 'quality', ovrs: 'ovr', ovrnew: 'ovr', ovrcats: 'ovr', ovrrep: 'ovr', invs: 'inv', invset: 'inv', risks: 'risk', fmea: 'risk', pexs: 'pex', pexrep: 'pex', pexset: 'pex', committees: 'meetings', calendar: 'meetings', attendance: 'meetings' };
 // A link written as a page name ("tickets/5") goes to that page in the system it belongs to.
 export function fullPath(path) {
   const first = path.split('/')[0];
@@ -173,7 +177,7 @@ export function currentRoute() {
 // Under the name: what the person is in the system open now.
 export function roleLabel(app) {
   if (isAdminRole(S.user)) return t('role.' + S.user.role);
-  if (app === 'docs' || app === 'desk' || app === 'assets' || app === 'rounds' || app === 'quality' || app === 'meetings' || app === 'ovr' || app === 'inv') return t(app + 'role.' + access(app));
+  if (app === 'docs' || app === 'desk' || app === 'assets' || app === 'rounds' || app === 'quality' || app === 'meetings' || app === 'ovr' || app === 'inv' || app === 'risk' || app === 'pex') return t(app + 'role.' + access(app));
   return '';
 }
 

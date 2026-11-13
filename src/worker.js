@@ -23,6 +23,8 @@ import { portalSignIn } from './systems/sso.js';
 import { handleCapa } from './systems/capa.js';
 import { handleOvr, handlePublicOvr, runOvrReminders } from './systems/ovr.js';
 import { handleInv, invAccess, runInvReminders } from './systems/inv.js';
+import { handleRisk, riskAccess, runRiskReminders } from './systems/risk.js';
+import { handlePex, handlePublicPex, pexAccess, runPexReminders } from './systems/pex.js';
 import { handleKpis, refreshAutoKpis, snapshotReadiness } from './systems/kpis.js';
 import { handleRounds, runRoundReminders } from './systems/rounds.js';
 import { handlePublicTickets, handleTickets, runTicketAlerts } from './systems/tickets.js';
@@ -53,7 +55,7 @@ async function handleApi(request, env, url, ctx) {
     const isOwnerUser = user ? user.id === (await env.DB.prepare('SELECT MIN(id) AS id FROM users').first()).id : false;
     return json({
       needsSetup: count.n === 0,
-      user: user ? Object.assign(userOut(user), isOwnerUser ? { is_owner: true } : {}, portalDocsOn(settings) ? { portal_docs: true } : {}, { inv: await invAccess(env, user, settings) }) : null,
+      user: user ? Object.assign(userOut(user), isOwnerUser ? { is_owner: true } : {}, portalDocsOn(settings) ? { portal_docs: true } : {}, { inv: await invAccess(env, user, settings), risk: await riskAccess(env, user), pex: await pexAccess(env, user) }) : null,
       defaults: { near_days: settings.near_days },
       today: todayIn(settings.timezone),
       brand: brandOut(settings),
@@ -127,7 +129,7 @@ async function handleApi(request, env, url, ctx) {
       logStmt(env, { id: u.id, name: u.name }, 'login', 'user', u.id, u.name, loginFrom(request)),
     ]);
     const token = await createSession(env, u.id);
-    return json({ ok: true, user: { ...userOut(withAccess(u)), inv: await invAccess(env, u, await getSettings(env)) } }, 200, { 'set-cookie': sessionCookie(token, SESSION_DAYS * 86400) });
+    return json({ ok: true, user: { ...userOut(withAccess(u)), inv: await invAccess(env, u, await getSettings(env)), risk: await riskAccess(env, u), pex: await pexAccess(env, u) } }, 200, { 'set-cookie': sessionCookie(token, SESSION_DAYS * 86400) });
   }
 
   // The second step: a code from the app, or a recovery code (each works once).
@@ -233,6 +235,8 @@ async function handleApi(request, env, url, ctx) {
 
   // Incident reports: the form works signed in or with an employee number (a place's QR code).
   if (seg[0] === 'public' && seg[1] === 'ovr') return handlePublicOvr(request, env, url, seg, method, ctx);
+  // Complaints, suggestions, thanks and the satisfaction survey from a place's QR code.
+  if (seg[0] === 'public' && seg[1] === 'pex') return handlePublicPex(request, env, url, seg, method, ctx);
   // Maintenance requests from the public page (no account).
   if (seg[0] === 'public') return handlePublicTickets(request, env, url, seg, method, ctx);
 
@@ -687,6 +691,10 @@ async function handleApi(request, env, url, ctx) {
   if (seg[0] === 'ovr') return handleOvr(request, env, url, seg, method, user, ctx);
   // Investigations: quality and human resources, the committee, and the person investigated.
   if (seg[0] === 'inv') return handleInv(request, env, url, seg, method, user, ctx);
+  // Risk register and FMEA: quality, department heads for their own department, and risk owners.
+  if (seg[0] === 'risk') return handleRisk(request, env, url, seg, method, user, ctx);
+  // Complaints and patient satisfaction: quality, and the person a complaint was sent to.
+  if (seg[0] === 'pex') return handlePex(request, env, url, seg, method, user, ctx);
   // Quality indicators and the accreditation readiness report.
   if (seg[0] === 'kpis' || seg[0] === 'readiness') {
     const res = await handleKpis(request, env, url, seg, method, user);
@@ -1140,6 +1148,8 @@ export default {
             console.log('meeting jobs', JSON.stringify(await runMeetingJobs(env)));
             console.log('ovr reminders', JSON.stringify(await runOvrReminders(env)));
             console.log('inv reminders', JSON.stringify(await runInvReminders(env)));
+            console.log('risk reminders', JSON.stringify(await runRiskReminders(env)));
+            console.log('pex reminders', JSON.stringify(await runPexReminders(env)));
             // Indicators worked out from the system, and this month's readiness for the trend.
             const day = todayIn((await getSettings(env)).timezone);
             console.log('kpis', JSON.stringify(await refreshAutoKpis(env, day)));

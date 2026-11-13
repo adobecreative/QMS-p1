@@ -16,6 +16,8 @@ node meetings.mjs || RC=1
 node ovr.mjs || RC=1
 node ovr2.mjs || RC=1
 node inv.mjs || RC=1
+node risk.mjs || RC=1
+node pex.mjs || RC=1
 ON_NODE=1 node restore.mjs || RC=1
 kill -TERM -- -$PID 2>/dev/null
 [ $RC -ne 0 ] && tail -40 node.log

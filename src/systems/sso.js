@@ -5,6 +5,8 @@ import { createSession, loginFrom, sessionCookie, userOut, withAccess } from '..
 import { CHALLENGE_MINUTES, SESSION_DAYS } from '../lib/config.js';
 import { getSettings, logStmt } from '../lib/db.js';
 import { invAccess } from './inv.js';
+import { riskAccess } from './risk.js';
+import { pexAccess } from './pex.js';
 import { fail, json, nowIso, sha256Hex, toHex } from '../lib/util.js';
 
 const SSO_AHEAD_S = 120; // a token is never good for longer than this, whatever it says
@@ -65,5 +67,5 @@ export async function portalSignIn(request, env, url, token) {
   }
   await logStmt(env, { id: u.id, name: u.name }, 'login', 'user', u.id, u.name, { ...loginFrom(request), method: 'portal' }).run();
   const session = await createSession(env, u.id);
-  return json({ ok: true, user: { ...userOut(withAccess(u)), inv: await invAccess(env, u, await getSettings(env)) } }, 200, { 'set-cookie': sessionCookie(session, SESSION_DAYS * 86400) });
+  return json({ ok: true, user: { ...userOut(withAccess(u)), inv: await invAccess(env, u, await getSettings(env)), risk: await riskAccess(env, u), pex: await pexAccess(env, u) } }, 200, { 'set-cookie': sessionCookie(session, SESSION_DAYS * 86400) });
 }

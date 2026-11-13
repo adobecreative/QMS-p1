@@ -8,6 +8,8 @@ import { portalDocsOn } from './fmslink.js';
 import { meetingsHome } from './meetings.js';
 import { ovrHome } from './ovr.js';
 import { invHome } from './inv.js';
+import { riskHome } from './risk.js';
+import { pexHome } from './pex.js';
 import { qualityHome } from './quality.js';
 import { aiReady, ticketScope } from './tickets.js';
 
@@ -50,6 +52,8 @@ export async function handleHome(env, user) {
   jobs.push(meetingsHome(env, user, today).then((r) => r && (out.meetings = r)));
   jobs.push(ovrHome(env, user, today).then((r) => (out.ovr = r)));
   jobs.push(invHome(env, user, today).then((r) => r && (out.inv = r)));
+  jobs.push(riskHome(env, user, today).then((r) => r && (out.risk = r)));
+  jobs.push(pexHome(env, user, today).then((r) => r && (out.pex = r)));
 
   if (has(user.assets)) {
     jobs.push(

@@ -174,6 +174,9 @@ export async function ensureSchema(env) {
   if (!locCols.some((c) => c.name === 'portal_id')) await env.DB.prepare('ALTER TABLE locations ADD COLUMN portal_id INTEGER').run();
   const { results: capaCols } = await env.DB.prepare('PRAGMA table_info(capa)').all();
   if (!capaCols.some((c) => c.name === 'ovr_id')) await env.DB.prepare('ALTER TABLE capa ADD COLUMN ovr_id INTEGER').run();
+  // The risk or FMEA an action came from.
+  if (!capaCols.some((c) => c.name === 'risk_id')) await env.DB.prepare('ALTER TABLE capa ADD COLUMN risk_id INTEGER').run();
+  if (!capaCols.some((c) => c.name === 'fmea_id')) await env.DB.prepare('ALTER TABLE capa ADD COLUMN fmea_id INTEGER').run();
   const { results: taskCols } = await env.DB.prepare('PRAGMA table_info(ovr_tasks)').all();
   if (!taskCols.some((c) => c.name === 'capa_id')) await env.DB.prepare('ALTER TABLE ovr_tasks ADD COLUMN capa_id INTEGER').run();
   const { results: ovrCols } = await env.DB.prepare('PRAGMA table_info(ovr)').all();
