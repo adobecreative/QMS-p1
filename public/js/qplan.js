@@ -2,7 +2,7 @@
 import { render } from '../app.js';
 import { kpiRow } from './assets.js';
 import { S, h, icon, t } from './core.js';
-import { fmtVal, periodLabel, trendChart } from './kpis.js';
+import { fmtVal, kpiDialog, libraryDialog, periodLabel, trendChart } from './kpis.js';
 import { isAdminRole, link, printHead, setUrl } from './layout.js';
 import { api, dateEl, errorBox, field, input, openDialog, select, toast } from './offline.js';
 import { reportMailPanel } from './reports.js';
@@ -22,6 +22,53 @@ const here = (path) => {
 const personOpt = (p) => [p.id, pick(p.name, p.name_en) + (p.dept_ar ? ' - ' + pick(p.dept_ar, p.dept_en) : '')];
 const kpiOpt = (k) => [k.id, k.code + ' · ' + pick(k.name_ar, k.name_en)];
 const kpiNow = (k) => (k && k.value !== null && k.value !== undefined ? h('span', { class: 'mono', dir: 'ltr' }, fmtVal(k, k.value), k.target !== null ? ' / ' + fmtVal(k, k.target) : '') : '');
+// The indicator list; a quality manager can add one (new or from the library) without leaving the dialog.
+function kpiSelect(d, value) {
+  const can = isAdminRole(S.user) || S.user.quality === 'manager';
+  const sel = select([], '');
+  let prev = String(value || '');
+  const fill = (lib) => {
+    sel.replaceChildren(
+      h('option', { value: '' }, '-'),
+      ...d.kpis.map((k) => h('option', { value: k.id }, kpiOpt(k)[1])),
+      ...(can ? [h('option', { value: '__new' }, '+ ' + t('kpi.add'))] : []),
+      ...(can && lib ? [h('option', { value: '__lib' }, '+ ' + t('kpi.library'))] : []),
+    );
+    sel.value = prev;
+  };
+  let lib = true;
+  fill(lib);
+  sel.addEventListener('change', async (ev) => {
+    const v = sel.value;
+    if (v !== '__new' && v !== '__lib') {
+      prev = v;
+      return;
+    }
+    ev.stopImmediatePropagation();
+    sel.value = prev;
+    let kd;
+    try {
+      kd = await api('/kpis');
+    } catch (e) {
+      toast(e.message || String(e));
+      return;
+    }
+    const done = async (id) => {
+      const r = await api('/kpis');
+      d.kpis = r.kpis.filter((k) => k.active).map((k) => {
+        const last = k.values.length ? k.values[k.values.length - 1] : null;
+        return { ...k, value: last ? last.value : null, period: last ? last.period : null, met: last ? last.met : null };
+      });
+      lib = r.library.length > 0;
+      if (id) prev = String(id);
+      fill(lib);
+      if (id) sel.dispatchEvent(new Event('change'));
+    };
+    if (v === '__new' || !kd.library.length) kpiDialog(null, kd, done);
+    else libraryDialog(kd, done);
+  });
+  return sel;
+}
 const num = (v) => (v === null || v === undefined || v === '' ? '' : String(v));
 
 /* ---------------------------------- the plan ---------------------------------- */
@@ -130,7 +177,7 @@ function goalDialog(g, d) {
   const measure = input({ type: 'text', maxlength: 300, dir: 'auto', value: g ? g.measure : '' });
   const dept = select([['', '-'], ...d.departments.map((x) => [x.id, pick(x.name_ar, x.name_en)])], g ? g.department_id || '' : '');
   const owner = select([['', '-'], ...d.people.map(personOpt)], g ? g.owner_id || '' : '');
-  const kpi = select([['', '-'], ...d.kpis.map(kpiOpt)], g ? g.kpi_id || '' : '');
+  const kpi = kpiSelect(d, g ? g.kpi_id : '');
   const pdsa = select([['', '-'], ...d.projects.map((p) => [p.id, p.code + ' · ' + p.title])], g ? g.pdsa_id || '' : '');
   const progress = g ? select([['', t('qp.auto')], ['done', t('qp.st.achieved')], ['dropped', t('qp.st.dropped')]], g.progress) : null;
   const dlg = openDialog({
@@ -288,7 +335,7 @@ async function pdsaDialog(p, d, preset) {
   const dept = officer ? select([['', '-'], ...d.departments.map((x) => [x.id, pick(x.name_ar, x.name_en)])], p ? p.department_id || '' : S.user.department_id || '') : null;
   const leader = select([['', '-'], ...ppl.map(personOpt)], p ? p.leader_id || '' : S.user.id);
   const team = h('select', { multiple: true, size: 6 }, ppl.map((x) => h('option', { value: x.id, selected: p ? p.team.includes(x.id) : false }, personOpt(x)[1])));
-  const kpi = select([['', '-'], ...d.kpis.map(kpiOpt)], p ? p.kpi_id || '' : s.kpi_id || '');
+  const kpi = kpiSelect(d, p ? p.kpi_id : s.kpi_id);
   const base = input({ type: 'number', step: 'any', dir: 'ltr', value: p ? num(p.baseline) : num(s.baseline) });
   const target = input({ type: 'number', step: 'any', dir: 'ltr', value: p ? num(p.target) : num(s.target) });
   const start = input({ type: 'date', value: p ? p.start_on || '' : '' });
