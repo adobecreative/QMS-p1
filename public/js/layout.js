@@ -116,7 +116,8 @@ export function langToggle() {
 /* The portal and its systems. One account opens every system the person has a role in;
    each system has its own menu, and its name is the first part of the address (desk/tickets/5). */
 export const APPS = {
-  quality: { icon: 'award', pages: (r) => (r === 'none' ? [] : ['chapters', 'standards', 'assess', 'capa']) },
+  // The quality plan and improvement projects also open to department heads and project teams (S.user.plan).
+  quality: { icon: 'award', pages: (r) => [...(r === 'none' ? [] : ['chapters', 'standards', 'assess', 'capa']), ...(S.user.plan && S.user.plan !== 'none' ? ['qplan', 'pdsa'] : [])] },
   // Incident reports: everyone reports; quality runs the register; the quality manager keeps the categories.
   ovr: { icon: 'alert', pages: (r) => (r === 'admin' || r === 'manager' ? ['ovrs', 'ovrnew', 'ovrrep', 'ovrcats'] : r === 'officer' || r === 'viewer' ? ['ovrs', 'ovrnew', 'ovrrep'] : ['ovrnew', 'ovrs']) },
   // Investigations: quality and human resources run them; the committee and the person investigated take part.
@@ -132,7 +133,7 @@ export const APPS = {
   assets: { icon: 'box', pages: (r) => (r === 'none' ? [] : ['register', 'pm', 'contracts', 'vendors', 'parts', 'moves', 'requests', 'costs', ...(r === 'viewer' ? [] : ['devtypes'])]) },
   rounds: { icon: 'clipboard', pages: (r) => (r === 'none' ? [] : r === 'inspector' ? ['due', 'rlog', 'scan'] : ['due', 'rlog', 'checklists', 'scan']) },
   // Quality indicators and the readiness report, for quality staff and the admins.
-  reports: { icon: 'chart', pages: (r) => (r === 'none' ? [] : ['kpis', 'readiness']) },
+  reports: { icon: 'chart', pages: (r) => (r === 'none' ? [] : ['qreport', 'kpis', 'readiness']) },
   admin: { icon: 'shield', pages: (r) => (r === 'admin' ? ['users', 'departments', 'staff', ...(OFF_APPS.includes('desk') ? ['locations'] : []), ...(S.user.is_owner ? ['api'] : []), 'logs', ...(S.user.is_owner ? ['health'] : []), 'settings'] : []) },
 };
 export const APP_ORDER = ['quality', 'ovr', 'risk', 'pex', 'inv', 'meetings', 'docs', 'desk', 'assets', 'rounds', 'reports', 'admin'];
@@ -150,7 +151,7 @@ export const myApps = () => APP_ORDER.filter((a) => appPages(a).length);
 // Pages opened from inside another page, not shown in the menu.
 export const HIDDEN_ROUTES = { categories: 'tickets', ...(OFF_APPS.includes('desk') ? {} : { locations: 'tickets' }), scan: 'due', vendors: 'contracts', moves: 'parts', requests: 'parts', assess: 'standards' };
 // Addresses from before the portal (bookmarks, links in emails) still open their page.
-export const PAGE_APP = { dashboard: 'docs', documents: 'docs', types: 'docs', pdocs: 'docs', tickets: 'desk', categories: 'desk', locations: 'admin', users: 'admin', departments: 'admin', staff: 'admin', api: 'admin', logs: 'admin', health: 'admin', register: 'assets', pm: 'assets', devtypes: 'assets', contracts: 'assets', vendors: 'assets', parts: 'assets', moves: 'assets', requests: 'assets', costs: 'assets', due: 'rounds', rlog: 'rounds', checklists: 'rounds', scan: 'rounds', overview: 'reports', compliance: 'reports', kpis: 'reports', readiness: 'reports', chapters: 'quality', standards: 'quality', assess: 'quality', capa: 'quality', ovrs: 'ovr', ovrnew: 'ovr', ovrcats: 'ovr', ovrrep: 'ovr', invs: 'inv', invset: 'inv', risks: 'risk', fmea: 'risk', pexs: 'pex', pexrep: 'pex', pexset: 'pex', committees: 'meetings', calendar: 'meetings', attendance: 'meetings' };
+export const PAGE_APP = { dashboard: 'docs', documents: 'docs', types: 'docs', pdocs: 'docs', tickets: 'desk', categories: 'desk', locations: 'admin', users: 'admin', departments: 'admin', staff: 'admin', api: 'admin', logs: 'admin', health: 'admin', register: 'assets', pm: 'assets', devtypes: 'assets', contracts: 'assets', vendors: 'assets', parts: 'assets', moves: 'assets', requests: 'assets', costs: 'assets', due: 'rounds', rlog: 'rounds', checklists: 'rounds', scan: 'rounds', overview: 'reports', compliance: 'reports', kpis: 'reports', readiness: 'reports', chapters: 'quality', standards: 'quality', assess: 'quality', capa: 'quality', qplan: 'quality', pdsa: 'quality', qreport: 'reports', ovrs: 'ovr', ovrnew: 'ovr', ovrcats: 'ovr', ovrrep: 'ovr', invs: 'inv', invset: 'inv', risks: 'risk', fmea: 'risk', pexs: 'pex', pexrep: 'pex', pexset: 'pex', committees: 'meetings', calendar: 'meetings', attendance: 'meetings' };
 // A link written as a page name ("tickets/5") goes to that page in the system it belongs to.
 export function fullPath(path) {
   const first = path.split('/')[0];
@@ -177,6 +178,7 @@ export function currentRoute() {
 // Under the name: what the person is in the system open now.
 export function roleLabel(app) {
   if (isAdminRole(S.user)) return t('role.' + S.user.role);
+  if (app === 'quality' && access('quality') === 'none' && S.user.plan && S.user.plan !== 'none') return t('planrole.' + S.user.plan);
   if (app === 'docs' || app === 'desk' || app === 'assets' || app === 'rounds' || app === 'quality' || app === 'meetings' || app === 'ovr' || app === 'inv' || app === 'risk' || app === 'pex') return t(app + 'role.' + access(app));
   return '';
 }

@@ -7,6 +7,7 @@ import { escHtml, fail, json, nowIso, str, todayIn } from '../lib/util.js';
 import { PM_KINDS, endOfDay } from './assets.js';
 import { CONTRACT_SELECT, contractOut } from './contracts.js';
 import { plusDays } from './docs.js';
+import { qualityMail, qualityReport } from './qreport.js';
 
 // Monthly report (super admins): service desk, planned maintenance, rounds and documents for one month,
 // with the month before for comparison and the last six months of requests. Months follow the site's time zone.
@@ -233,7 +234,8 @@ export async function runMonthlyReport(env, actor, force) {
   if (!mailReady(settings)) return { sent: 0, error: 'mail_not_configured' };
   const to = await reportRecipients(env, settings);
   if (!to.length) return { sent: 0, error: 'no_recipients' };
-  const mail = monthMail(settings, await monthReport(env, settings, month));
+  // The quality report (the facilities one, monthReport, stays for the Operations system's code).
+  const mail = qualityMail(settings, await qualityReport(env, settings, month));
   const result = await sendMail(settings, to.map((email) => ({ to: email, ...mail })));
   await env.DB.batch([
     ...(result.ok && !force ? [setSettingStmt(env, 'monthly_report_sent', month)] : []),
@@ -246,7 +248,7 @@ export const REPORT_TO_MAX = 10;
 
 // The Reports page: switch the monthly email on or off, choose who gets it, or send last month's now.
 export async function handleReportMail(request, env, method, user) {
-  requireRole(user, ...ADMIN_ROLES);
+  if (!ADMIN_ROLES.includes(user.role) && user.quality_role !== 'manager') requireRole(user, ...ADMIN_ROLES);
   const settings = await getSettings(env);
   if (method === 'GET') return json({ on: settings.monthly_report === '1', to: settings.report_to, defaults: await reportRecipients(env, { report_to: '' }), mail_ready: mailReady(settings), last_sent: settings.monthly_report_sent || null });
   if (method === 'PUT') {

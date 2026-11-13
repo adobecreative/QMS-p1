@@ -122,7 +122,7 @@ check(r.s === 200 && r.j.sent === 2, "last month's report sent now", r);
   const sent = (await owner('/__sent')).j.filter((x) => x.via === 'brevo');
   const v = sent.length ? sent[0].body.messageVersions : [];
   check(v.length === 2 && v.every((x) => x.to.length === 1), 'each address gets its own copy', v.map((x) => x.to));
-  check(v.length && /تقرير شهر/.test(v[0].subject) && /Report for/.test(v[0].subject) && /البلاغات/.test(v[0].htmlContent) && /Requests/.test(v[0].htmlContent), 'the report is in Arabic and English', v[0] && v[0].subject);
+  check(v.length && /تقرير الجودة/.test(v[0].subject) && /Quality report/.test(v[0].subject) && /الشكاوى/.test(v[0].htmlContent) && /Complaints/.test(v[0].htmlContent), 'the quality report is in Arabic and English', v[0] && v[0].subject);
 }
 r = await owner('/reports/mail');
 check(r.s === 200 && r.j.on === true && r.j.defaults.length >= 2, 'the setting reads back', r.j);

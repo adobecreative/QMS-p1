@@ -168,7 +168,7 @@ await owner('/reports/mail', 'POST');
 {
   const v = ((await owner('/__sent')).j.find((x) => x.via === 'brevo') || { body: { messageVersions: [] } }).body;
   const html = v.htmlContent || (v.messageVersions[0] || {}).htmlContent || '';
-  check(/تؤثر على الطلاب/.test(html) && /affecting students/.test(html) && !/المرضى|patients/.test(html), 'the monthly report uses the new word', html.slice(0, 200));
+  check(/تقرير الجودة/.test(html) && /Quality report/.test(html), 'the monthly report is the quality report', html.slice(0, 200));
 }
 r = await owner('/settings', 'PUT', { who_one_ar: '', who_all_ar: '', who_one_en: '', who_all_en: '' });
 check(r.s === 200 && r.j.settings.who_one_ar === 'مريض' && r.j.settings.who_one_en === 'a patient', 'empty words go back to the default', r.j && r.j.settings);
