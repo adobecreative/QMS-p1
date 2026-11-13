@@ -302,7 +302,7 @@ function pdsaOut(p, today) {
   };
 }
 
-async function nextCode(env) {
+export async function nextPdsaCode(env) {
   const r = await env.DB.prepare("SELECT MAX(CAST(substr(code, 6) AS INTEGER)) AS m FROM pdsa WHERE code LIKE 'PDSA-%'").first();
   return 'PDSA-' + String((r.m || 0) + 1).padStart(3, '0');
 }
@@ -402,7 +402,7 @@ export async function handlePdsa(request, env, url, seg, method, user, ctx) {
     if (!n.leader_id) n.leader_id = user.id;
     if (!n.start_on) n.start_on = today;
     const now = nowIso();
-    const code = await nextCode(env);
+    const code = await nextPdsaCode(env);
     const res = await env.DB.prepare(
       `INSERT INTO pdsa (code, title, problem, aim, department_id, leader_id, team, kpi_id, baseline, target, start_on, due_on, status, source, source_ref, created_by_id, created_by, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)`,
