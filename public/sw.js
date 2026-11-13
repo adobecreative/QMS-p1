@@ -1,7 +1,7 @@
 // Keeps the app's own files on the device so it still opens when the internet drops.
 // Always asks the network first, so a new release shows as soon as it is online.
 // Data (/api) is not handled here: app.js keeps its own copies.
-const CACHE = 'fm-shell-v12';
+const CACHE = 'fm-shell-v13';
 // app.js loads the page modules in /js/.
 const SHELL = ['/', '/app.js', '/i18n.js', '/styles.css', '/fikra-logo.png', '/vendor/qrcode.js', '/js/admin.js', '/js/api.js', '/js/assets.js', '/js/contracts.js', '/js/core.js', '/js/docs.js', '/js/health.js', '/js/inventory.js', '/js/kpis.js', '/js/capa.js', '/js/layout.js', '/js/meetings.js', '/js/offline.js', '/js/ovr.js', '/js/inv.js', '/js/risk.js', '/js/pex.js', '/js/quality.js', '/js/reports.js', '/js/rounds.js', '/js/tickets.js', '/js/xlsx.js'];
 

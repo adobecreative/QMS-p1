@@ -143,6 +143,8 @@ export async function printQr(items) {
     ),
     cards,
   );
+  // An open modal dialog would make the sheet untappable, so close it first.
+  document.querySelectorAll('dialog[open]').forEach((d) => d.close());
   document.querySelector('.qr-sheet')?.remove();
   document.body.append(sheet);
   document.body.classList.add('print-qr');
