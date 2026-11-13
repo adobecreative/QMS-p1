@@ -8,7 +8,7 @@ import { escHtml, nowIso } from './util.js';
 // Password hashes, sessions and the mail and push keys are never included.
 export async function fullBackupData(env) {
   const all = (sql) => env.DB.prepare(sql).all().then((r) => r.results);
-  const [departments, docTypes, users, files, acks, logs, settingsRows, staff, categories, locations, tickets, ticketEvents, assets, pmPlans, pmDone, assetTypes, roundForms, roundItems, roundPlaces, rounds, roundAnswers, vendors, vendorDocs, contracts, contractAssets, contractVisits, stores, parts, stock, stockMoves, partRequests, stdChapters, standards, stdAssessments, stdElements, fmsSnapshots, committees, committeeMembers, committeeFiles, committeeSessions, sessionAttendance, sessionItems, portalDocs, capa, kpis, kpiValues, stdSnapshots, stdActivities, ovrCats, ovrs, ovrReporters, ovrTasks, ovrSteps, ovrRca, invs, invPeople, invQuestions, invFiles, invSteps, invPenalties, risks, riskReviews, fmeas, pexRows, surveyQs, surveyRs, qPlans, qGoals, pdsas, pdsaCycles] = await Promise.all([
+  const [departments, docTypes, users, files, acks, logs, settingsRows, staff, categories, locations, tickets, ticketEvents, assets, pmPlans, pmDone, assetTypes, roundForms, roundItems, roundPlaces, rounds, roundAnswers, vendors, vendorDocs, contracts, contractAssets, contractVisits, stores, parts, stock, stockMoves, partRequests, stdChapters, standards, stdAssessments, stdElements, fmsSnapshots, committees, committeeMembers, committeeFiles, committeeSessions, sessionAttendance, sessionItems, portalDocs, capa, kpis, kpiValues, stdSnapshots, stdActivities, ovrCats, ovrs, ovrReporters, ovrTasks, ovrSteps, ovrRca, invs, invPeople, invQuestions, invFiles, invSteps, invPenalties, risks, riskReviews, fmeas, pexRows, surveyQs, surveyRs, qPlans, qGoals, pdsas, pdsaCycles, mockSurveys, mockAssign, mockScores, tracerRows, tracerItems, auditRows, auditCriteria, auditCases] = await Promise.all([
     all('SELECT * FROM departments ORDER BY id'),
     all('SELECT * FROM doc_types ORDER BY id'),
     all('SELECT id, name, name_en, email, phone, role, docs_role, desk_role, assets_role, rounds_role, quality_role, meetings_role, department_id, job_title, active, created_at FROM users ORDER BY id'),
@@ -81,6 +81,14 @@ export async function fullBackupData(env) {
     all('SELECT * FROM quality_goals ORDER BY id'),
     all('SELECT * FROM pdsa ORDER BY id'),
     all('SELECT * FROM pdsa_cycles ORDER BY id'),
+    all('SELECT * FROM mock_surveys ORDER BY id'),
+    all('SELECT * FROM mock_assign ORDER BY survey_id, chapter'),
+    all('SELECT * FROM mock_scores ORDER BY id'),
+    all('SELECT * FROM tracers ORDER BY id'),
+    all('SELECT * FROM tracer_items ORDER BY id'),
+    all('SELECT * FROM audits ORDER BY id'),
+    all('SELECT * FROM audit_criteria ORDER BY id'),
+    all('SELECT * FROM audit_cases ORDER BY id'),
   ]);
   return {
     departments, doc_types: docTypes, users, files, acks, logs, settings: Object.fromEntries(settingsRows.map((r) => [r.key, r.value])),
@@ -118,6 +126,14 @@ export async function fullBackupData(env) {
     quality_goals: qGoals,
     pdsa: pdsas,
     pdsa_cycles: pdsaCycles,
+    mock_surveys: mockSurveys,
+    mock_assign: mockAssign,
+    mock_scores: mockScores,
+    tracers: tracerRows,
+    tracer_items: tracerItems,
+    audits: auditRows,
+    audit_criteria: auditCriteria,
+    audit_cases: auditCases,
   };
 }
 
