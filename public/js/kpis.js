@@ -70,7 +70,7 @@ function spark(k) {
 }
 
 // The detail chart: one line, a dashed target, a marker per period (green met, red below), hover shows the value.
-function trendChart(points, opts) {
+export function trendChart(points, opts) {
   const pts = points.filter((p) => p.value !== null);
   if (pts.length < 2) return h('p', { class: 'muted kpi-body' }, t('kpi.chart_few'));
   const W = 640, H = 220, L = 44, R = 16, T = 14, B = 30;
@@ -89,6 +89,8 @@ function trendChart(points, opts) {
     opts.target !== null && opts.target !== undefined
       ? [s('line', { x1: L, x2: W - R, y1: y(opts.target), y2: y(opts.target), class: 'kpi-target' }), s('text', { x: L + 4, y: y(opts.target) - 5, class: 'kpi-axis', 'text-anchor': 'start' }, opts.fmt(opts.target))]
       : null,
+    // opts.markFrom: a period from which a dashed line marks a change (an improvement project's start).
+    opts.markFrom ? (() => { const i = pts.findIndex((p) => p.period >= opts.markFrom); return i > 0 ? s('line', { x1: x(i), x2: x(i), y1: T, y2: H - B, class: 'kpi-target kpi-mark' }) : null; })() : null,
     s('polyline', { points: pts.map((p, i) => `${x(i)},${y(p.value)}`).join(' '), class: 'kpi-line' }),
     pts.map((p, i) => [
       s('circle', { cx: x(i), cy: y(p.value), r: 4.5, class: p.met === false ? 'kpi-dot is-below' : 'kpi-dot' }),

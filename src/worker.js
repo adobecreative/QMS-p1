@@ -24,6 +24,8 @@ import { handleCapa } from './systems/capa.js';
 import { handleOvr, handlePublicOvr, runOvrReminders } from './systems/ovr.js';
 import { handleInv, invAccess, runInvReminders } from './systems/inv.js';
 import { handleRisk, riskAccess, runRiskReminders } from './systems/risk.js';
+import { handlePdsa, handlePlan, planAccess, runPdsaReminders } from './systems/qplan.js';
+import { handleQReport } from './systems/qreport.js';
 import { handlePex, handlePublicPex, pexAccess, runPexReminders } from './systems/pex.js';
 import { handleKpis, refreshAutoKpis, snapshotReadiness } from './systems/kpis.js';
 import { handleRounds, runRoundReminders } from './systems/rounds.js';
@@ -55,7 +57,7 @@ async function handleApi(request, env, url, ctx) {
     const isOwnerUser = user ? user.id === (await env.DB.prepare('SELECT MIN(id) AS id FROM users').first()).id : false;
     return json({
       needsSetup: count.n === 0,
-      user: user ? Object.assign(userOut(user), isOwnerUser ? { is_owner: true } : {}, portalDocsOn(settings) ? { portal_docs: true } : {}, { inv: await invAccess(env, user, settings), risk: await riskAccess(env, user), pex: await pexAccess(env, user) }) : null,
+      user: user ? Object.assign(userOut(user), isOwnerUser ? { is_owner: true } : {}, portalDocsOn(settings) ? { portal_docs: true } : {}, { inv: await invAccess(env, user, settings), risk: await riskAccess(env, user), pex: await pexAccess(env, user), plan: await planAccess(env, user) }) : null,
       defaults: { near_days: settings.near_days },
       today: todayIn(settings.timezone),
       brand: brandOut(settings),
@@ -129,7 +131,7 @@ async function handleApi(request, env, url, ctx) {
       logStmt(env, { id: u.id, name: u.name }, 'login', 'user', u.id, u.name, loginFrom(request)),
     ]);
     const token = await createSession(env, u.id);
-    return json({ ok: true, user: { ...userOut(withAccess(u)), inv: await invAccess(env, u, await getSettings(env)), risk: await riskAccess(env, u), pex: await pexAccess(env, u) } }, 200, { 'set-cookie': sessionCookie(token, SESSION_DAYS * 86400) });
+    return json({ ok: true, user: { ...userOut(withAccess(u)), inv: await invAccess(env, u, await getSettings(env)), risk: await riskAccess(env, u), pex: await pexAccess(env, u), plan: await planAccess(env, u) } }, 200, { 'set-cookie': sessionCookie(token, SESSION_DAYS * 86400) });
   }
 
   // The second step: a code from the app, or a recovery code (each works once).
@@ -693,6 +695,10 @@ async function handleApi(request, env, url, ctx) {
   if (seg[0] === 'inv') return handleInv(request, env, url, seg, method, user, ctx);
   // Risk register and FMEA: quality, department heads for their own department, and risk owners.
   if (seg[0] === 'risk') return handleRisk(request, env, url, seg, method, user, ctx);
+  // The annual quality plan, improvement projects (PDSA) and the quality report.
+  if (seg[0] === 'plan') return handlePlan(request, env, url, seg, method, user, ctx);
+  if (seg[0] === 'pdsa') return handlePdsa(request, env, url, seg, method, user, ctx);
+  if (seg[0] === 'qreport' && seg.length === 1 && method === 'GET') return handleQReport(env, url, user);
   // Complaints and patient satisfaction: quality, and the person a complaint was sent to.
   if (seg[0] === 'pex') return handlePex(request, env, url, seg, method, user, ctx);
   // Quality indicators and the accreditation readiness report.
@@ -1150,6 +1156,7 @@ export default {
             console.log('inv reminders', JSON.stringify(await runInvReminders(env)));
             console.log('risk reminders', JSON.stringify(await runRiskReminders(env)));
             console.log('pex reminders', JSON.stringify(await runPexReminders(env)));
+            console.log('pdsa reminders', JSON.stringify(await runPdsaReminders(env)));
             // Indicators worked out from the system, and this month's readiness for the trend.
             const day = todayIn((await getSettings(env)).timezone);
             console.log('kpis', JSON.stringify(await refreshAutoKpis(env, day)));
