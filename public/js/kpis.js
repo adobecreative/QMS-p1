@@ -377,7 +377,8 @@ function entryForm(k) {
   );
 }
 
-function kpiDialog(k, d) {
+// done(id): called instead of re-rendering when opened from another dialog.
+export function kpiDialog(k, d, done) {
   const code = input({ type: 'text', required: true, maxlength: 20, dir: 'ltr', value: k ? k.code : '', placeholder: 'IPC-HH' });
   const nameAr = input({ type: 'text', required: true, maxlength: 200, dir: 'rtl', value: k ? k.name_ar : '' });
   const nameEn = input({ type: 'text', required: true, maxlength: 200, dir: 'ltr', value: k ? k.name_en : '' });
@@ -408,14 +409,15 @@ function kpiDialog(k, d) {
     ),
     onSubmit: async () => {
       const body = { code: code.value, name_ar: nameAr.value, name_en: nameEn.value, chapter: chapter.value, std_code: std.value, department_id: dept.value ? Number(dept.value) : null, num_ar: numAr.value, den_ar: denAr.value, unit: unit.value, direction: dir.value, target: target.value, frequency: freq.value, source: src.value, active: active.checked };
-      await api(k ? '/kpis/' + k.id : '/kpis', { method: k ? 'PUT' : 'POST', body });
+      const r = await api(k ? '/kpis/' + k.id : '/kpis', { method: k ? 'PUT' : 'POST', body });
       toast(t('capa.saved'));
-      render();
+      if (done) await done(r.id);
+      else render();
     },
   });
 }
 
-function libraryDialog(d) {
+export function libraryDialog(d, done) {
   const boxes = d.library.map((x) => {
     const c = input({ type: 'checkbox', checked: true, value: x.code });
     return h('label', { class: 'check' }, c, ' ', pick(x.name_ar, x.name_en), h('span', { class: 'muted small' }, ' · ' + (x.auto ? t('kpi.auto') : t('kpi.unit.' + x.unit))));
@@ -428,7 +430,8 @@ function libraryDialog(d) {
       const codes = boxes.map((b) => b.querySelector('input')).filter((c) => c.checked).map((c) => c.value);
       const r = await api('/kpis/library', { method: 'POST', body: { codes } });
       toast(t('kpi.library_added', { n: r.added }));
-      render();
+      if (done) await done(null);
+      else render();
     },
   });
 }
