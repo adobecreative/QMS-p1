@@ -533,6 +533,12 @@ export async function handleOvr(request, env, url, seg, method, user, ctx) {
     return json({ people: results });
   }
 
+  // GET /ovr/report?from=2026-01&to=2026-11&dept=3: totals for quality (no names, no patients).
+  if (method === 'GET' && seg[1] === 'report' && seg.length === 2) {
+    if (!role.viewer) fail(403, 'forbidden');
+    return json(await ovrReport(env, url, today));
+  }
+
   const id = /^\d+$/.test(seg[1] || '') ? Number(seg[1]) : null;
   const o = id ? await getOvr(env, id) : null;
   if (!o) fail(404, 'not_found');
@@ -885,4 +891,73 @@ export async function runOvrReminders(env) {
     rcaSent++;
   }
   return { tasks: tasks.length, late, rca: rcaSent };
+}
+
+/* --------------------------------- the report -------------------------------- */
+
+const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+const monthsBack = (m, n) => {
+  let [y, mm] = m.split('-').map(Number);
+  mm -= n;
+  while (mm < 1) {
+    mm += 12;
+    y -= 1;
+  }
+  while (mm > 12) {
+    mm -= 12;
+    y += 1;
+  }
+  return `${y}-${String(mm).padStart(2, '0')}`;
+};
+
+// Totals for a range of months (by the incident's date), for every department or one.
+export async function ovrReport(env, url, today) {
+  const now = today.slice(0, 7);
+  let to = MONTH_RE.test(url.searchParams.get('to') || '') ? url.searchParams.get('to') : now;
+  let from = MONTH_RE.test(url.searchParams.get('from') || '') ? url.searchParams.get('from') : monthsBack(to, 11);
+  if (from > to) [from, to] = [to, from];
+  if (from < monthsBack(to, 35)) from = monthsBack(to, 35);
+  const dept = toId(url.searchParams.get('dept'));
+  const where = `substr(o.occurred_at, 1, 7) >= ?1 AND substr(o.occurred_at, 1, 7) <= ?2${dept ? ' AND o.department_id = ?3' : ''}`;
+  const args = dept ? [from, to, dept] : [from, to];
+  const q = (sql) => env.DB.prepare(sql).bind(...args);
+  const H = "COALESCE(o.harm_final, o.harm)";
+  const [totals, months, harms, cats, depts, places, sources, rca, capa, departments] = await env.DB.batch([
+    q(`SELECT COUNT(*) AS n, COALESCE(SUM(${H} = 'near_miss'), 0) AS near_miss, COALESCE(SUM(${H} IN ('major', 'sentinel')), 0) AS severe,
+         COALESCE(SUM(${H} = 'sentinel'), 0) AS sentinel, COALESCE(SUM(o.patient = 1), 0) AS patient,
+         COALESCE(SUM(o.status = 'closed'), 0) AS closed,
+         COALESCE(SUM(o.status = 'closed' AND o.due IS NOT NULL AND substr(o.closed_at, 1, 10) <= o.due), 0) AS closed_on_time,
+         AVG(CASE WHEN o.status = 'closed' AND o.closed_at IS NOT NULL THEN julianday(substr(o.closed_at, 1, 10)) - julianday(substr(o.created_at, 1, 10)) END) AS avg_days,
+         COALESCE(SUM(o.status <> 'closed'), 0) AS open,
+         COALESCE(SUM(o.status <> 'closed' AND o.due IS NOT NULL AND o.due < '${today}'), 0) AS late
+       FROM ovr o WHERE ${where}`),
+    q(`SELECT substr(o.occurred_at, 1, 7) AS m, COUNT(*) AS n, COALESCE(SUM(${H} = 'near_miss'), 0) AS near_miss, COALESCE(SUM(${H} IN ('major', 'sentinel')), 0) AS severe
+       FROM ovr o WHERE ${where} GROUP BY m ORDER BY m`),
+    q(`SELECT ${H} AS k, COUNT(*) AS n FROM ovr o WHERE ${where} GROUP BY k`),
+    q(`SELECT c.id, c.name_ar, c.name_en, COUNT(*) AS n FROM ovr o JOIN ovr_categories c ON c.id = o.category_id WHERE ${where} GROUP BY c.id ORDER BY n DESC`),
+    q(`SELECT d.id, d.name_ar, d.name_en, COUNT(*) AS n, COALESCE(SUM(${H} IN ('major', 'sentinel')), 0) AS severe FROM ovr o JOIN departments d ON d.id = o.department_id WHERE ${where} GROUP BY d.id ORDER BY n DESC`),
+    q(`SELECT COALESCE(l.name_ar, o.place_text) AS name_ar, COALESCE(l.name_en, o.place_text) AS name_en, COUNT(*) AS n
+       FROM ovr o LEFT JOIN locations l ON l.id = o.location_id WHERE ${where} AND (l.id IS NOT NULL OR COALESCE(o.place_text, '') <> '')
+       GROUP BY COALESCE(CAST(l.id AS TEXT), o.place_text) ORDER BY n DESC LIMIT 10`),
+    q(`SELECT o.source AS k, COUNT(*) AS n FROM ovr o WHERE ${where} GROUP BY k`),
+    q(`SELECT COUNT(*) AS n, COALESCE(SUM(r.approved_at IS NOT NULL), 0) AS approved FROM ovr_rca r JOIN ovr o ON o.id = r.ovr_id WHERE ${where}`),
+    q(`SELECT COUNT(*) AS n, COALESCE(SUM(c.status IN ('done', 'verified')), 0) AS done FROM capa c JOIN ovr o ON o.id = c.ovr_id WHERE ${where}`),
+    env.DB.prepare('SELECT id, name_ar, name_en FROM departments ORDER BY name_ar'),
+  ]);
+  const T = totals.results[0];
+  T.avg_days = T.avg_days === null || T.avg_days === undefined ? null : Math.round(T.avg_days * 10) / 10;
+  const list = [];
+  for (let m = from; m <= to; m = monthsBack(m, -1)) list.push(m);
+  const byMonth = new Map(months.results.map((x) => [x.m, x]));
+  return {
+    from, to, dept, this_month: now,
+    totals: { ...T, rca: rca.results[0].n, rca_approved: rca.results[0].approved, capa: capa.results[0].n, capa_done: capa.results[0].done },
+    months: list.map((m) => byMonth.get(m) || { m, n: 0, near_miss: 0, severe: 0 }),
+    harms: OVR_HARMS.map((k) => ({ k, n: (harms.results.find((x) => x.k === k) || { n: 0 }).n })),
+    categories: cats.results,
+    departments: depts.results,
+    places: places.results,
+    sources: sources.results,
+    all_departments: departments.results,
+  };
 }

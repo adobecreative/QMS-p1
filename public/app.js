@@ -11,9 +11,11 @@ import { IDB, OFF, api, drawOffBar, errText, loading, personName, syncQueue, toa
 import { attendancePage, calendarPage, checkinPage, committeesPage } from './js/meetings.js';
 import { assessPage, chaptersPage, portalDocsPage, standardsPage } from './js/quality.js';
 import { capaPage } from './js/capa.js';
-import { incidentPage, ovrCatsPage, ovrListPage, ovrNewPage, ovrTrackPage } from './js/ovr.js';
+import { incidentPage, ovrCatsPage, ovrListPage, ovrNewPage, ovrReportPage, ovrTrackPage } from './js/ovr.js';
 import { kpisPage, readinessPage } from './js/kpis.js';
 import { invListPage, invSettingsPage } from './js/inv.js';
+import { fmeaPage, riskListPage } from './js/risk.js';
+import { feedbackPage, pexListPage, pexReportPage, pexSettingsPage, pexTrackPage } from './js/pex.js';
 import { compliancePage, reportsPage } from './js/reports.js';
 import { checklistsPage, duePage, roundLogPage, roundScanPage } from './js/rounds.js';
 import { categoriesPage, locationsPage, refreshBadge, requestPage, staffPage, ticketsPage, trackPage } from './js/tickets.js';
@@ -25,6 +27,8 @@ let renderSeq = 0;
 // (each with its own few numbers, only from what they may see) and the meetings coming up.
 const HOME_STATS = {
   ovr: (d) => d.ovr && (d.ovr.open !== undefined ? [[d.ovr.new, 'home.ovr_new'], [d.ovr.open, 'home.ovr_open'], [d.ovr.late, 'home.ovr_late', true]] : [[d.ovr.tasks, 'home.ovr_tasks'], [d.ovr.late, 'home.ovr_late', true], [d.ovr.mine, 'home.ovr_mine']]),
+  risk: (d) => d.risk && (d.risk.open !== undefined ? [[d.risk.open, 'home.risk_open'], [d.risk.critical, 'home.risk_critical', true], [d.risk.late, 'home.risk_late', true]] : [[d.risk.mine, 'home.risk_mine'], [d.risk.due, 'home.risk_due', true]]),
+  pex: (d) => d.pex && (d.pex.open !== undefined ? [[d.pex.new, 'home.pex_new'], [d.pex.open, 'home.pex_open'], [d.pex.late, 'home.pex_late', true]] : [[d.pex.mine, 'home.pex_mine'], [d.pex.late, 'home.pex_late', true]]),
   inv: (d) => d.inv && (d.inv.open !== undefined ? [[d.inv.open, 'home.inv_open'], [d.inv.decision, 'home.inv_decision'], [d.inv.late, 'home.inv_late', true]] : [[d.inv.questions, 'home.inv_questions', true], [d.inv.reply, 'home.inv_reply', true], [d.inv.committee, 'home.inv_committee']]),
   meetings: (d) => d.meetings && [[d.meetings.today, 'home.meetings_today'], [d.meetings.upcoming, 'home.meetings_upcoming'], [d.meetings.late, 'home.meetings_late', true]],
   quality: (d) => d.quality && [[d.quality.pct === null ? '-' : d.quality.pct + '%', 'home.quality_pct'], [d.quality.esr_gap, 'home.quality_esr', true], [d.quality.capa_open, 'home.capa_open', d.quality.capa_late > 0]],
@@ -115,7 +119,7 @@ function portalPage(root, alive) {
 
 /* --------------------------------- start -------------------------------- */
 
-const PAGES = { dashboard: dashboardPage, tickets: ticketsPage, categories: categoriesPage, locations: locationsPage, staff: staffPage, api: apiPage, documents: documentsPage, departments: departmentsPage, types: typesPage, users: usersPage, logs: logsPage, health: healthPage, settings: settingsPage, register: registerPage, pm: pmPage, devtypes: devTypesPage, contracts: contractsPage, vendors: vendorsPage, parts: partsPage, moves: movesPage, requests: requestsPage, costs: costsPage, due: duePage, rlog: roundLogPage, checklists: checklistsPage, scan: roundScanPage, overview: reportsPage, compliance: compliancePage, chapters: chaptersPage, standards: standardsPage, assess: assessPage, committees: committeesPage, calendar: calendarPage, attendance: attendancePage, pdocs: portalDocsPage, capa: capaPage, ovrs: ovrListPage, ovrnew: ovrNewPage, ovrcats: ovrCatsPage, invs: invListPage, invset: invSettingsPage, kpis: kpisPage, readiness: readinessPage };
+const PAGES = { dashboard: dashboardPage, tickets: ticketsPage, categories: categoriesPage, locations: locationsPage, staff: staffPage, api: apiPage, documents: documentsPage, departments: departmentsPage, types: typesPage, users: usersPage, logs: logsPage, health: healthPage, settings: settingsPage, register: registerPage, pm: pmPage, devtypes: devTypesPage, contracts: contractsPage, vendors: vendorsPage, parts: partsPage, moves: movesPage, requests: requestsPage, costs: costsPage, due: duePage, rlog: roundLogPage, checklists: checklistsPage, scan: roundScanPage, overview: reportsPage, compliance: compliancePage, chapters: chaptersPage, standards: standardsPage, assess: assessPage, committees: committeesPage, calendar: calendarPage, attendance: attendancePage, pdocs: portalDocsPage, capa: capaPage, ovrs: ovrListPage, ovrnew: ovrNewPage, ovrcats: ovrCatsPage, ovrrep: ovrReportPage, invs: invListPage, risks: riskListPage, fmea: fmeaPage, pexs: pexListPage, pexrep: pexReportPage, pexset: pexSettingsPage, invset: invSettingsPage, kpis: kpisPage, readiness: readinessPage };
 
 export function render() {
   const seq = ++renderSeq;
@@ -157,6 +161,15 @@ export function render() {
   if (ot || S.route === 'incident' || (location.pathname === '/incident' && !S.route)) {
     $app.replaceChildren(h('div', { class: 'auth public' }, loading()));
     (ot ? ovrTrackPage(Number(ot[1]), ot[2]) : incidentPage()).then((page) => {
+      if (seq === renderSeq) $app.replaceChildren(page);
+    });
+    return;
+  }
+  // Patients: complaint, suggestion, thanks or the survey from a place's QR code, and the tracking link.
+  const pt = /^pex-track\/(\d+)\/([0-9a-f]{32})$/.exec(S.route);
+  if (pt || S.route === 'feedback' || (location.pathname === '/feedback' && !S.route)) {
+    $app.replaceChildren(h('div', { class: 'auth public' }, loading()));
+    (pt ? pexTrackPage(Number(pt[1]), pt[2]) : feedbackPage()).then((page) => {
       if (seq === renderSeq) $app.replaceChildren(page);
     });
     return;

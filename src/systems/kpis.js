@@ -11,7 +11,7 @@ import { FRAMEWORKS, STD_SCORES, fwOn, readiness } from './quality.js';
 export const KPI_UNITS = { pct: 100, per1000: 1000, value: 1 };
 export const KPI_FREQ = ['monthly', 'quarterly'];
 // Worked out from the system: rounds on time, corrective actions closed by their date, documents in date, meetings held.
-export const KPI_AUTO = ['rounds', 'capa', 'docs', 'meetings'];
+export const KPI_AUTO = ['rounds', 'capa', 'docs', 'meetings', 'ovr_close', 'ovr_nm', 'pex_close', 'pex_sat'];
 const KPI_CODE_RE = /^[A-Za-z0-9.\-_]{1,20}$/;
 
 // Common hospital indicators to start from. Generic names only; each hospital sets its own targets.
@@ -25,12 +25,14 @@ export const KPI_LIBRARY = [
   { code: 'MM-ERR', name_ar: 'معدل أخطاء الأدوية', name_en: 'Medication errors per 1000 orders', chapter: 'MM', unit: 'per1000', direction: 'down', target: 1, num_ar: 'الأخطاء المبلغ عنها', den_ar: 'الوصفات' },
   { code: 'QM-ID', name_ar: 'الالتزام بالتحقق من هوية المريض', name_en: 'Patient identification compliance', chapter: 'QM', unit: 'pct', direction: 'up', target: 95, num_ar: 'الحالات الملتزمة', den_ar: 'الحالات المرصودة' },
   { code: 'QM-SSC', name_ar: 'الالتزام بقائمة الجراحة الآمنة', name_en: 'Surgical safety checklist compliance', chapter: 'QM', unit: 'pct', direction: 'up', target: 95, num_ar: 'العمليات بقائمة مكتملة', den_ar: 'العمليات' },
-  { code: 'QM-SAT', name_ar: 'رضا المرضى', name_en: 'Patient satisfaction', chapter: 'QM', unit: 'pct', direction: 'up', target: 85, num_ar: 'الإجابات الراضية', den_ar: 'كل الإجابات' },
-  { code: 'QM-CMP', name_ar: 'إغلاق الشكاوى في المدة المحددة', name_en: 'Complaints closed on time', chapter: 'QM', unit: 'pct', direction: 'up', target: 90, num_ar: 'الشكاوى المغلقة في المدة', den_ar: 'الشكاوى المستحقة' },
+  { code: 'QM-SAT', name_ar: 'رضا المرضى', name_en: 'Patient satisfaction', chapter: 'QM', unit: 'pct', direction: 'up', target: 85, num_ar: 'الإجابات الراضية', den_ar: 'كل الإجابات', auto: 'pex_sat' },
+  { code: 'QM-CMP', name_ar: 'إغلاق الشكاوى في المدة المحددة', name_en: 'Complaints closed on time', chapter: 'QM', unit: 'pct', direction: 'up', target: 90, num_ar: 'الشكاوى المغلقة في المدة', den_ar: 'الشكاوى المستحقة', auto: 'pex_close' },
   { code: 'QM-READM', name_ar: 'إعادة الدخول خلال 30 يومًا', name_en: 'Readmissions within 30 days', chapter: 'QM', unit: 'pct', direction: 'down', target: 5, num_ar: 'حالات إعادة الدخول', den_ar: 'حالات الخروج' },
   { code: 'QM-ROUNDS', name_ar: 'جولات الجودة في موعدها', name_en: 'Quality rounds on time', chapter: 'QM', unit: 'pct', direction: 'up', target: 90, auto: 'rounds' },
   { code: 'QM-CAPA', name_ar: 'إغلاق الإجراءات التصحيحية في موعدها', name_en: 'Corrective actions closed on time', chapter: 'QM', unit: 'pct', direction: 'up', target: 85, auto: 'capa' },
   { code: 'QM-DOCS', name_ar: 'الوثائق السارية', name_en: 'Documents in date', chapter: 'QM', unit: 'pct', direction: 'up', target: 95, auto: 'docs' },
+  { code: 'QM-OVR', name_ar: 'إغلاق بلاغات OVR في موعدها', name_en: 'OVR reports closed on time', chapter: 'QM', unit: 'pct', direction: 'up', target: 85, auto: 'ovr_close' },
+  { code: 'QM-NM', name_ar: 'نسبة قريب من الخطأ في بلاغات OVR', name_en: 'Near misses among OVR reports', chapter: 'QM', unit: 'pct', direction: 'up', target: 30, auto: 'ovr_nm' },
   { code: 'LD-MTG', name_ar: 'اجتماعات اللجان المنعقدة في موعدها', name_en: 'Committee meetings held', chapter: 'LD', unit: 'pct', direction: 'up', target: 90, auto: 'meetings' },
 ];
 
@@ -74,6 +76,29 @@ async function autoFigures(env, auto, period, today) {
   if (auto === 'meetings') {
     const r = await env.DB.prepare(
       "SELECT COUNT(*) AS den, COALESCE(SUM(status = 'held'), 0) AS num FROM committee_sessions WHERE date >= ? AND date <= ? AND status <> 'cancelled' AND date_tbd = 0",
+    ).bind(from, to).first();
+    return r.den ? r : null;
+  }
+  if (auto === 'ovr_close') {
+    // Reports due in the period (up to today): closed by their date.
+    const r = await env.DB.prepare(
+      "SELECT COUNT(*) AS den, COALESCE(SUM(status = 'closed' AND substr(closed_at, 1, 10) <= due), 0) AS num FROM ovr WHERE due >= ? AND due <= ?",
+    ).bind(from, to).first();
+    return r.den ? r : null;
+  }
+  if (auto === 'pex_close') {
+    const r = await env.DB.prepare(
+      "SELECT COUNT(*) AS den, COALESCE(SUM(status = 'closed' AND substr(closed_at, 1, 10) <= close_due), 0) AS num FROM pex WHERE kind = 'complaint' AND close_due >= ? AND close_due <= ?",
+    ).bind(from, to).first();
+    return r.den ? r : null;
+  }
+  if (auto === 'pex_sat') {
+    const r = await env.DB.prepare('SELECT COALESCE(SUM(n), 0) AS den, COALESCE(SUM(satisfied), 0) AS num FROM survey_responses WHERE day >= ? AND day <= ?').bind(from, to).first();
+    return r.den ? r : null;
+  }
+  if (auto === 'ovr_nm') {
+    const r = await env.DB.prepare(
+      "SELECT COUNT(*) AS den, COALESCE(SUM(COALESCE(harm_final, harm) = 'near_miss'), 0) AS num FROM ovr WHERE substr(occurred_at, 1, 10) >= ? AND substr(occurred_at, 1, 10) <= ?",
     ).bind(from, to).first();
     return r.den ? r : null;
   }

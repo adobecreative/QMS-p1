@@ -114,6 +114,9 @@ export const DEFAULT_SETTINGS = {
   ovr_absence_after: '2',
   // Investigations: who approves the decision (the human resources manager; empty: the account in ovr_hr_user),
   // the human resources staff who run them with quality (",3,8,"), and the working days for each stage.
+  // Complaints: working days for a reply, and days to close.
+  pex_reply_days: '3',
+  pex_close_days: '14',
   inv_approver: '',
   inv_staff: '',
   inv_answer_days: '2',

@@ -2352,6 +2352,24 @@ a.app-card:hover {
   background: var(--accent-soft);
   border-radius: 4px 4px 0 0;
 }
+.rep-trend .rep-columns {
+  overflow-x: auto;
+}
+@media (max-width: 600px) {
+  .rep-trend .rep-columns {
+    gap: 6px;
+    padding-inline: 10px;
+  }
+  .rep-trend .rep-col {
+    min-width: 34px;
+  }
+}
+.rep-none {
+  padding: 6px 18px 14px;
+}
+.rep-col-severe {
+  border-top: 3px solid var(--danger, #c0392b);
+}
 .rep-col-now .rep-col-bar {
   background: var(--accent);
 }
@@ -4313,4 +4331,193 @@ tr.is-off td {
     grid-template-columns: 1fr;
     gap: 2px;
   }
+}
+
+/* Risk register and FMEA */
+.risk-low {
+  background: var(--green-bg);
+  color: var(--green-ink);
+}
+.risk-medium {
+  background: var(--yellow-bg);
+  color: var(--yellow-ink);
+}
+.risk-high {
+  background: #f7dcc2;
+  color: #7a3d10;
+}
+.risk-critical {
+  background: var(--red-bg);
+  color: var(--red-ink);
+}
+.risk-top {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+  align-items: start;
+}
+.heat-wrap {
+  display: grid;
+  grid-template-columns: auto minmax(0, 360px);
+  justify-content: center;
+  grid-template-rows: 1fr auto;
+  gap: 4px 8px;
+  padding: 6px 18px 16px;
+}
+.heat-label-y {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  align-self: center;
+}
+.heat-label-x {
+  grid-column: 2;
+  text-align: center;
+}
+.heat {
+  display: grid;
+  grid-template-columns: 18px repeat(5, minmax(0, 1fr));
+  gap: 4px;
+  max-width: 360px;
+  width: 100%;
+  justify-self: center;
+}
+.heat-axis {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.heat-cell {
+  aspect-ratio: 1.4;
+  border: 0;
+  border-radius: 6px;
+  font: inherit;
+  font-weight: 700;
+  font-size: 15px;
+  cursor: pointer;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.heat-cell.is-empty {
+  opacity: 0.45;
+  cursor: default;
+}
+.risk-suggest {
+  list-style: none;
+  margin: 0;
+  padding: 4px 18px 14px;
+  display: grid;
+  gap: 8px;
+}
+.risk-suggest li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.risk-history {
+  list-style: none;
+  margin: 0;
+  padding: 6px 18px 14px;
+  display: grid;
+  gap: 10px;
+}
+.risk-now {
+  min-height: 28px;
+}
+.fmea-step {
+  display: grid;
+  gap: 12px;
+}
+.fmea-step-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.fmea-step-head input {
+  flex: 1;
+}
+.fmea-step-n {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-soft);
+  font-weight: 700;
+}
+.fmea-mode {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+.fmea-mode-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.fmea-mode-head .btn {
+  margin-inline-start: auto;
+}
+.fmea-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
+}
+.fmea-sod {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.btn.is-dirty {
+  box-shadow: 0 0 0 3px var(--gold);
+}
+
+/* Patient experience: the survey's faces */
+.svy-q {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.svy-q legend {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.svy-scale {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+.svy-opt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 24px;
+  text-align: center;
+}
+.svy-opt .small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.svy-opt input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.svy-opt:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--gold-tint);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.svy-opt:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }

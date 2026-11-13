@@ -8,7 +8,7 @@ import { escHtml, nowIso } from './util.js';
 // Password hashes, sessions and the mail and push keys are never included.
 export async function fullBackupData(env) {
   const all = (sql) => env.DB.prepare(sql).all().then((r) => r.results);
-  const [departments, docTypes, users, files, acks, logs, settingsRows, staff, categories, locations, tickets, ticketEvents, assets, pmPlans, pmDone, assetTypes, roundForms, roundItems, roundPlaces, rounds, roundAnswers, vendors, vendorDocs, contracts, contractAssets, contractVisits, stores, parts, stock, stockMoves, partRequests, stdChapters, standards, stdAssessments, stdElements, fmsSnapshots, committees, committeeMembers, committeeFiles, committeeSessions, sessionAttendance, sessionItems, portalDocs, capa, kpis, kpiValues, stdSnapshots, stdActivities, ovrCats, ovrs, ovrReporters, ovrTasks, ovrSteps, ovrRca, invs, invPeople, invQuestions, invFiles, invSteps, invPenalties] = await Promise.all([
+  const [departments, docTypes, users, files, acks, logs, settingsRows, staff, categories, locations, tickets, ticketEvents, assets, pmPlans, pmDone, assetTypes, roundForms, roundItems, roundPlaces, rounds, roundAnswers, vendors, vendorDocs, contracts, contractAssets, contractVisits, stores, parts, stock, stockMoves, partRequests, stdChapters, standards, stdAssessments, stdElements, fmsSnapshots, committees, committeeMembers, committeeFiles, committeeSessions, sessionAttendance, sessionItems, portalDocs, capa, kpis, kpiValues, stdSnapshots, stdActivities, ovrCats, ovrs, ovrReporters, ovrTasks, ovrSteps, ovrRca, invs, invPeople, invQuestions, invFiles, invSteps, invPenalties, risks, riskReviews, fmeas, pexRows, surveyQs, surveyRs] = await Promise.all([
     all('SELECT * FROM departments ORDER BY id'),
     all('SELECT * FROM doc_types ORDER BY id'),
     all('SELECT id, name, name_en, email, phone, role, docs_role, desk_role, assets_role, rounds_role, quality_role, meetings_role, department_id, job_title, active, created_at FROM users ORDER BY id'),
@@ -71,6 +71,12 @@ export async function fullBackupData(env) {
     all('SELECT * FROM inv_files ORDER BY id'),
     all('SELECT * FROM inv_steps ORDER BY id'),
     all('SELECT * FROM inv_penalties ORDER BY id'),
+    all('SELECT * FROM risks ORDER BY id'),
+    all('SELECT * FROM risk_reviews ORDER BY id'),
+    all('SELECT * FROM fmea ORDER BY id'),
+    all('SELECT * FROM pex ORDER BY id'),
+    all('SELECT * FROM survey_questions ORDER BY id'),
+    all('SELECT * FROM survey_responses ORDER BY id'),
   ]);
   return {
     departments, doc_types: docTypes, users, files, acks, logs, settings: Object.fromEntries(settingsRows.map((r) => [r.key, r.value])),
@@ -98,6 +104,12 @@ export async function fullBackupData(env) {
     inv_files: invFiles,
     inv_steps: invSteps,
     inv_penalties: invPenalties,
+    risks,
+    risk_reviews: riskReviews,
+    fmea: fmeas,
+    pex: pexRows,
+    survey_questions: surveyQs,
+    survey_responses: surveyRs,
   };
 }
 

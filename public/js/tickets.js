@@ -223,16 +223,13 @@ export async function requestPage() {
     report.set('report', '1');
     const desk = !OFF_APPS.includes('desk');
     const incident = '/incident?loc=' + encodeURIComponent(code);
-    if (!desk && !meta.location.rounds) {
-      location.replace(incident);
-      return publicShell(loading());
-    }
     return publicShell(
       h('h1', {}, pick(meta.location.name_ar, meta.location.name_en)),
       h(
         'div',
         { class: 'qr-choices' },
         h('a', { class: 'qr-choice qr-choice-main', href: incident }, icon('alert', 28), h('span', { class: 'strong' }, t('qrc.incident')), h('span', { class: 'small' }, t('qrc.incident_hint'))),
+        h('a', { class: 'qr-choice', href: '/feedback?loc=' + encodeURIComponent(code) }, icon('users', 28), h('span', { class: 'strong' }, t('qrc.patient')), h('span', { class: 'small' }, t('qrc.patient_hint'))),
         desk ? h('a', { class: 'qr-choice', href: '/request?' + report }, icon('desk', 28), h('span', { class: 'strong' }, t('qrc.report')), h('span', { class: 'small' }, t('qrc.report_place_hint'))) : null,
         meta.location.rounds ? h('a', { class: 'qr-choice', href: '/#/rounds/scan/' + encodeURIComponent(code) }, icon('clipboard', 28), h('span', { class: 'strong' }, t('qrc.round')), h('span', { class: 'small' }, t('qrc.round_hint'))) : null,
       ),

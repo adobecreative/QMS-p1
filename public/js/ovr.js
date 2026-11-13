@@ -3,7 +3,7 @@
 import { render } from '../app.js';
 import { kpiRow } from './assets.js';
 import { S, h, icon, store, t } from './core.js';
-import { link, setUrl } from './layout.js';
+import { link, printHead, setUrl } from './layout.js';
 import { api, checkField, dateEl, errText, errorBox, field, input, openDialog, select, toast } from './offline.js';
 import { fmtTime, pick, publicShell, shrinkPhoto, simpleDelete } from './tickets.js';
 
@@ -792,5 +792,120 @@ function rcaPanel(o, rca, reload) {
           rca.can_approve ? h('button', { type: 'button', class: 'btn btn-primary', onclick: run(async () => (edit ? await save() : null, await api('/ovr/' + o.id + '/rca/approve', { method: 'POST' })), 'rca.approved_ok') }, icon('check'), t('rca.approve')) : '',
         )
       : '',
+  );
+}
+
+/* -------------------------------- the report -------------------------------- */
+
+// ovr/ovrrep: totals for a range of months and one department or all; never a name or a patient.
+export async function ovrReportPage(root, _param, alive) {
+  const f = S.ovrRep || {};
+  let d;
+  try {
+    const q = new URLSearchParams();
+    if (f.from) q.set('from', f.from);
+    if (f.to) q.set('to', f.to);
+    if (f.dept) q.set('dept', f.dept);
+    d = await api('/ovr/report' + (q.toString() ? '?' + q : ''));
+  } catch (e) {
+    if (alive()) root.replaceChildren(errorBox(e));
+    return;
+  }
+  if (!alive()) return;
+  const T = d.totals;
+  const monthName = (m, short) => {
+    try {
+      return new Intl.DateTimeFormat(S.lang === 'ar' ? 'ar-EG-u-nu-latn' : 'en-GB', { month: short ? 'short' : 'long', year: short ? '2-digit' : 'numeric', timeZone: 'UTC' }).format(new Date(m + '-01T00:00:00Z'));
+    } catch {
+      return m;
+    }
+  };
+  const pct = (a, b) => (b ? Math.round((a / b) * 100) + '%' : '-');
+  // The last three years of months, newest first.
+  const months = [];
+  for (let m = d.this_month, i = 0; i < 36; i++) {
+    months.push(m);
+    const [y, mm] = m.split('-').map(Number);
+    m = mm === 1 ? `${y - 1}-12` : `${y}-${String(mm - 1).padStart(2, '0')}`;
+  }
+  const set = (k, v) => {
+    S.ovrRep = { from: d.from, to: d.to, dept: d.dept || '', [k]: v };
+    render();
+  };
+  const fromSel = select(months.map((m) => [m, monthName(m)]), d.from, { 'aria-label': t('ovr.rep_from') });
+  const toSel = select(months.map((m) => [m, monthName(m)]), d.to, { 'aria-label': t('ovr.rep_to') });
+  const deptSel = select([['', t('ovr.rep_all_depts')], ...d.all_departments.map((x) => [x.id, pick(x.name_ar, x.name_en)])], d.dept || '', { 'aria-label': t('user.department') });
+  fromSel.addEventListener('change', () => set('from', fromSel.value));
+  toSel.addEventListener('change', () => set('to', toSel.value));
+  deptSel.addEventListener('change', () => set('dept', deptSel.value));
+  const top = (title, rows, label) =>
+    h(
+      'div',
+      { class: 'panel rep-top' },
+      h('h3', {}, t(title)),
+      rows.length && rows.some((r) => r.n)
+        ? h(
+            'ol',
+            {},
+            rows.map((r) => {
+              const max = Math.max(1, ...rows.map((x) => x.n));
+              return h('li', {}, h('span', { class: 'rep-top-name' }, label ? label(r) : pick(r.name_ar, r.name_en)), h('span', { class: 'rep-bar', 'aria-hidden': 'true' }, h('span', { style: `width:${r.n ? Math.max(4, Math.round((r.n / max) * 100)) : 0}%` })), h('span', { class: 'mono', dir: 'ltr' }, String(r.n)));
+            }),
+          )
+        : h('p', { class: 'muted small rep-none' }, t('rep.none')),
+    );
+  const max = Math.max(1, ...d.months.map((x) => x.n));
+  const trend = h(
+    'div',
+    { class: 'panel rep-trend' },
+    h('h3', {}, t('ovr.rep_trend')),
+    h(
+      'div',
+      { class: 'rep-columns', role: 'list' },
+      d.months.map((x) =>
+        h(
+          'div',
+          { class: 'rep-col', role: 'listitem', 'aria-label': monthName(x.m) + ': ' + x.n },
+          h('span', { class: 'mono small', dir: 'ltr' }, String(x.n)),
+          h('span', { class: 'rep-col-bar' + (x.severe ? ' rep-col-severe' : ''), style: `height:${x.n ? Math.max(4, Math.round((x.n / max) * 120)) : 2}px` }),
+          h('span', { class: 'small muted' }, monthName(x.m, true)),
+        ),
+      ),
+    ),
+  );
+  // On a phone the newest month shows first; older ones are a swipe away.
+  requestAnimationFrame(() => {
+    const cols = trend.querySelector('.rep-columns');
+    if (cols) cols.scrollLeft = (getComputedStyle(cols).direction === 'rtl' ? -1 : 1) * cols.scrollWidth;
+  });
+  const range = d.from === d.to ? monthName(d.from) : monthName(d.from) + ' - ' + monthName(d.to);
+  root.replaceChildren(
+    printHead(),
+    h(
+      'div',
+      { class: 'page-head' },
+      h('div', {}, h('h1', {}, t('nav.ovrrep')), h('p', { class: 'muted' }, range, d.dept ? ' · ' + pick(...(() => { const x = d.all_departments.find((y) => y.id === d.dept); return x ? [x.name_ar, x.name_en] : ['', '']; })()) : '')),
+      h('div', { class: 'actions no-print' }, fromSel, toSel, deptSel, h('button', { type: 'button', class: 'btn', onclick: () => window.print() }, icon('file'), t('rep.print'))),
+    ),
+    kpiRow([
+      ['ovr.rep_total', T.n],
+      ['ovr.rep_nm', pct(T.near_miss, T.n)],
+      ['ovr.rep_severe', T.severe],
+      ['ovr.rep_ontime', pct(T.closed_on_time, T.closed)],
+      ['ovr.rep_days', T.avg_days === null ? '-' : T.avg_days],
+      ['ovr.rep_late', T.late],
+      ['ovr.rep_rca', T.rca_approved + ' / ' + T.rca],
+      ['ovr.rep_capa', T.capa_done + ' / ' + T.capa],
+    ]),
+    trend,
+    h(
+      'div',
+      { class: 'rep-tops' },
+      top('ovr.rep_by_harm', d.harms, (r) => t('ovr.harm.' + r.k)),
+      top('ovr.rep_by_cat', d.categories),
+      d.dept ? '' : top('ovr.rep_by_dept', d.departments),
+      top('ovr.rep_by_place', d.places),
+      top('ovr.rep_by_src', d.sources, (r) => t('ovr.rep_src.' + r.k)),
+    ),
   );
 }

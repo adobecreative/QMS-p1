@@ -8,7 +8,7 @@ import { meter, scoreChip } from './quality.js';
 import { pick, simpleDelete } from './tickets.js';
 
 const UNITS = ['pct', 'per1000', 'value'];
-const SOURCES = ['manual', 'rounds', 'capa', 'docs', 'meetings'];
+const SOURCES = ['manual', 'rounds', 'capa', 'docs', 'meetings', 'ovr_close', 'ovr_nm', 'pex_close', 'pex_sat'];
 
 /* --------------------------------- helpers -------------------------------- */
 
