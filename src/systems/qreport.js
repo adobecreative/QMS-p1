@@ -10,6 +10,8 @@ import { ovrReport } from './ovr.js';
 import { yearGoals } from './qplan.js';
 import { FRAMEWORKS, fwOn } from './quality.js';
 import { riskRole } from './risk.js';
+import { auditSnapshot } from './audit.js';
+import { surveySnapshot } from './survey.js';
 
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 const YEAR_RE = /^\d{4}$/;
@@ -55,7 +57,7 @@ export async function qualityReport(env, settings, period) {
   const quarters = new Set();
   for (let m = from; m <= to; m = m.slice(5) === '12' ? `${Number(m.slice(0, 4)) + 1}-01` : `${m.slice(0, 4)}-${String(Number(m.slice(5)) + 1).padStart(2, '0')}`) quarters.add(quarterOf(m));
 
-  const [cur, prev, ovr, kpiRows, kpiVals, nowFigures, snaps, goals] = await Promise.all([
+  const [cur, prev, ovr, kpiRows, kpiVals, nowFigures, snaps, goals, mock, audits] = await Promise.all([
     headline(env, from, to, today),
     headline(env, prevFrom, prevTo, today),
     ovrReport(env, new URL(`http://x/?from=${from}&to=${to}`), today),
@@ -76,6 +78,8 @@ export async function qualityReport(env, settings, period) {
     ]),
     env.DB.prepare('SELECT month, framework, data FROM std_snapshots WHERE month <= ? ORDER BY month DESC').bind(to).all(),
     yearGoals(env, Number(year), today),
+    surveySnapshot(env, from + '-01', to + '-31'),
+    auditSnapshot(env, from + '-01', to + '-31'),
   ]);
 
   // Indicators: the latest value inside the period.
@@ -115,6 +119,8 @@ export async function qualityReport(env, settings, period) {
     pdsa: { ...pdsaNow[0], cycles_late: cyclesLate[0].n, list: projects },
     goals: { year: Number(year), n: goals.length, achieved: goalCount('achieved'), on_track: goalCount('on_track'), behind: goalCount('behind'), late: goalCount('late'), dropped: goalCount('dropped') },
     readiness: ready,
+    mock,
+    audits,
   };
 }
 
@@ -154,6 +160,7 @@ const TEXT = {
     pdsa: 'مشاريع التحسين', pdsa_active: 'نشطة', pdsa_done: 'اكتملت', pdsa_late: 'دورات متأخرة',
     goals: (y) => `خطة الجودة ${y}`, g_achieved: 'تحققت', g_on_track: 'على المسار', g_behind: 'متأخرة عن المستهدف', g_late: 'فات موعدها',
     readiness: 'الجاهزية للاعتماد',
+    mock: 'آخر مسح تجريبي', tracers: 'المتتبعات', compliance: 'الالتزام', audits: 'التدقيق السريري',
     open: 'فتح التقرير كاملًا',
     pdf: 'للنسخة PDF: افتح التقرير واضغط "طباعة" ثم اختر "حفظ بصيغة PDF".',
     footer: (app) => `رسالة شهرية تلقائية من ${app}.`,
@@ -174,6 +181,7 @@ const TEXT = {
     pdsa: 'Improvement projects', pdsa_active: 'Active', pdsa_done: 'Completed', pdsa_late: 'Cycles late',
     goals: (y) => `Quality plan ${y}`, g_achieved: 'Achieved', g_on_track: 'On track', g_behind: 'Behind target', g_late: 'Past due',
     readiness: 'Accreditation readiness',
+    mock: 'Last mock survey', tracers: 'Tracers', compliance: 'Compliance', audits: 'Clinical audits',
     open: 'Open the full report',
     pdf: 'For a PDF: open the report, press "Print" and choose "Save as PDF".',
     footer: (app) => `Monthly automatic message from ${app}.`,
@@ -206,6 +214,8 @@ export function qualityMail(settings, d) {
       ${table(L.pdsa, null, [row(L.pdsa_active, d.pdsa.active), row(L.pdsa_done, d.pdsa.done), row(L.pdsa_late, d.pdsa.cycles_late)])}
       ${d.goals.n ? table(L.goals(d.goals.year), null, [row(L.g_achieved, d.goals.achieved + ' / ' + d.goals.n), row(L.g_on_track, d.goals.on_track), row(L.g_behind, d.goals.behind), row(L.g_late, d.goals.late)]) : ''}
       ${d.readiness.length ? table(L.readiness, null, d.readiness.map((r) => row(name(r), r.pct === null ? '-' : r.pct + '%'))) : ''}
+      ${d.mock.survey || d.mock.tracers.n ? table(L.mock, null, [...(d.mock.survey ? [row(d.mock.survey.code + ' ' + d.mock.survey.title, d.mock.survey.pct === null ? '-' : d.mock.survey.pct + '%')] : []), ...(d.mock.tracers.n ? [row(L.tracers, d.mock.tracers.n + (d.mock.tracers.pct === null ? '' : ' · ' + d.mock.tracers.pct + '%'))] : [])]) : ''}
+      ${d.audits.length ? table(L.audits, null, d.audits.map((a) => row(a.code + ' ' + a.title, a.pct === null ? '-' : a.pct + '%'))) : ''}
       <p style="margin:22px 0 6px"><a href="${escHtml(`${s.site_url || ''}/#/reports/qreport/${d.period}`)}" style="display:inline-block;background:#8a6420;color:#ffffff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:bold">${escHtml(L.open)}</a></p>
       <p style="margin:0;font-size:12.5px;color:#6e6553">${escHtml(L.pdf)}</p>
       <p style="margin:16px 0 0;font-size:12px;color:#6e6553">${escHtml(L.footer(appName(s, lang)))}</p></div>`;

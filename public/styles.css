@@ -4595,3 +4595,80 @@ tr.is-off td {
     grid-template-columns: 1fr;
   }
 }
+
+/* Mock surveys, tracers and clinical audits */
+.mock-chapters {
+  display: grid;
+  gap: 6px;
+  max-height: 46vh;
+  overflow: auto;
+  padding: 2px;
+}
+.mock-ch-row {
+  display: grid;
+  grid-template-columns: 1fr minmax(120px, 200px);
+  gap: 8px;
+  align-items: center;
+}
+.mock-gaps {
+  margin: 0;
+  padding: 8px 16px 14px;
+  display: grid;
+  gap: 8px;
+  list-style: none;
+}
+.tr-station {
+  font-size: 1rem;
+  margin: 0 0 8px;
+}
+.tr-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+.tr-add .field {
+  flex: 1 1 220px;
+  margin: 0;
+}
+.qa-el-assess.is-need .qa-act-note {
+  border-color: var(--red);
+  background: var(--red-bg);
+}
+.aud-crit,
+.aud-case {
+  margin: 0;
+  padding-inline-start: 22px;
+  display: grid;
+  gap: 8px;
+}
+.aud-crit li {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.aud-crit li > input[type='text'] {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.aud-target {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+.aud-target input {
+  width: 64px;
+}
+.aud-case-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px 12px;
+}
+@media (max-width: 560px) {
+  .mock-ch-row {
+    grid-template-columns: 1fr;
+  }
+}

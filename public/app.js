@@ -16,6 +16,7 @@ import { kpisPage, readinessPage } from './js/kpis.js';
 import { invListPage, invSettingsPage } from './js/inv.js';
 import { fmeaPage, riskListPage } from './js/risk.js';
 import { pdsaPage, qplanPage, qreportPage } from './js/qplan.js';
+import { auditsPage, mockPage } from './js/survey.js';
 import { feedbackPage, pexListPage, pexReportPage, pexSettingsPage, pexTrackPage } from './js/pex.js';
 import { compliancePage, reportsPage } from './js/reports.js';
 import { checklistsPage, duePage, roundLogPage, roundScanPage } from './js/rounds.js';
@@ -120,7 +121,7 @@ function portalPage(root, alive) {
 
 /* --------------------------------- start -------------------------------- */
 
-const PAGES = { dashboard: dashboardPage, tickets: ticketsPage, categories: categoriesPage, locations: locationsPage, staff: staffPage, api: apiPage, documents: documentsPage, departments: departmentsPage, types: typesPage, users: usersPage, logs: logsPage, health: healthPage, settings: settingsPage, register: registerPage, pm: pmPage, devtypes: devTypesPage, contracts: contractsPage, vendors: vendorsPage, parts: partsPage, moves: movesPage, requests: requestsPage, costs: costsPage, due: duePage, rlog: roundLogPage, checklists: checklistsPage, scan: roundScanPage, overview: reportsPage, compliance: compliancePage, chapters: chaptersPage, standards: standardsPage, assess: assessPage, committees: committeesPage, calendar: calendarPage, attendance: attendancePage, pdocs: portalDocsPage, capa: capaPage, ovrs: ovrListPage, ovrnew: ovrNewPage, ovrcats: ovrCatsPage, ovrrep: ovrReportPage, invs: invListPage, risks: riskListPage, fmea: fmeaPage, pexs: pexListPage, pexrep: pexReportPage, pexset: pexSettingsPage, invset: invSettingsPage, kpis: kpisPage, readiness: readinessPage, qplan: qplanPage, pdsa: pdsaPage, qreport: qreportPage };
+const PAGES = { dashboard: dashboardPage, tickets: ticketsPage, categories: categoriesPage, locations: locationsPage, staff: staffPage, api: apiPage, documents: documentsPage, departments: departmentsPage, types: typesPage, users: usersPage, logs: logsPage, health: healthPage, settings: settingsPage, register: registerPage, pm: pmPage, devtypes: devTypesPage, contracts: contractsPage, vendors: vendorsPage, parts: partsPage, moves: movesPage, requests: requestsPage, costs: costsPage, due: duePage, rlog: roundLogPage, checklists: checklistsPage, scan: roundScanPage, overview: reportsPage, compliance: compliancePage, chapters: chaptersPage, standards: standardsPage, assess: assessPage, committees: committeesPage, calendar: calendarPage, attendance: attendancePage, pdocs: portalDocsPage, capa: capaPage, ovrs: ovrListPage, ovrnew: ovrNewPage, ovrcats: ovrCatsPage, ovrrep: ovrReportPage, invs: invListPage, risks: riskListPage, fmea: fmeaPage, pexs: pexListPage, pexrep: pexReportPage, pexset: pexSettingsPage, invset: invSettingsPage, kpis: kpisPage, readiness: readinessPage, qplan: qplanPage, pdsa: pdsaPage, qreport: qreportPage, mock: mockPage, audits: auditsPage };
 
 export function render() {
   const seq = ++renderSeq;

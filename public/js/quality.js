@@ -589,15 +589,20 @@ function elBody(s, e) {
   ];
 }
 
-export async function assessPage(root, param, alive) {
+// mock: { id, chapter } scores a chapter inside a mock survey; its scores are kept with the survey.
+export async function assessPage(root, param, alive, _app, mock) {
   const raw = String(param || '');
   const m = /^(cbahi|jci|chi)(?:\.(.*))?$/.exec(raw);
-  const fw = m ? m[1] : 'cbahi';
-  const ch = String(m ? m[2] || '' : raw).toUpperCase();
+  let fw = m ? m[1] : 'cbahi';
+  const ch = mock ? mock.chapter : String(m ? m[2] || '' : raw).toUpperCase();
   if (!ch) return navigate('quality/chapters/' + fw);
   let d, list;
   try {
-    [d, list] = await Promise.all([api('/quality?' + fwQuery(fw)), api('/standards?' + fwQuery(fw) + '&chapter=' + encodeURIComponent(ch))]);
+    if (mock) {
+      list = await api('/mock/' + mock.id + '/standards?chapter=' + encodeURIComponent(ch));
+      fw = list.framework;
+      d = await api('/quality?' + fwQuery(fw));
+    } else [d, list] = await Promise.all([api('/quality?' + fwQuery(fw)), api('/standards?' + fwQuery(fw) + '&chapter=' + encodeURIComponent(ch))]);
   } catch (e) {
     if (alive()) root.replaceChildren(errorBox(e));
     return;
@@ -610,11 +615,13 @@ export async function assessPage(root, param, alive) {
   const stds = list.standards;
   // Every element works from a list of activities; one not scored by activity yet shows a single one,
   // carrying the element's own score, until it is saved.
+  // In a survey a standard with no elements is scored as one line of its own.
+  if (mock) for (const s of stds) if (!s.elements.length) s.elements = [{ id: 0, num: '', text: '', pseudo: true, activities: s.own_acts || [], score: s.score, note: s.note }];
   for (const s of stds)
     for (const e of s.elements)
       e.acts = e.activities.length ? e.activities.map((a) => ({ ...a, note: a.note || '' })) : [{ id: null, kind: guessKind(e), score: e.score || null, note: e.note || '' }];
   const mk = marks(fw);
-  const key = fw + '.' + ch;
+  const key = (mock ? 'm' + mock.id + '.' : '') + fw + '.' + ch;
   const pos = (S.qaPos = S.qaPos || {});
   if (S.qaGo) {
     const i = stds.findIndex((s) => s.code === S.qaGo);
@@ -668,7 +675,10 @@ export async function assessPage(root, param, alive) {
       status.textContent = t('qa.saving');
       status.className = 'qa-save small muted';
       try {
-        const r = await api('/standards/' + s.id + '/elements/' + e.id, { method: 'PUT', body: { activities: snap.map((a) => ({ id: a.id, kind: a.kind, score: a.score, note: a.note })) } });
+        const activities = snap.map((a) => ({ id: a.id, kind: a.kind, score: a.score, note: a.note }));
+        const r = mock
+          ? await api('/mock/' + mock.id + '/score', { method: 'PUT', body: { standard_id: s.id, element_id: e.id, activities } })
+          : await api('/standards/' + s.id + '/elements/' + e.id, { method: 'PUT', body: { activities } });
         r.activities.forEach((x, i) => (snap[i].id = x.id));
         e.score = r.element.score;
         s.score = r.score;
@@ -770,8 +780,8 @@ export async function assessPage(root, param, alive) {
     return h(
       'li',
       { class: 'qa-el-assess' },
-      h('div', { class: 'qa-el-head' }, h('span', { class: 'mono small strong qa-el-code', dir: 'ltr' }, elLabel(s, e)), elBadges(e), status),
-      elBody(s, e),
+      h('div', { class: 'qa-el-head' }, h('span', { class: 'mono small strong qa-el-code', dir: 'ltr' }, e.pseudo ? s.code : elLabel(s, e)), e.pseudo ? null : elBadges(e), status),
+      e.pseudo ? null : elBody(s, e),
       box,
       add,
     );
@@ -814,7 +824,7 @@ export async function assessPage(root, param, alive) {
     );
   };
   root.replaceChildren(
-    h('div', { class: 'page-head' }, h('div', {}, link(stdLink(fw, ch), { class: 'back-link' }, title), h('h1', {}, t('qa.assess_chapter')))),
+    h('div', { class: 'page-head' }, h('div', {}, mock ? link('quality/mock/' + mock.id, { class: 'back-link' }, list.survey.code + ' · ' + list.survey.title) : link(stdLink(fw, ch), { class: 'back-link' }, title), h('h1', {}, mock ? title : t('qa.assess_chapter')))),
     h('div', { class: 'qa-assess-top' }, tally, pager),
     page,
   );
