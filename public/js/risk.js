@@ -9,7 +9,7 @@ import { fmtTime, pick, simpleDelete } from './tickets.js';
 export const RISK_CATS = ['clinical', 'patient_safety', 'medication', 'infection', 'facility', 'equipment', 'staff', 'it', 'financial', 'legal', 'reputation'];
 const RESPONSES = ['mitigate', 'accept', 'transfer', 'avoid'];
 const level = (score) => (score >= 15 ? 'critical' : score >= 10 ? 'high' : score >= 5 ? 'medium' : 'low');
-const levelChip = (lv, score) => h('span', { class: 'chip risk-' + lv }, t('risk.lv.' + lv), score ? h('span', { class: 'mono', dir: 'ltr' }, ' ' + score) : '');
+const levelChip = (lv, score) => h('span', { class: 'chip risk-' + lv }, t('risk.lv.' + lv), score ? [' ', h('span', { class: 'mono', dir: 'ltr' }, score)] : '');
 const kv = (label, value) => (value === '' || value === null || value === undefined ? null : h('div', { class: 'kv' }, h('dt', {}, label), h('dd', {}, value)));
 const para = (v) => h('span', { class: 'pre-wrap', dir: 'auto' }, v);
 const here = (path) => {

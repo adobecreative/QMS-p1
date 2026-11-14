@@ -295,7 +295,7 @@ export async function pdsaPage(root, param, alive) {
                 {},
                 h('span', { class: 'tag' }, t('pdsa.src.' + s.source)),
                 ' ',
-                s.code ? h('span', { class: 'mono small', dir: 'ltr' }, s.code + ' ') : '',
+                s.code ? [h('span', { class: 'mono small', dir: 'ltr' }, s.code), ' '] : '',
                 pick(s.title_ar, s.title_en),
                 ' ',
                 h('span', { class: 'muted small' }, s.source === 'kpi' ? t('pdsa.why_kpi', { n: 3 }) : s.source === 'risk' ? t('pdsa.why_risk', { n: s.score }) : t('risk.suggest_n', { n: s.n })),

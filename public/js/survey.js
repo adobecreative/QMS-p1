@@ -16,7 +16,7 @@ const both = (s) => {
   return pick(ar, en || ar);
 };
 const chName = (c) => (c ? c.code + ' · ' + pick(c.name_ar, c.name_en) : '');
-const delta = (a, b) => (a === null || a === undefined || b === null || b === undefined || a === b ? '' : h('span', { class: 'small ' + (a >= b ? 'note-valid' : 'note-expired'), dir: 'ltr' }, ' ' + (a >= b ? '+' : '') + (a - b)));
+const delta = (a, b) => (a === null || a === undefined || b === null || b === undefined || a === b ? '' : [' ', h('span', { class: 'small ' + (a >= b ? 'note-valid' : 'note-expired'), dir: 'ltr' }, (a >= b ? '+' : '') + (a - b))]);
 const ST_CHIP = { active: 'chip-review', open: 'chip-review', closed: 'chip-valid', done: 'chip-valid' };
 const stChip = (st) => h('span', { class: 'chip ' + (ST_CHIP[st] || '') }, t('mock.st.' + st));
 

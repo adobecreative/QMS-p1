@@ -4672,3 +4672,73 @@ tr.is-off td {
     grid-template-columns: 1fr;
   }
 }
+
+/* ------------------------------ spacing fixes ------------------------------ */
+/* Time fields look and size like the other fields. */
+input[type='time'],
+input[type='month'],
+input[type='week'] {
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--control);
+  border-radius: 8px;
+  background: var(--surface);
+  font: inherit;
+  font-size: 15px;
+  color: inherit;
+}
+/* The file picker's own button: room around it, and it matches the other buttons. */
+input[type='file'] {
+  padding: 6px 10px;
+}
+input[type='file']::file-selector-button {
+  min-height: 32px;
+  margin-inline-end: 10px;
+  padding: 0 12px;
+  border: 1px solid var(--control);
+  border-radius: 6px;
+  background: var(--ground);
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+/* Buttons placed next to each other without a flex row (table cells, plain lines). */
+.nowrap > .btn + .btn,
+td > .btn + .btn,
+p > .btn + .btn {
+  margin-inline-start: 6px;
+}
+/* A heading row inside a card keeps its distance from the list under it. */
+.panel.pad > .page-head {
+  align-items: center;
+}
+.panel.pad > .page-head + * {
+  margin-top: 14px;
+}
+/* List rows: the text and its button line up in the middle. */
+.ack-list li {
+  align-items: center;
+}
+/* A section title inside a form keeps a little distance from the field above it. */
+.stack > h2:not(:first-child),
+.stack > h3:not(:first-child) {
+  margin-top: 8px;
+}
+/* Month names under the report columns never run into each other. */
+.rep-col > .small {
+  text-align: center;
+  white-space: nowrap;
+}
+@media (max-width: 600px) {
+  .rep-trend .rep-col {
+    min-width: 64px;
+  }
+}
+/* An empty slot (e.g. a score shown only after picking values) leaves no double gap. */
+.stack > div:empty,
+.dialog form > div:empty,
+.form-grid > div:empty {
+  display: none;
+}

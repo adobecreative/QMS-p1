@@ -483,7 +483,7 @@ export async function ovrCatsPage(root, _param, alive) {
       h(
         'section',
         { class: 'panel pad' },
-        h('div', { class: 'page-head' }, h('h2', {}, name(c), c.chapter ? h('span', { class: 'small muted mono', dir: 'ltr' }, ' ' + c.chapter) : ''), d.can_edit ? h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn btn-small', onclick: () => catDialog(c, null) }, icon('edit')), h('button', { type: 'button', class: 'btn btn-small', onclick: () => catDialog(null, c) }, icon('plus'), t('ovr.sub_add'))) : ''),
+        h('div', { class: 'page-head' }, h('h2', {}, name(c), c.chapter ? [' ', h('span', { class: 'small muted mono', dir: 'ltr' }, c.chapter)] : ''), d.can_edit ? h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn btn-small', onclick: () => catDialog(c, null) }, icon('edit')), h('button', { type: 'button', class: 'btn btn-small', onclick: () => catDialog(null, c) }, icon('plus'), t('ovr.sub_add'))) : ''),
         subs(c.id).length
           ? h('ul', { class: 'ack-list' }, subs(c.id).map((s) => h('li', {}, name(s), d.can_edit ? h('button', { type: 'button', class: 'btn btn-small', onclick: () => catDialog(s, c) }, icon('edit')) : '')))
           : h('p', { class: 'muted small' }, t('ovr.no_subs')),
