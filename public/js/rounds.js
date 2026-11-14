@@ -143,7 +143,7 @@ export async function roundRun(root, placeId, alive) {
     const row = h(
       'li',
       { class: 'round-item' },
-      h('div', { class: 'round-text' }, h('span', { class: 'round-num', dir: 'ltr' }, String(i + 1)), h('span', {}, pick(it.text_ar, it.text_en)), it.std_code ? h('span', { class: 'mono muted small', dir: 'ltr' }, ' ' + it.std_code) : ''),
+      h('div', { class: 'round-text' }, h('span', { class: 'round-num', dir: 'ltr' }, String(i + 1)), h('span', {}, pick(it.text_ar, it.text_en)), it.std_code ? [' ', h('span', { class: 'mono muted small', dir: 'ltr' }, it.std_code)] : ''),
       h('div', { class: 'round-picks', role: 'group', 'aria-label': pick(it.text_ar, it.text_en) }, buttons),
       noteBox,
     );
@@ -350,7 +350,7 @@ export async function roundDetail(root, id, alive) {
           h(
             'li',
             { class: 'round-item', 'data-result': a.result },
-            h('div', { class: 'round-text' }, h('span', {}, pick(a.text_ar, a.text_en)), a.std_code ? h('span', { class: 'mono muted small', dir: 'ltr' }, ' ' + a.std_code) : ''),
+            h('div', { class: 'round-text' }, h('span', {}, pick(a.text_ar, a.text_en)), a.std_code ? [' ', h('span', { class: 'mono muted small', dir: 'ltr' }, a.std_code)] : ''),
             resultChip(a.result),
             a.note ? h('p', { class: 'muted small' }, a.note) : '',
           ),
@@ -366,7 +366,7 @@ export async function roundDetail(root, id, alive) {
             'ul',
             { class: 'home-list' },
             capa.map((c) =>
-              h('li', {}, seeCapa ? link('quality/capa/' + c.id, {}, c.title) : h('span', {}, c.title), c.std_code ? h('span', { class: 'mono muted small', dir: 'ltr' }, ' ' + c.std_code) : '', ' ', capaChip(c.status)),
+              h('li', {}, seeCapa ? link('quality/capa/' + c.id, {}, c.title) : h('span', {}, c.title), c.std_code ? [' ', h('span', { class: 'mono muted small', dir: 'ltr' }, c.std_code)] : '', ' ', capaChip(c.status)),
             ),
           ),
         )
