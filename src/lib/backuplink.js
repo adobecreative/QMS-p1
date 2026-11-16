@@ -1,5 +1,5 @@
-// The full backup by link: every week (and when the address is saved) a download link goes to the
-// backup address set by the owner. The link gives one ZIP with backup.json (all the data) and
+// The full backup by link: every week (and on "send now") a download link goes to the backup address
+// (set by the owner, else the owner's own email). The link gives one ZIP with backup.json (all the data) and
 // files/<storage key> (every uploaded file), built while it downloads, so its size is not limited
 // by memory. A link works for BACKUP_LINK_DAYS days and BACKUP_LINK_USES downloads.
 import { appName } from './config.js';
@@ -163,10 +163,17 @@ export async function fullBackupZip(env, ctx, by) {
 
 /* ------------------------------ the links ------------------------------- */
 
+// The weekly address: the one the owner set, else the owner's own email.
+export async function backupAddress(env, settings) {
+  if (settings.backup_link_to) return settings.backup_link_to;
+  const owner = await env.DB.prepare('SELECT email FROM users ORDER BY id LIMIT 1').first();
+  return owner ? owner.email : '';
+}
+
 // A new link to the backup address, by email. Old links that ran out are cleared.
 export async function sendBackupLink(env, settings, by) {
-  const to = settings.backup_link_to;
-  if (!to) return { ok: false, error: 'backup_link_not_set' };
+  const to = await backupAddress(env, settings);
+  if (!to) return { ok: false, error: 'not_found' };
   if (!mailReady(settings)) return { ok: false, error: 'mail_not_configured' };
   if (!settings.site_url) return { ok: false, error: 'site_url_missing' };
   const token = toHex(crypto.getRandomValues(new Uint8Array(24)));

@@ -1,8 +1,8 @@
 import { handleMeetings, runMeetingJobs } from './systems/meetings.js';
 import { handleCheckin } from './systems/checkin.js';
 import { RECOVERY_RE, canEditDept, canSeeDept, checkEmail, checkOrigin, checkPassword, cleanRecovery, createSession, failedLogin, getUser, hashPassword, loginFrom, needs2fa, readJson, requireDocs, requireRole, sessionCookie, totpCheck, userOut, verifyPassword, withAccess } from './lib/auth.js';
-import { AUTO_BACKUP_PREFIX, emailBackup, fullBackupData, isAutoBackupTick, runAutoBackup } from './lib/backup.js';
-import { handleBackupLink, lastBackupLink, sendBackupLink } from './lib/backuplink.js';
+import { AUTO_BACKUP_PREFIX, fullBackupData, isAutoBackupTick, runAutoBackup } from './lib/backup.js';
+import { backupAddress, fullBackupZip, handleBackupLink, lastBackupLink, sendBackupLink } from './lib/backuplink.js';
 import { ADMIN_ROLES, ASSETS_ROLES, CHALLENGE_MINUTES, DEFAULT_SETTINGS, DESK_ROLES, DOCS_ROLES, JOB_TITLES, MAX_LOGO_BYTES, MEETINGS_ROLES, QUALITY_ROLES, ROLES, ROUNDS_ROLES, SESSION_DAYS, SLA_KEYS, TWO_FA_LEVELS, appName, brandOut, logoType } from './lib/config.js';
 import { changes, ensureSchema, getSettings, logStmt, setSettingStmt } from './lib/db.js';
 import { READONLY_OPEN, licenseOut, licenseState } from './lib/license.js';
@@ -36,7 +36,7 @@ import { handlePublicTickets, handleTickets, runTicketAlerts } from './systems/t
 
 
 // Settings only the system owner may change.
-const OWNER_SETTINGS = ['timezone', 'sender_name', 'mail_url', 'mail_provider', 'mail_from', 'mail_reply_to', 'mail_token', 'brevo_key', 'org_name_ar', 'org_name_en', 'who_one_ar', 'who_all_ar', 'who_one_en', 'who_all_en', 'support_email', 'ai_enabled', 'ai_daily_limit', 'require_2fa', 'backup_email'];
+const OWNER_SETTINGS = ['timezone', 'sender_name', 'mail_url', 'mail_provider', 'mail_from', 'mail_reply_to', 'mail_token', 'brevo_key', 'org_name_ar', 'org_name_en', 'who_one_ar', 'who_all_ar', 'who_one_en', 'who_all_en', 'support_email', 'ai_enabled', 'ai_daily_limit', 'require_2fa'];
 
 async function handleApi(request, env, url, ctx) {
   const method = request.method;
@@ -887,38 +887,45 @@ async function handleApi(request, env, url, ctx) {
     return json({ app: 'facilities-tracker', kind: 'full', format: 1, created_at: nowIso(), created_by: user.email, data });
   }
 
-  // Weekly copies the system makes on its own (system owner only): the list, and one copy to download.
-  if (route === 'GET /backup/auto' || route === 'POST /backup/auto/email' || route === 'POST /backup/auto/link' || (method === 'GET' && seg[0] === 'backup' && seg[1] === 'auto' && seg.length === 3)) {
+  // The whole backup in one ZIP, downloaded now (system owner only): all the data and every uploaded file.
+  if (route === 'GET /backup/full') {
+    requireRole(user, ...ADMIN_ROLES);
+    const ownerId = (await env.DB.prepare('SELECT MIN(id) AS id FROM users').first()).id;
+    if (user.id !== ownerId) fail(403, 'forbidden');
+    await logStmt(env, user, 'backup', 'system', null, null, { full: true }).run();
+    const host = url.hostname.replace(/[^\w.-]/g, '');
+    return new Response(await fullBackupZip(env, ctx, user.email), {
+      headers: { 'content-type': 'application/zip', 'content-disposition': `attachment; filename="backup-${host}-${nowIso().slice(0, 10)}.zip"`, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' },
+    });
+  }
+
+  // The weekly backup (system owner only): its address, a link sent now, and the copies kept in storage.
+  if (route === 'GET /backup/auto' || route === 'POST /backup/auto/link' || route === 'POST /backup/auto/link/send' || (method === 'GET' && seg[0] === 'backup' && seg[1] === 'auto' && seg.length === 3)) {
     requireRole(user, ...ADMIN_ROLES);
     const ownerId = (await env.DB.prepare('SELECT MIN(id) AS id FROM users').first()).id;
     if (user.id !== ownerId) fail(403, 'forbidden');
     if (seg.length === 2) {
       const { objects } = await env.FILES.list({ prefix: AUTO_BACKUP_PREFIX });
-      return json({ backups: objects.map((o) => ({ name: o.key.slice(AUTO_BACKUP_PREFIX.length), size: o.size, at: o.uploaded })).sort((a, b) => (a.name < b.name ? 1 : -1)), link: await lastBackupLink(env) });
+      const s = await getSettings(env);
+      return json({
+        backups: objects.map((o) => ({ name: o.key.slice(AUTO_BACKUP_PREFIX.length), size: o.size, at: o.uploaded })).sort((a, b) => (a.name < b.name ? 1 : -1)),
+        to: await backupAddress(env, s),
+        link: await lastBackupLink(env),
+      });
     }
-    // The backup address: saved (or cleared), and a first link sent to it at once.
+    // The address saved; empty goes back to the owner's own email.
     if (route === 'POST /backup/auto/link') {
       const body = await readJson(request);
       const to = str(body.to, 200).toLowerCase();
       if (to && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) fail(400, 'invalid_email');
-      const s = await getSettings(env);
-      if (to) {
-        const sent = await sendBackupLink(env, { ...s, backup_link_to: to }, user);
-        if (!sent.ok) fail(sent.error === 'mail_not_configured' ? 409 : 502, sent.error);
-      }
       await setSettingStmt(env, 'backup_link_to', to).run();
-      return json({ ok: true, to, link: await lastBackupLink(env) });
+      await logStmt(env, user, 'backup', 'system', null, to || null, { address: true }).run();
+      return json({ ok: true, to: await backupAddress(env, await getSettings(env)) });
     }
-    // Mail the newest copy to the owner now, to check that it arrives.
-    if (route === 'POST /backup/auto/email') {
-      const { objects } = await env.FILES.list({ prefix: AUTO_BACKUP_PREFIX });
-      const newest = objects.map((o) => o.key).sort().pop();
-      if (!newest) fail(404, 'not_found');
-      const name = newest.slice(AUTO_BACKUP_PREFIX.length);
-      const result = await emailBackup(env, await getSettings(env), name, await (await env.FILES.get(newest)).text());
-      if (!result.ok) fail(result.error === 'backup_too_large' ? 413 : 502, result.error);
-      await logStmt(env, user, 'backup', 'system', null, name, { emailed: 'yes' }).run();
-      return json({ ok: true, to: user.email, name });
+    if (route === 'POST /backup/auto/link/send') {
+      const sent = await sendBackupLink(env, await getSettings(env), user);
+      if (!sent.ok) fail(sent.error === 'mail_not_configured' ? 409 : 502, sent.error);
+      return json({ ok: true, to: sent.to, link: await lastBackupLink(env) });
     }
     if (!/^\d{4}-\d{2}-\d{2}\.json$/.test(seg[2])) fail(404, 'not_found');
     const obj = await env.FILES.get(AUTO_BACKUP_PREFIX + seg[2]);
@@ -960,8 +967,6 @@ async function handleApi(request, env, url, ctx) {
             brevo_key_set: !!s.brevo_key, // nor does this key
             mail_from: s.mail_from,
             mail_reply_to: s.mail_reply_to,
-            backup_email: s.backup_email === '1',
-            backup_link_to: s.backup_link_to,
             support_email: s.support_email,
             org_name_ar: s.org_name_ar,
             org_name_en: s.org_name_en,
@@ -1012,7 +1017,6 @@ async function handleApi(request, env, url, ctx) {
         ai_enabled: given('ai_enabled') ? (body.ai_enabled ? '1' : '0') : current.ai_enabled,
         ai_daily_limit: given('ai_daily_limit') ? Number(body.ai_daily_limit) : current.ai_daily_limit,
         require_2fa: given('require_2fa') ? body.require_2fa : current.require_2fa,
-        backup_email: given('backup_email') ? (body.backup_email ? '1' : '0') : current.backup_email,
       };
       if (!TWO_FA_LEVELS.includes(next.require_2fa)) fail(400, 'bad_request');
       // Whoever turns it on for themselves must have it already, or they would shut themselves out of this page.
@@ -1187,9 +1191,8 @@ export default {
           } else if (isAutoBackupTick(at)) {
             // One 15-minute run a week goes to the backup instead, so it has the run's whole query allowance.
             console.log('auto backup', JSON.stringify(await runAutoBackup(env)));
-            // And a link to the full backup (data + every uploaded file) to the backup address, when one is set.
-            const bs = await getSettings(env);
-            if (bs.backup_link_to) console.log('backup link', JSON.stringify(await sendBackupLink(env, bs, null)));
+            // And a link to the full backup (data + every uploaded file) to the backup address.
+            console.log('backup link', JSON.stringify(await sendBackupLink(env, await getSettings(env), null)));
           } else {
             console.log('pm jobs', JSON.stringify(await runPmJobs(env)));
             console.log('ticket alerts', JSON.stringify(await runTicketAlerts(env)));

@@ -1,8 +1,6 @@
-// Full backup data, the weekly automatic copy and its email to the owner.
-import { appName } from './config.js';
-import { getSettings, logStmt } from './db.js';
-import { bothLangs, emailHeader, mailReady, sendMail } from './mail.js';
-import { escHtml, nowIso } from './util.js';
+// Full backup data and the weekly automatic copy.
+import { logStmt } from './db.js';
+import { nowIso } from './util.js';
 
 // Everything needed to rebuild the system, as the system owner's backup holds it.
 // Password hashes, sessions and the mail and push keys are never included.
@@ -150,32 +148,8 @@ export async function runAutoBackup(env) {
   const { objects } = await env.FILES.list({ prefix: AUTO_BACKUP_PREFIX });
   const old = objects.map((o) => o.key).sort().reverse().slice(AUTO_BACKUP_KEEP);
   if (old.length) await env.FILES.delete(old);
-  // A copy away from Cloudflare too, in the owner's mailbox, when the owner turned it on.
-  const settings = await getSettings(env);
-  const mailed = settings.backup_email === '1' ? await emailBackup(env, settings, name, body) : null;
-  await logStmt(env, null, 'backup', 'system', null, name, { auto: true, bytes: body.length, ...(mailed ? { emailed: mailed.ok ? 'yes' : mailed.error } : {}) }).run();
-  return { name, bytes: body.length, removed: old.length, ...(mailed ? { emailed: mailed.ok || mailed.error } : {}) };
-}
-
-// The data part of the backup as a compressed ZIP attached to an email to the system owner.
-// The PDFs stay in storage (too large for email); this copy is everything else.
-export const BACKUP_MAIL_MAX = 3.5 * 1024 * 1024;
-export async function emailBackup(env, settings, name, body) {
-  if (!mailReady(settings)) return { ok: false, error: 'mail_not_configured' };
-  const owner = await env.DB.prepare('SELECT email FROM users ORDER BY id LIMIT 1').first();
-  if (!owner) return { ok: false, error: 'not_found' };
-  const zip = await zipDeflate('backup.json', new TextEncoder().encode(body));
-  if (zip.length > BACKUP_MAIL_MAX) return { ok: false, error: 'backup_too_large' };
-  const day = name.replace('.json', '');
-  const mail = bothLangs(settings, (s) => {
-    const ar = s.email_lang !== 'en';
-    const app = appName(s, s.email_lang);
-    const text = ar
-      ? ['النسخة الاحتياطية الأسبوعية', `مرفق نسخة من بيانات ${app} بتاريخ ${day}. احفظ الملف في مكان آمن. ملفات PDF غير مضمّنة لكبر حجمها، وتبقى في التخزين وفي النسخة الكاملة التي تُنزَّل من الإعدادات.`]
-      : ['Weekly backup', `Attached is a copy of the ${app} data dated ${day}. Keep the file somewhere safe. PDF files are not included because of their size; they stay in storage and in the full backup downloaded from the settings.`];
-    return { subject: `${text[0]} - ${app}`, html: `<div dir="${ar ? 'rtl' : 'ltr'}" style="font-family:Tahoma,Segoe UI,sans-serif;color:#1f1a12;text-align:${ar ? 'right' : 'left'}">${emailHeader(s)}<p>${escHtml(text[1])}</p></div>` };
-  });
-  return sendMail(settings, [{ to: owner.email, ...mail, attachments: [{ name: `backup-${day}.zip`, content: toBase64(zip) }] }]);
+  await logStmt(env, null, 'backup', 'system', null, name, { auto: true, bytes: body.length }).run();
+  return { name, bytes: body.length, removed: old.length };
 }
 
 // A one-file ZIP with deflate compression (Brevo accepts .zip attachments, not .json).

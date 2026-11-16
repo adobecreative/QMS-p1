@@ -52,8 +52,7 @@ export const DEFAULT_SETTINGS = {
   mail_from: '',
   mail_reply_to: '',
   support_email: '',
-  backup_email: '0',
-  backup_link_to: '', // the address that gets the weekly link to the full backup (data + every uploaded file)
+  backup_link_to: '', // the address that gets the weekly link to the full backup; empty = the owner's own email
   monthly_report: '0', // last month's report emailed on the 1st (Reports page)
   report_to: '', // its addresses, comma separated; empty = every active admin
   monthly_report_sent: '', // the month last sent, so it goes once

@@ -1266,4 +1266,6 @@ export const MIGRATIONS = [
      uses INTEGER NOT NULL DEFAULT 0,
      max_uses INTEGER NOT NULL DEFAULT 3,
      last_used_at TEXT)`,
+  // The weekly data email was replaced by the full backup link (2026-11-16).
+  `DELETE FROM settings WHERE key = 'backup_email'`,
 ];
