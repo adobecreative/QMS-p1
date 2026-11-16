@@ -53,6 +53,8 @@ export const DEFAULT_SETTINGS = {
   mail_reply_to: '',
   support_email: '',
   backup_email: '0',
+  backup_drive: '0', // weekly data copy + every uploaded file in the owner's Google Drive (through the Apps Script)
+  backup_drive_state: '', // JSON: last data copy, last files sent, last error
   monthly_report: '0', // last month's report emailed on the 1st (Reports page)
   report_to: '', // its addresses, comma separated; empty = every active admin
   monthly_report_sent: '', // the month last sent, so it goes once

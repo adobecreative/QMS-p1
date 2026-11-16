@@ -86,9 +86,10 @@ export const s3Files = ({ endpoint, region = 'us-east-1', bucket, accessKey, sec
     async delete(keys) {
       for (const key of [].concat(keys)) await send('DELETE', String(key));
     },
-    async list({ prefix = '', limit = 1000 } = {}) {
+    // As R2: `cursor` continues a listing that came back truncated.
+    async list({ prefix = '', limit = 1000, cursor = '' } = {}) {
       const objects = [];
-      let token = '';
+      let token = cursor;
       let truncated = false;
       do {
         const query = { 'list-type': 2, 'max-keys': Math.min(1000, limit - objects.length), prefix };
@@ -101,7 +102,7 @@ export const s3Files = ({ endpoint, region = 'us-east-1', bucket, accessKey, sec
         truncated = /<IsTruncated>true<\/IsTruncated>/.test(xml);
         token = xmlText((xml.match(/<NextContinuationToken>([\s\S]*?)<\/NextContinuationToken>/) || [])[1] || '');
       } while (truncated && token && objects.length < limit);
-      return { objects, truncated, delimitedPrefixes: [] };
+      return { objects, truncated, ...(truncated && token ? { cursor: token } : {}), delimitedPrefixes: [] };
     },
   };
 };

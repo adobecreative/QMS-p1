@@ -456,16 +456,39 @@ export function autoBackups(s) {
       sendNow.disabled = false;
     }
   });
-  const box = h('div', { class: 'stack' }, h('h3', { class: 'small strong' }, t('bak.auto')), checkField(t('bak.email'), mailIt));
+  // And in the owner's Google Drive with every uploaded file (through the same Apps Script as the mail).
+  const driveIt = input({ type: 'checkbox' });
+  const driveLine = h('p', { class: 'muted small', 'aria-live': 'polite' });
+  const showDrive = (d) => {
+    driveIt.checked = !!(d && d.on);
+    driveLine.className = d && d.on && d.error ? 'form-error small' : 'muted small';
+    driveLine.textContent = !d || !d.on ? '' : d.error ? errText(new ApiError(d.error)) : t('bak.drive_state', { date: fmtDate(d.data_at) || '-', sent: d.files_sent, total: d.files_total });
+  };
+  driveIt.addEventListener('change', async () => {
+    driveIt.disabled = true;
+    driveLine.textContent = driveIt.checked ? t('bak.preparing') : '';
+    try {
+      showDrive((await api('/backup/auto/drive', { method: 'POST', body: { on: driveIt.checked } })).drive);
+      toast(t('set.saved'));
+    } catch (e) {
+      driveIt.checked = !driveIt.checked;
+      driveLine.textContent = '';
+      toast(errText(e), true);
+    } finally {
+      driveIt.disabled = false;
+    }
+  });
+  const box = h('div', { class: 'stack' }, h('h3', { class: 'small strong' }, t('bak.auto')), checkField(t('bak.email'), mailIt), checkField(t('bak.drive'), driveIt), driveLine);
   api('/backup/auto')
-    .then((r) =>
+    .then((r) => {
+      showDrive(r.drive);
       box.append(
         r.backups.length
           ? h('ul', { class: 'pp-list' }, r.backups.map((b) => h('li', {}, h('a', { href: '/api/backup/auto/' + encodeURIComponent(b.name), download: 'backup-' + b.name, dir: 'ltr' }, b.name.replace('.json', '')), h('span', { class: 'muted small', dir: 'ltr' }, fmtSize(b.size)))))
           : h('p', { class: 'muted small' }, t('bak.auto_none')),
         r.backups.length ? h('div', { class: 'actions' }, sendNow) : '',
-      ),
-    )
+      );
+    })
     .catch((e) => box.append(h('p', { class: 'form-error' }, errText(e))));
   return box;
 }

@@ -161,11 +161,13 @@ const DISK_FILES = {
       await rm(p + META, { force: true });
     }
   },
-  async list({ prefix = '', limit = 1000 } = {}) {
-    const keys = (await walk(FILES_DIR)).map((p) => relative(FILES_DIR, p).split(sep).join('/')).filter((k) => k.startsWith(prefix)).sort();
+  // As R2: a page of `limit` keys, and a cursor (here the last key) to ask for the next page.
+  async list({ prefix = '', limit = 1000, cursor = '' } = {}) {
+    const keys = (await walk(FILES_DIR)).map((p) => relative(FILES_DIR, p).split(sep).join('/')).filter((k) => k.startsWith(prefix) && (!cursor || k > cursor)).sort();
     const objects = [];
     for (const key of keys.slice(0, limit)) objects.push(await objectOf(key, filePath(key), false));
-    return { objects, truncated: keys.length > limit, delimitedPrefixes: [] };
+    const truncated = keys.length > limit;
+    return { objects, truncated, ...(truncated ? { cursor: objects[objects.length - 1].key } : {}), delimitedPrefixes: [] };
   },
 };
 
