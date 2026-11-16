@@ -456,32 +456,33 @@ export function autoBackups(s) {
       sendNow.disabled = false;
     }
   });
-  // And in the owner's Google Drive with every uploaded file (through the same Apps Script as the mail).
-  const driveIt = input({ type: 'checkbox' });
-  const driveLine = h('p', { class: 'muted small', 'aria-live': 'polite' });
-  const showDrive = (d) => {
-    driveIt.checked = !!(d && d.on);
-    driveLine.className = d && d.on && d.error ? 'form-error small' : 'muted small';
-    driveLine.textContent = !d || !d.on ? '' : d.error ? errText(new ApiError(d.error)) : t('bak.drive_state', { date: fmtDate(d.data_at) || '-', sent: d.files_sent, total: d.files_total });
+  // The address that gets the weekly link to the full backup (data + every uploaded file); saving it sends one now.
+  const linkTo = input({ type: 'email', dir: 'ltr', value: (s && s.backup_link_to) || '', autocomplete: 'off' });
+  const linkLine = h('p', { class: 'muted small', 'aria-live': 'polite' });
+  const showLink = (l) => {
+    linkLine.textContent = l ? t('bak.link_state', { date: fmtDate(l.created_at), uses: l.uses, max: l.max_uses }) : '';
   };
-  driveIt.addEventListener('change', async () => {
-    driveIt.disabled = true;
-    driveLine.textContent = driveIt.checked ? t('bak.preparing') : '';
+  let savedTo = linkTo.value;
+  linkTo.addEventListener('change', async () => {
+    const to = linkTo.value.trim();
+    if (to === savedTo) return;
+    linkTo.disabled = true;
     try {
-      showDrive((await api('/backup/auto/drive', { method: 'POST', body: { on: driveIt.checked } })).drive);
-      toast(t('set.saved'));
+      const r = await api('/backup/auto/link', { method: 'POST', body: { to } });
+      savedTo = to;
+      showLink(to ? r.link : null);
+      toast(to ? t('bak.email_sent', { to }) : t('set.saved'));
     } catch (e) {
-      driveIt.checked = !driveIt.checked;
-      driveLine.textContent = '';
+      linkTo.value = savedTo;
       toast(errText(e), true);
     } finally {
-      driveIt.disabled = false;
+      linkTo.disabled = false;
     }
   });
-  const box = h('div', { class: 'stack' }, h('h3', { class: 'small strong' }, t('bak.auto')), checkField(t('bak.email'), mailIt), checkField(t('bak.drive'), driveIt), driveLine);
+  const box = h('div', { class: 'stack' }, h('h3', { class: 'small strong' }, t('bak.auto')), checkField(t('bak.email'), mailIt), field(t('bak.link_to'), linkTo), linkLine);
   api('/backup/auto')
     .then((r) => {
-      showDrive(r.drive);
+      showLink(savedTo ? r.link : null);
       box.append(
         r.backups.length
           ? h('ul', { class: 'pp-list' }, r.backups.map((b) => h('li', {}, h('a', { href: '/api/backup/auto/' + encodeURIComponent(b.name), download: 'backup-' + b.name, dir: 'ltr' }, b.name.replace('.json', '')), h('span', { class: 'muted small', dir: 'ltr' }, fmtSize(b.size)))))

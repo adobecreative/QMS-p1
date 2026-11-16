@@ -1252,9 +1252,18 @@ export const MIGRATIONS = [
      by_name TEXT,
      at TEXT NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS idx_audit_cases ON audit_cases(audit_id)`,
-  // Which stored files are already in the Google Drive copy, and in which version (size + upload time).
-  `CREATE TABLE IF NOT EXISTS drive_files (
-     key TEXT PRIMARY KEY,
-     ver TEXT NOT NULL,
-     sent_at TEXT NOT NULL)`,
+  // The Google Drive copy was taken out (2026-11-16): its table and settings go.
+  `DROP TABLE IF EXISTS drive_files`,
+  `DELETE FROM settings WHERE key IN ('backup_drive', 'backup_drive_state')`,
+  // Download links to the full backup (data + every uploaded file) mailed to the backup address.
+  // Only the token's hash is kept; each link works until expires_at and for max_uses downloads.
+  `CREATE TABLE IF NOT EXISTS backup_links (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     token_hash TEXT NOT NULL UNIQUE,
+     email TEXT NOT NULL,
+     created_at TEXT NOT NULL,
+     expires_at TEXT NOT NULL,
+     uses INTEGER NOT NULL DEFAULT 0,
+     max_uses INTEGER NOT NULL DEFAULT 3,
+     last_used_at TEXT)`,
 ];

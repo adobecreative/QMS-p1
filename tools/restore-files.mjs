@@ -1,5 +1,5 @@
-// Puts the uploaded files back from the Google Drive copy (the folder "Fikra backups/<site>/files",
-// downloaded from Drive and unzipped). Each file's path inside that folder is its storage key.
+// Puts the uploaded files back from the full backup ZIP (the link mailed to the backup address):
+// unzip it, then pass its "files" folder. Each file's path inside that folder is its storage key.
 //
 //   Cloudflare R2:      node tools/restore-files.mjs <files folder> --bucket <bucket name>
 //   Node.js server:     node tools/restore-files.mjs <files folder> --dir <DATA_DIR>/files
@@ -28,7 +28,7 @@ if (!folder || folder.startsWith('--') || (!bucket && !dir) || (bucket && dir)) 
 
 const walk = (d) => readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(d, e.name)) : e.isFile() ? [join(d, e.name)] : []));
 
-// Drive does not keep the stored content type in a downloaded ZIP: from the name, else from the first bytes.
+// The ZIP does not keep the stored content type: from the name, else from the first bytes.
 const BY_EXT = { pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', svg: 'image/svg+xml', doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', txt: 'text/plain', csv: 'text/csv', json: 'application/json', zip: 'application/zip', mp4: 'video/mp4', mp3: 'audio/mpeg', heic: 'image/heic' };
 function contentType(key, bytes) {
   const ext = (key.match(/\.([a-z0-9]+)$/i) || [])[1];
