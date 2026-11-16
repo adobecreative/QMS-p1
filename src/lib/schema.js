@@ -1252,4 +1252,9 @@ export const MIGRATIONS = [
      by_name TEXT,
      at TEXT NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS idx_audit_cases ON audit_cases(audit_id)`,
+  // Which stored files are already in the Google Drive copy, and in which version (size + upload time).
+  `CREATE TABLE IF NOT EXISTS drive_files (
+     key TEXT PRIMARY KEY,
+     ver TEXT NOT NULL,
+     sent_at TEXT NOT NULL)`,
 ];
