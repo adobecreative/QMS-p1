@@ -1,6 +1,6 @@
 // Full backup data, the weekly automatic copy and its email to the owner.
 import { appName } from './config.js';
-import { getSettings, logStmt, setSettingStmt } from './db.js';
+import { getSettings, logStmt } from './db.js';
 import { bothLangs, emailHeader, mailReady, sendMail } from './mail.js';
 import { escHtml, nowIso } from './util.js';
 
@@ -153,129 +153,8 @@ export async function runAutoBackup(env) {
   // A copy away from Cloudflare too, in the owner's mailbox, when the owner turned it on.
   const settings = await getSettings(env);
   const mailed = settings.backup_email === '1' ? await emailBackup(env, settings, name, body) : null;
-  // And in the owner's Google Drive, with the uploaded files sent there between the weekly runs.
-  const drived = settings.backup_drive === '1' ? await driveData(env, settings, name, body) : null;
-  await logStmt(env, null, 'backup', 'system', null, name, { auto: true, bytes: body.length, ...(mailed ? { emailed: mailed.ok ? 'yes' : mailed.error } : {}), ...(drived ? { drive: drived.ok ? 'yes' : drived.error } : {}) }).run();
-  return { name, bytes: body.length, removed: old.length, ...(mailed ? { emailed: mailed.ok || mailed.error } : {}), ...(drived ? { drive: drived.ok || drived.error } : {}) };
-}
-
-/* ------------------------- copy in Google Drive ------------------------- */
-
-// The Apps Script web app that sends the mail also writes to the Google Drive of its account:
-// Fikra backups/<site>/data/<day>.zip (the last DRIVE_DATA_KEEP) and Fikra backups/<site>/files/<storage key>.
-// The files folder mirrors storage key for key, so tools/restore-files.mjs can put it back as it is.
-export const DRIVE_DATA_KEEP = 8;
-export const DRIVE_FILE_MAX = 26 * 1024 * 1024; // uploads are 25 MB at most
-const DRIVE_BATCH_FILES = 25;
-const DRIVE_BATCH_BYTES = 40 * 1024 * 1024;
-export const driveReady = (s) => !!(s.mail_url && s.mail_token);
-export function driveRoot(s) {
-  try {
-    return new URL(s.site_url).hostname || 'site';
-  } catch {
-    return 'site';
-  }
-}
-export async function driveCall(s, body) {
-  if (!driveReady(s)) return { ok: false, error: 'drive_not_configured' };
-  let data;
-  try {
-    const res = await fetch(s.mail_url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token: s.mail_token, root: driveRoot(s), ...body }), redirect: 'follow' });
-    data = JSON.parse(await res.text());
-  } catch {
-    return { ok: false, error: 'drive_unreachable' };
-  }
-  if (data && data.error === 'unauthorized') return { ok: false, error: 'drive_unauthorized' };
-  // An Apps Script from before the Drive copy answers as the mail sender, without "drive".
-  if (!data || data.drive !== true) return { ok: false, error: 'drive_script_old' };
-  return data.ok ? data : { ok: false, error: 'drive_failed', detail: String(data.error || '').slice(0, 200) };
-}
-const readState = (s) => {
-  try {
-    return JSON.parse(s.backup_drive_state || '{}') || {};
-  } catch {
-    return {};
-  }
-};
-async function saveState(env, patch) {
-  const st = Object.assign(readState(await getSettings(env)), patch);
-  await setSettingStmt(env, 'backup_drive_state', JSON.stringify(st)).run();
-  return st;
-}
-const failed = (env, r) => saveState(env, { error: r.error, error_at: nowIso() }).then(() => r);
-
-// One data copy (the same JSON as the weekly copy, zipped) into data/, then the oldest beyond the last 8 go.
-export async function driveData(env, s, name, body) {
-  const zip = await zipDeflate('backup.json', new TextEncoder().encode(body));
-  const day = name.replace('.json', '');
-  let r = await driveCall(s, { action: 'drive_put', path: `data/${day}.zip`, type: 'application/zip', content: toBase64(zip) });
-  if (r.ok) r = await driveCall(s, { action: 'drive_prune', folder: 'data', keep: DRIVE_DATA_KEEP });
-  if (!r.ok) return failed(env, r);
-  await saveState(env, { data_at: nowIso(), data_name: day, error: '' });
-  return { ok: true, url: r.url || '' };
-}
-
-// Every object in storage except the weekly copies themselves, through all pages of the listing.
-export async function storageFiles(env) {
-  const out = [];
-  let cursor;
-  do {
-    const page = await env.FILES.list({ limit: 1000, ...(cursor ? { cursor } : {}) });
-    out.push(...page.objects);
-    cursor = page.truncated ? page.cursor : undefined;
-  } while (cursor);
-  return out.filter((o) => !o.key.startsWith('backups/'));
-}
-// A file is sent again only when it changed (same key, new size or upload time).
-const version = (o) => o.size + ':' + new Date(o.uploaded).toISOString();
-async function sentVersions(env) {
-  const { results } = await env.DB.prepare('SELECT key, ver FROM drive_files').all();
-  return new Map(results.map((r) => [r.key, r.ver]));
-}
-
-// Each 15-minute run sends the next files not yet in Drive, a few at a time, so the first copy
-// of a large store spreads over several runs and later ones carry only what is new.
-export async function runDriveFiles(env, settings) {
-  const s = settings || (await getSettings(env));
-  if (s.backup_drive !== '1') return { off: true };
-  const [all, sent] = await Promise.all([storageFiles(env), sentVersions(env)]);
-  const pending = all.filter((o) => o.size <= DRIVE_FILE_MAX && sent.get(o.key) !== version(o));
-  let n = 0;
-  let bytes = 0;
-  for (const o of pending) {
-    if (n >= DRIVE_BATCH_FILES || (n && bytes + o.size > DRIVE_BATCH_BYTES)) break;
-    const obj = await env.FILES.get(o.key);
-    if (!obj) continue;
-    const content = toBase64(new Uint8Array(await obj.arrayBuffer()));
-    const r = await driveCall(s, { action: 'drive_put', path: 'files/' + o.key, type: (obj.httpMetadata && obj.httpMetadata.contentType) || 'application/octet-stream', content });
-    if (!r.ok) {
-      await failed(env, r);
-      return { sent: n, error: r.error };
-    }
-    await env.DB.prepare('INSERT INTO drive_files (key, ver, sent_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET ver = excluded.ver, sent_at = excluded.sent_at').bind(o.key, version(o), nowIso()).run();
-    n++;
-    bytes += o.size;
-  }
-  const st = readState(s);
-  if (n || st.error) await saveState(env, { ...(n ? { files_at: nowIso() } : {}), error: '' });
-  return { sent: n, left: pending.length - n };
-}
-
-// What the owner's backup panel shows: on or off, the last data copy, and how many files are in Drive.
-export async function driveStatus(env, s) {
-  if (s.backup_drive !== '1') return { on: false, ready: driveReady(s) };
-  const [all, sent] = await Promise.all([storageFiles(env), sentVersions(env)]);
-  const st = readState(s);
-  return {
-    on: true,
-    ready: driveReady(s),
-    data_at: st.data_at || null,
-    files_at: st.files_at || null,
-    files_total: all.length,
-    files_sent: all.filter((o) => sent.get(o.key) === version(o)).length,
-    error: st.error || null,
-    error_at: st.error ? st.error_at : null,
-  };
+  await logStmt(env, null, 'backup', 'system', null, name, { auto: true, bytes: body.length, ...(mailed ? { emailed: mailed.ok ? 'yes' : mailed.error } : {}) }).run();
+  return { name, bytes: body.length, removed: old.length, ...(mailed ? { emailed: mailed.ok || mailed.error } : {}) };
 }
 
 // The data part of the backup as a compressed ZIP attached to an email to the system owner.
@@ -302,6 +181,10 @@ export async function emailBackup(env, settings, name, body) {
 // A one-file ZIP with deflate compression (Brevo accepts .zip attachments, not .json).
 export let crcTable = null;
 export function crc32(bytes) {
+  return crc32Update(0, bytes);
+}
+// Continues a CRC over the next bytes (start with 0), for files read in chunks.
+export function crc32Update(prev, bytes) {
   if (!crcTable) {
     crcTable = new Uint32Array(256);
     for (let n = 0; n < 256; n++) {
@@ -310,8 +193,9 @@ export function crc32(bytes) {
       crcTable[n] = c >>> 0;
     }
   }
-  let crc = 0xffffffff;
-  for (let i = 0; i < bytes.length; i++) crc = crcTable[(crc ^ bytes[i]) & 0xff] ^ (crc >>> 8);
+  let crc = (prev ^ 0xffffffff) >>> 0;
+  const t = crcTable;
+  for (let i = 0; i < bytes.length; i++) crc = t[(crc ^ bytes[i]) & 0xff] ^ (crc >>> 8);
   return (crc ^ 0xffffffff) >>> 0;
 }
 export async function zipDeflate(fileName, data) {

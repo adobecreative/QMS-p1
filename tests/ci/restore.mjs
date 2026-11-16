@@ -3,9 +3,8 @@
 // table comes back the same. Runs after smoke.mjs and systems.mjs, on their data.
 // With ON_NODE=1 both copies are the Node.js server (server/node.mjs) and the SQL goes straight into its SQLite file.
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
-import { inflateRawSync } from 'node:zlib';
+import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { writeZip } from '../../src/lib/backuplink.js';
 
 const ON_NODE = process.env.ON_NODE === '1';
 
@@ -32,48 +31,40 @@ const login = async (base, email, password) => {
 
 const owner = await login(A, 'owner@example.com', 'secret-pass-1');
 
-// The copy in Google Drive (the Apps Script is a stand-in here, see entry.js): the data now, then the files.
-await owner('/settings', 'PUT', { mail_url: 'https://script.google.com/macros/s/TEST/exec', mail_token: 'wrong-token' });
-let d = await owner('/backup/auto/drive', 'POST', { on: true });
-check(d.s === 502 && d.j.error === 'drive_unauthorized', 'a wrong Apps Script token is refused and the copy stays off', d);
-check((await owner('/backup/auto')).j.drive.on === false, 'the Drive copy is still off');
-await owner('/settings', 'PUT', { mail_token: 'tok-123' });
-d = await owner('/backup/auto/drive', 'POST', { on: true });
-check(d.s === 200 && d.j.drive.on && d.j.drive.data_at && d.j.drive.files_total > 0, 'turning it on sends a data copy at once', d.j);
-const driveList = async () => (await fetch(A + '/api/__drive')).json();
-let inDrive = await driveList();
-const dataZip = inDrive.find((f) => /\/data\/\d{4}-\d{2}-\d{2}\.zip$/.test(f.path));
-check(!!dataZip, 'the data copy is a ZIP in the data folder', inDrive.map((f) => f.path));
-if (dataZip) {
-  // One entry, deflate: the JSON inside is the full backup.
-  const zip = Buffer.from(await (await fetch(A + '/api/__drive?path=' + encodeURIComponent(dataZip.path))).arrayBuffer());
-  const nameLen = zip.readUInt16LE(26);
-  const packed = zip.subarray(30 + nameLen + zip.readUInt16LE(28), 30 + nameLen + zip.readUInt16LE(28) + zip.readUInt32LE(18));
-  const inside = JSON.parse(inflateRawSync(packed).toString('utf8'));
-  check(inside.kind === 'full' && inside.data.tickets.length > 0, 'the ZIP in Drive holds the full data', inside.kind);
-}
-// The files go in the next 15-minute runs (not the daily 05:00 or the Friday backup run).
-for (let i = 0; i < 10; i++) {
-  await fetch(A + '/cdn-cgi/handler/scheduled?cron=' + encodeURIComponent('*/15 * * * *') + '&time=' + Date.UTC(2026, 10, 16, 10, 15 * (i % 4)));
-  await new Promise((r) => setTimeout(r, ON_NODE ? 300 : 2500));
-  d = (await owner('/backup/auto')).j.drive;
-  if (d.files_sent === d.files_total) break;
-}
-check(d.files_total > 0 && d.files_sent === d.files_total && !d.error, 'every uploaded file reaches Drive', d);
-inDrive = await driveList();
-const driveFiles = inDrive.filter((f) => f.path.includes('/files/'));
-check(driveFiles.length === d.files_total, 'one Drive file per stored file', { drive: driveFiles.length, total: d.files_total });
-// Nothing new: the next run sends nothing again.
-const countBefore = inDrive.length;
-await fetch(A + '/cdn-cgi/handler/scheduled?cron=' + encodeURIComponent('*/15 * * * *') + '&time=' + Date.UTC(2026, 10, 16, 11, 0));
-await new Promise((r) => setTimeout(r, ON_NODE ? 300 : 2500));
-check((await driveList()).length === countBefore, 'files already in Drive are not sent again');
-// The Drive files folder as it would be downloaded and unzipped: one file per storage key.
-rmSync('.drive-files', { recursive: true, force: true });
-for (const f of driveFiles) {
-  const key = f.path.slice(f.path.indexOf('/files/') + 7);
-  mkdirSync(dirname('.drive-files/' + key), { recursive: true });
-  writeFileSync('.drive-files/' + key, Buffer.from(await (await fetch(A + '/api/__drive?path=' + encodeURIComponent(f.path))).arrayBuffer()));
+// The full backup by link: saving the backup address mails a link at once.
+let r = await owner('/backup/auto/link', 'POST', { to: 'not-an-email' });
+check(r.s === 400, 'a wrong backup address is refused', r);
+r = await owner('/backup/auto/link', 'POST', { to: 'nas@example.com' });
+check(r.s === 200 && r.j.link && r.j.link.uses === 0 && r.j.link.max_uses === 3, 'saving the backup address sends a link', r.j);
+const mails = JSON.stringify((await owner('/__sent')).j);
+const found = mails.match(/\/api\/backup\/link\/[0-9a-f]{48}/);
+check(!!found && mails.includes('nas@example.com'), 'the link goes to the backup address', mails.slice(0, 300));
+const linkUrl = A + (found ? found[0] : '/api/backup/link/x');
+check((await fetch(A + '/api/backup/link/' + 'a'.repeat(48))).status === 404, 'a made-up link does not work');
+const dl = await fetch(linkUrl);
+check(dl.status === 200 && dl.headers.get('content-type') === 'application/zip', 'the link downloads a ZIP', dl.status);
+writeFileSync('link-backup.zip', Buffer.from(await dl.arrayBuffer()));
+rmSync('.linkzip', { recursive: true, force: true });
+const unz = spawnSync('unzip', ['-q', 'link-backup.zip', '-d', '.linkzip'], { encoding: 'utf8' });
+check(unz.status === 0, 'the ZIP opens', unz.stderr);
+const inZip = existsSync('.linkzip/backup.json') && JSON.parse(readFileSync('.linkzip/backup.json', 'utf8'));
+check(inZip && inZip.kind === 'full' && inZip.data.tickets.length > 0, 'the ZIP holds the full data', inZip && inZip.kind);
+const walk = (d) => (existsSync(d) ? readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(d + '/' + e.name) : [d + '/' + e.name])) : []);
+const zipFiles = walk('.linkzip/files');
+check(zipFiles.length > 0, `the ZIP holds the uploaded files (${zipFiles.length})`);
+check((await fetch(linkUrl)).status === 200 && (await fetch(linkUrl)).status === 200, 'the link works 3 times');
+check((await fetch(linkUrl)).status === 410, 'a 4th download is refused');
+r = await owner('/backup/auto');
+check(r.j.link && r.j.link.uses === 3, 'the owner sees the downloads', r.j.link);
+// The same writer past the 4 GB marks (ZIP64 records forced on a small archive) still gives a valid ZIP.
+{
+  const { readable, writable } = new TransformStream();
+  const job = writeZip(writable, [{ name: 'a.txt', open: async () => new TextEncoder().encode('hello') }, { name: 'dir/b.bin', open: async () => new Blob([new Uint8Array(70000).fill(7)]).stream() }], { force64: true });
+  writeFileSync('zip64.zip', Buffer.from(await new Response(readable).arrayBuffer()));
+  await job;
+  const t64 = spawnSync('unzip', ['-t', 'zip64.zip'], { encoding: 'utf8' });
+  check(t64.status === 0 && /No errors/.test(t64.stdout), 'a ZIP64 archive tests clean', t64.stdout + t64.stderr);
+  rmSync('zip64.zip', { force: true });
 }
 
 const before = (await owner('/backup')).j;
@@ -86,9 +77,9 @@ writeFileSync('restore.sql', sql.stdout);
 
 // A second, empty site: its first request builds the tables (and the starter data the restore replaces).
 rmSync('.state2', { recursive: true, force: true });
-// The uploaded files back from the Drive copy into the empty copy's storage (before it starts, as on a new site).
-const files = spawnSync('node', ['../../tools/restore-files.mjs', '.drive-files', ...(ON_NODE ? ['--dir', '.state2/files'] : ['--bucket', 'qms-files-ci', '--local', '--persist-to', '.state2', '-c', 'wrangler.jsonc'])], { encoding: 'utf8', env: { ...process.env, WRANGLER_SEND_METRICS: 'false', CI: '1' } });
-check(files.status === 0 && files.stdout.includes(`restored ${driveFiles.length} of ${driveFiles.length}`), 'the files go back from the Drive copy', (files.stderr || files.stdout).slice(-300));
+// The uploaded files back from the link's ZIP into the empty copy's storage (before it starts, as on a new site).
+const files = spawnSync('node', ['../../tools/restore-files.mjs', '.linkzip/files', ...(ON_NODE ? ['--dir', '.state2/files'] : ['--bucket', readFileSync('wrangler.jsonc', 'utf8').match(/"bucket_name":\s*"([^"]+)"/)[1], '--local', '--persist-to', '.state2', '-c', 'wrangler.jsonc'])], { encoding: 'utf8', env: { ...process.env, WRANGLER_SEND_METRICS: 'false', CI: '1' } });
+check(files.status === 0 && files.stdout.includes(`restored ${zipFiles.length} of ${zipFiles.length}`), 'the files go back from the ZIP', (files.stderr || files.stdout).slice(-300));
 const site = ON_NODE
   ? spawn('node', ['../../server/node.mjs'], { detached: true, stdio: 'ignore', env: { ...process.env, WORKER: 'tests/ci/entry.js', DATA_DIR: '.state2', PORT: '8788', S3_BUCKET: '' } })
   : spawn('npx', ['wrangler', 'dev', '-c', 'wrangler.jsonc', '--persist-to', '.state2', '--port', '8788'], { detached: true, stdio: 'ignore', env: { ...process.env, WRANGLER_SEND_METRICS: 'false', CI: '1' } });
@@ -125,13 +116,15 @@ try {
     const tk = before.data.tickets[0];
     check((await back('/tickets/' + tk.id)).s === 200, 'a restored request opens in the copy');
     // Each uploaded file opens in the copy with the same bytes as on the original site.
+    const D = before.data;
     const paths = [
-      ...before.data.ovr.filter((o) => o.photo_key).map((o) => `/ovr/${o.id}/photo`),
-      ...before.data.inv_files.map((f) => `/inv/${f.inv_id}/files/${f.id}`),
-      ...before.data.committee_files.map((f) => `/committees/${f.committee_id}/files/${f.id}`),
+      ...(D.files || []).filter((f) => f.pdf_key).map((f) => `/files/${f.id}/pdf`),
+      ...(D.ovr || []).filter((o) => o.photo_key).map((o) => `/ovr/${o.id}/photo`),
+      ...(D.inv_files || []).map((f) => `/inv/${f.inv_id}/files/${f.id}`),
+      ...(D.committee_files || []).map((f) => `/committees/${f.committee_id}/files/${f.id}`),
     ];
     let same = 0;
-    let differ = [];
+    const differ = [];
     for (const p of paths) {
       const a = await owner(p, 'GET', undefined, true);
       if (a.s !== 200) continue;
@@ -145,7 +138,8 @@ try {
   stop();
   rmSync('restore-backup.json', { force: true });
   rmSync('restore.sql', { force: true });
-  rmSync('.drive-files', { recursive: true, force: true });
+  rmSync('link-backup.zip', { force: true });
+  rmSync('.linkzip', { recursive: true, force: true });
 }
 
 console.log(failed ? `\n${failed} check(s) failed` : '\nall checks passed');

@@ -1,7 +1,8 @@
 import { handleMeetings, runMeetingJobs } from './systems/meetings.js';
 import { handleCheckin } from './systems/checkin.js';
 import { RECOVERY_RE, canEditDept, canSeeDept, checkEmail, checkOrigin, checkPassword, cleanRecovery, createSession, failedLogin, getUser, hashPassword, loginFrom, needs2fa, readJson, requireDocs, requireRole, sessionCookie, totpCheck, userOut, verifyPassword, withAccess } from './lib/auth.js';
-import { AUTO_BACKUP_PREFIX, driveCall, driveData, driveStatus, emailBackup, fullBackupData, isAutoBackupTick, runAutoBackup, runDriveFiles } from './lib/backup.js';
+import { AUTO_BACKUP_PREFIX, emailBackup, fullBackupData, isAutoBackupTick, runAutoBackup } from './lib/backup.js';
+import { handleBackupLink, lastBackupLink, sendBackupLink } from './lib/backuplink.js';
 import { ADMIN_ROLES, ASSETS_ROLES, CHALLENGE_MINUTES, DEFAULT_SETTINGS, DESK_ROLES, DOCS_ROLES, JOB_TITLES, MAX_LOGO_BYTES, MEETINGS_ROLES, QUALITY_ROLES, ROLES, ROUNDS_ROLES, SESSION_DAYS, SLA_KEYS, TWO_FA_LEVELS, appName, brandOut, logoType } from './lib/config.js';
 import { changes, ensureSchema, getSettings, logStmt, setSettingStmt } from './lib/db.js';
 import { READONLY_OPEN, licenseOut, licenseState } from './lib/license.js';
@@ -237,6 +238,8 @@ async function handleApi(request, env, url, ctx) {
     return json({ ok: true });
   }
 
+  // The full backup by the link mailed to the backup address (no sign-in: the token is the key).
+  if (method === 'GET' && seg[0] === 'backup' && seg[1] === 'link' && seg.length === 3) return handleBackupLink(request, env, ctx, seg[2]);
   // Incident reports: the form works signed in or with an employee number (a place's QR code).
   if (seg[0] === 'public' && seg[1] === 'ovr') return handlePublicOvr(request, env, url, seg, method, ctx);
   // Complaints, suggestions, thanks and the satisfaction survey from a place's QR code.
@@ -885,32 +888,26 @@ async function handleApi(request, env, url, ctx) {
   }
 
   // Weekly copies the system makes on its own (system owner only): the list, and one copy to download.
-  if (route === 'GET /backup/auto' || route === 'POST /backup/auto/email' || route === 'POST /backup/auto/drive' || (method === 'GET' && seg[0] === 'backup' && seg[1] === 'auto' && seg.length === 3)) {
+  if (route === 'GET /backup/auto' || route === 'POST /backup/auto/email' || route === 'POST /backup/auto/link' || (method === 'GET' && seg[0] === 'backup' && seg[1] === 'auto' && seg.length === 3)) {
     requireRole(user, ...ADMIN_ROLES);
     const ownerId = (await env.DB.prepare('SELECT MIN(id) AS id FROM users').first()).id;
     if (user.id !== ownerId) fail(403, 'forbidden');
     if (seg.length === 2) {
       const { objects } = await env.FILES.list({ prefix: AUTO_BACKUP_PREFIX });
-      return json({
-        backups: objects.map((o) => ({ name: o.key.slice(AUTO_BACKUP_PREFIX.length), size: o.size, at: o.uploaded })).sort((a, b) => (a.name < b.name ? 1 : -1)),
-        drive: await driveStatus(env, await getSettings(env)),
-      });
+      return json({ backups: objects.map((o) => ({ name: o.key.slice(AUTO_BACKUP_PREFIX.length), size: o.size, at: o.uploaded })).sort((a, b) => (a.name < b.name ? 1 : -1)), link: await lastBackupLink(env) });
     }
-    // The Google Drive copy on or off. Turning it on checks the Apps Script and sends a data copy now;
-    // the files follow in the next 15-minute runs.
-    if (route === 'POST /backup/auto/drive') {
+    // The backup address: saved (or cleared), and a first link sent to it at once.
+    if (route === 'POST /backup/auto/link') {
       const body = await readJson(request);
+      const to = str(body.to, 200).toLowerCase();
+      if (to && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) fail(400, 'invalid_email');
       const s = await getSettings(env);
-      if (body.on) {
-        const check = await driveCall(s, { action: 'drive_check' });
-        if (!check.ok) fail(check.error === 'drive_not_configured' ? 409 : 502, check.error);
-        const data = JSON.stringify({ app: 'facilities-tracker', kind: 'full', format: 1, created_at: nowIso(), created_by: user.email, data: await fullBackupData(env) });
-        const sent = await driveData(env, s, nowIso().slice(0, 10) + '.json', data);
-        if (!sent.ok) fail(502, sent.error);
+      if (to) {
+        const sent = await sendBackupLink(env, { ...s, backup_link_to: to }, user);
+        if (!sent.ok) fail(sent.error === 'mail_not_configured' ? 409 : 502, sent.error);
       }
-      await setSettingStmt(env, 'backup_drive', body.on ? '1' : '0').run();
-      await logStmt(env, user, 'backup', 'system', null, null, { drive: body.on ? 'on' : 'off' }).run();
-      return json({ ok: true, drive: await driveStatus(env, await getSettings(env)) });
+      await setSettingStmt(env, 'backup_link_to', to).run();
+      return json({ ok: true, to, link: await lastBackupLink(env) });
     }
     // Mail the newest copy to the owner now, to check that it arrives.
     if (route === 'POST /backup/auto/email') {
@@ -964,6 +961,7 @@ async function handleApi(request, env, url, ctx) {
             mail_from: s.mail_from,
             mail_reply_to: s.mail_reply_to,
             backup_email: s.backup_email === '1',
+            backup_link_to: s.backup_link_to,
             support_email: s.support_email,
             org_name_ar: s.org_name_ar,
             org_name_en: s.org_name_en,
@@ -1189,13 +1187,14 @@ export default {
           } else if (isAutoBackupTick(at)) {
             // One 15-minute run a week goes to the backup instead, so it has the run's whole query allowance.
             console.log('auto backup', JSON.stringify(await runAutoBackup(env)));
+            // And a link to the full backup (data + every uploaded file) to the backup address, when one is set.
+            const bs = await getSettings(env);
+            if (bs.backup_link_to) console.log('backup link', JSON.stringify(await sendBackupLink(env, bs, null)));
           } else {
             console.log('pm jobs', JSON.stringify(await runPmJobs(env)));
             console.log('ticket alerts', JSON.stringify(await runTicketAlerts(env)));
             // Once an hour (it checks the time itself); never throws, a failed read is kept on the link's status.
             console.log('fms link', JSON.stringify(await runFmsSync(env, { id: null, name: 'system' }, false)));
-            // The uploaded files not yet in the owner's Google Drive copy, a few each run (when it is on).
-            console.log('drive files', JSON.stringify(await runDriveFiles(env)));
           }
         } catch (e) {
           console.error(e);
