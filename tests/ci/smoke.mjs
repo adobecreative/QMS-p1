@@ -1,6 +1,5 @@
 // End-to-end checks against a local server (tests/ci/run.sh starts it).
 // Each check prints PASS or FAIL; any FAIL makes the run fail.
-import { inflateRawSync } from 'node:zlib';
 
 const B = process.env.BASE || 'http://localhost:8787';
 let failed = 0;
@@ -58,7 +57,7 @@ check((await sys('/logs')).s === 200, 'systems admin reads the activity log');
 // owner-only settings
 check((await sup('/settings', 'PUT', { org_name_ar: 'مستشفى' })).s === 403, 'other super admin cannot change the brand');
 check((await sup('/settings', 'PUT', { require_2fa: 'super' })).s === 403, 'other super admin cannot change two-step sign-in');
-check((await sup('/settings', 'PUT', { backup_email: true })).s === 403, 'other super admin cannot change the backup email');
+check((await sup('/backup/auto/link', 'POST', { to: 'x@example.com' })).s === 403, 'other super admin cannot change the backup email');
 r = await sup('/settings');
 check(r.s === 200 && !('mail_provider' in r.j.settings), 'other super admin does not see the mail settings', r.j && Object.keys(r.j.settings));
 check(r.s === 200 && !('org_name_ar' in r.j.settings) && !('require_2fa' in r.j.settings) && !('ai_enabled' in r.j.settings) && !r.j.license, 'other super admin sees none of the owner settings page', r.j && Object.keys(r.j.settings));
@@ -76,9 +75,11 @@ check((await tech('/users')).s === 403, 'technician has no user list');
 for (const p of ['/tickets', '/assets', '/files']) check((await sys(p)).s === 200, 'systems admin opens ' + p);
 check((await tech('/tickets')).s === 200, 'technician opens tickets');
 
-// mail set up through Brevo (a stand-in here), and the weekly backup sent to the owner
-r = await owner('/settings', 'PUT', { mail_provider: 'brevo', brevo_key: 'xkeysib-' + 'a'.repeat(64) + '-test', mail_from: 'notifications@example.com', sender_name: 'Portal', backup_email: true });
-check(r.s === 200 && r.j.settings.backup_email === true, 'owner turns on the weekly backup email', r);
+// mail set up through Brevo (a stand-in here), and the weekly backup link sent to the owner
+r = await owner('/settings', 'PUT', { mail_provider: 'brevo', brevo_key: 'xkeysib-' + 'a'.repeat(64) + '-test', mail_from: 'notifications@example.com', sender_name: 'Portal' });
+check(r.s === 200, 'owner sets up the mail', r);
+r = await owner('/backup/auto');
+check(r.s === 200 && r.j.to === 'owner@example.com' && !r.j.link, "the weekly link goes to the owner's own email until another is set", r.j);
 await owner('/__sent');
 const fire = async (ms) => {
   await fetch(B + '/cdn-cgi/handler/scheduled?cron=' + encodeURIComponent('*/15 * * * *') + '&time=' + ms);
@@ -87,23 +88,19 @@ const fire = async (ms) => {
 await fire(Date.UTC(2026, 9, 30, 2, 5)); // a Friday, 02:05 UTC
 r = await owner('/backup/auto');
 check(r.s === 200 && r.j.backups.length === 1, 'Friday run keeps a copy in storage', r.j);
+check(r.j.link && r.j.link.email === 'owner@example.com' && r.j.link.uses === 0, 'Friday run sends a backup link', r.j.link);
 const mails = (await owner('/__sent')).j;
-const m = mails.find((x) => x.via === 'brevo' && x.body.attachment);
-check(!!m, 'the copy is emailed with an attachment', mails.map((x) => x.body.subject));
+const m = mails.find((x) => x.via === 'brevo' && /\/api\/backup\/link\//.test(JSON.stringify(x.body)));
+check(!!m && !m.body.attachment, 'the link is emailed, with no attachment', mails.map((x) => x.body.subject));
 if (m) {
   const to = m.body.messageVersions[0].to[0].email;
   check(to === 'owner@example.com', 'sent to the owner only', to);
-  check(/النسخة الاحتياطية/.test(m.body.subject) && /Weekly backup/.test(m.body.subject), 'subject is Arabic and English', m.body.subject);
-  const zip = Buffer.from(m.body.attachment[0].content, 'base64');
-  const nameLen = zip.readUInt16LE(26);
-  const size = zip.readUInt32LE(18);
-  const data = JSON.parse(inflateRawSync(zip.subarray(30 + nameLen, 30 + nameLen + size)).toString());
-  check(m.body.attachment[0].name.endsWith('.zip') && data.kind === 'full' && data.data.users.length === 4, 'attachment is a ZIP of the full data', m.body.attachment[0].name);
-  check(!('password_hash' in data.data.users[0]) && !('brevo_key' in data.data.settings), 'no passwords or keys in the copy');
+  check(/النسخة الاحتياطية/.test(m.body.subject) && /Full backup/.test(m.body.subject), 'subject is Arabic and English', m.body.subject);
 }
-r = await owner('/backup/auto/email', 'POST');
-check(r.s === 200 && r.j.to === 'owner@example.com', 'owner can send the latest copy now', r);
-check((await sup('/backup/auto/email', 'POST')).s === 403, 'other super admin cannot send the copy');
+r = await owner('/backup/auto/link/send', 'POST');
+check(r.s === 200 && r.j.to === 'owner@example.com', 'owner can send a link now', r);
+check((await sup('/backup/auto/link/send', 'POST')).s === 403, 'other super admin cannot send the link');
+check((await sup('/backup/full')).s === 403, 'other super admin cannot download the full backup');
 
 // integration keys: the owner only
 check((await owner('/api-keys')).s === 200, 'owner manages the integration keys');

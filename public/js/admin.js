@@ -280,6 +280,10 @@ export function logDetails(l) {
   if (l.action === 'remind' && l.entity === 'stock') return t('log.remind_stock_detail', { n: d.items, emails: d.emails });
   if (l.action === 'remind') return t('log.remind_detail', { places: d.places, emails: d.emails });
   if (l.action === 'remind_failed') return has('err.' + d.error) ? t('err.' + d.error) : String(d.error || '');
+  if (l.action === 'backup' && d.full) return t('bak.full');
+  if (l.action === 'backup' && d.link) return t(d.link === 'download' ? 'log.backup_link_download' : 'log.backup_link_sent');
+  if (l.action === 'backup' && d.address) return t('bak.weekly');
+  if (l.action === 'backup' && d.files === undefined) return '';
   if (l.action === 'backup' || l.action === 'demo_add' || l.action === 'demo_remove') return t('log.backup_detail', { files: d.files });
   if (l.action === 'login' || l.action === 'login_failed' || l.action === 'login_locked')
     return [d.ip ? h('div', {}, 'IP: ', h('bdi', { dir: 'ltr' }, d.ip) , d.country ? ' (' + d.country + ')' : '') : null, d.method ? h('div', {}, t('tfa.method_' + d.method)) : null, d.step ? h('div', {}, t('tfa.failed_' + d.step)) : null];
@@ -414,80 +418,61 @@ export function licenseLockPage() {
   return authShell(t('lic.locked_title'), h('p', { class: 'muted' }, t('lic.locked_' + S.license.state)), h('p', { class: 'muted small' }, h('bdi', { dir: 'ltr' }, S.license.host || location.hostname)));
 }
 
+// One backup section: the full download now, the weekly link by email, and the copies kept in storage.
+// Only the system owner gets the data; another admin gets the PDF files only, built in the browser.
 export function backupPanel(s) {
   const status = h('p', { class: 'muted small', 'aria-live': 'polite' });
-  const btn = h('button', { type: 'button', class: 'btn btn-primary', onclick: () => downloadBackup(btn, status) }, icon('download'), t('bak.button'));
-  return h(
-    'section',
-    { class: 'panel pad stack settings' },
-    h('h2', {}, t('bak.title')),
-    h('p', { class: 'muted' }, t(S.user.is_owner ? 'bak.help' : 'bak.help_pdf')),
-    h('div', { class: 'actions logo-actions' }, btn),
-    status,
-    h('p', { class: 'hint' }, t('bak.hint')),
-    S.user.is_owner ? autoBackups(s) : '',
-  );
+  const btn = S.user.is_owner
+    ? h('a', { class: 'btn btn-primary', href: '/api/backup/full', download: '' }, icon('download'), t('bak.full'))
+    : h('button', { type: 'button', class: 'btn btn-primary', onclick: () => downloadBackup(btn, status) }, icon('download'), t('bak.full'));
+  return h('section', { class: 'panel pad stack settings' }, h('h2', {}, t('bak.title')), h('div', { class: 'actions logo-actions' }, btn), status, S.user.is_owner ? autoBackups() : '');
 }
 export const fmtSize = (n) => (n < 1024 * 1024 ? Math.max(1, Math.round(n / 1024)) + ' KB' : (n / 1024 / 1024).toFixed(1) + ' MB');
-// The weekly copies the system keeps on its own, newest first.
-export function autoBackups(s) {
-  // A copy of each weekly backup can also go to the owner's mailbox, away from Cloudflare.
-  const mailIt = input({ type: 'checkbox', checked: !!(s && s.backup_email) });
-  mailIt.addEventListener('change', async () => {
-    mailIt.disabled = true;
+// The weekly link (to the owner's email unless another is set) and the weekly copies kept in storage.
+export function autoBackups() {
+  const to = input({ type: 'email', dir: 'ltr', autocomplete: 'off' });
+  const line = h('p', { class: 'muted small', 'aria-live': 'polite' });
+  const showLink = (l) => {
+    line.textContent = l ? t('bak.link_state', { date: fmtDate(l.created_at), uses: l.uses, max: l.max_uses }) : '';
+  };
+  let saved = '';
+  to.addEventListener('change', async () => {
+    const v = to.value.trim();
+    if (v === saved) return;
+    to.disabled = true;
     try {
-      await api('/settings', { method: 'PUT', body: { backup_email: mailIt.checked } });
+      saved = to.value = (await api('/backup/auto/link', { method: 'POST', body: { to: v } })).to;
       toast(t('set.saved'));
     } catch (e) {
-      mailIt.checked = !mailIt.checked;
+      to.value = saved;
       toast(errText(e), true);
     } finally {
-      mailIt.disabled = false;
+      to.disabled = false;
     }
   });
-  const sendNow = h('button', { type: 'button', class: 'btn' }, t('bak.email_now'));
-  sendNow.addEventListener('click', async () => {
-    sendNow.disabled = true;
+  const send = h('button', { type: 'button', class: 'btn' }, t('bak.send_now'));
+  send.addEventListener('click', async () => {
+    send.disabled = true;
     try {
-      toast(t('bak.email_sent', { to: (await api('/backup/auto/email', { method: 'POST' })).to }));
+      const r = await api('/backup/auto/link/send', { method: 'POST' });
+      showLink(r.link);
+      toast(t('bak.email_sent', { to: r.to }));
     } catch (e) {
       toast(errText(e), true);
     } finally {
-      sendNow.disabled = false;
+      send.disabled = false;
     }
   });
-  // The address that gets the weekly link to the full backup (data + every uploaded file); saving it sends one now.
-  const linkTo = input({ type: 'email', dir: 'ltr', value: (s && s.backup_link_to) || '', autocomplete: 'off' });
-  const linkLine = h('p', { class: 'muted small', 'aria-live': 'polite' });
-  const showLink = (l) => {
-    linkLine.textContent = l ? t('bak.link_state', { date: fmtDate(l.created_at), uses: l.uses, max: l.max_uses }) : '';
-  };
-  let savedTo = linkTo.value;
-  linkTo.addEventListener('change', async () => {
-    const to = linkTo.value.trim();
-    if (to === savedTo) return;
-    linkTo.disabled = true;
-    try {
-      const r = await api('/backup/auto/link', { method: 'POST', body: { to } });
-      savedTo = to;
-      showLink(to ? r.link : null);
-      toast(to ? t('bak.email_sent', { to }) : t('set.saved'));
-    } catch (e) {
-      linkTo.value = savedTo;
-      toast(errText(e), true);
-    } finally {
-      linkTo.disabled = false;
-    }
-  });
-  const box = h('div', { class: 'stack' }, h('h3', { class: 'small strong' }, t('bak.auto')), checkField(t('bak.email'), mailIt), field(t('bak.link_to'), linkTo), linkLine);
+  const kept = h('div', { class: 'stack' });
+  const box = h('div', { class: 'stack' }, h('h3', { class: 'small strong' }, t('bak.weekly')), field(t('bak.link_to'), to), h('div', { class: 'actions' }, send), line, h('h3', { class: 'small strong' }, t('bak.saved')), kept);
   api('/backup/auto')
     .then((r) => {
-      showLink(savedTo ? r.link : null);
-      box.append(
+      saved = to.value = r.to || '';
+      showLink(r.link);
+      kept.append(
         r.backups.length
           ? h('ul', { class: 'pp-list' }, r.backups.map((b) => h('li', {}, h('a', { href: '/api/backup/auto/' + encodeURIComponent(b.name), download: 'backup-' + b.name, dir: 'ltr' }, b.name.replace('.json', '')), h('span', { class: 'muted small', dir: 'ltr' }, fmtSize(b.size)))))
           : h('p', { class: 'muted small' }, t('bak.auto_none')),
-        r.backups.length ? h('div', { class: 'actions' }, sendNow) : '',
       );
     })
     .catch((e) => box.append(h('p', { class: 'form-error' }, errText(e))));
