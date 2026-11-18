@@ -10,7 +10,7 @@ import { getSettings, logStmt, setSettingStmt } from '../lib/db.js';
 import { fail, json, nowIso, sha256Hex, str, toHex, todayIn } from '../lib/util.js';
 import { API_KEY_RE } from './api.js';
 import { plusDays } from './docs.js';
-import { importStaff } from './tickets.js';
+import { aiJson, aiReady, aiTake, importStaff } from './tickets.js';
 
 export const LINK_KEYS = ['link_on', 'link_url', 'link_key', 'link_synced_at', 'link_error', 'link_snapshot', 'link_portal', 'link_staff_hash'];
 // Calls per sync, so one run stays well inside the free plan's limit on outgoing requests.
@@ -381,6 +381,32 @@ const has = (r) => !!r && r !== 'none';
 export const portalDocsOn = (s) => s.link_on === '1' && !!(snapshotOut(s)?.scopes || []).includes('docs_read');
 export const portalDocUrl = (id) => '/api/portal-docs/' + id + '/pdf';
 
+// The assistant proposes the CBAHI chapter of each unfiled document from its name, type and department.
+export async function suggestDocChapters(env, docs, chapters) {
+  const codes = chapters.map((c) => c.code);
+  const r = await aiJson(
+    env,
+    'You file a hospital\'s policies, procedures, plans and forms under the chapters of the CBAHI hospital accreditation standards. ' +
+      'For each document, pick the one chapter code whose standards it serves best, from its name, type and department. ' +
+      'Skip a document when no chapter clearly fits. Answer as JSON.\n\nChapters (code: Arabic / English):\n' +
+      chapters.map((c) => `${c.code}: ${c.name_ar} / ${c.name_en || ''}`).join('\n'),
+    docs.map((d) => `${d.id}: ${[d.name_ar, d.name_en, d.type_ar || d.doc_type, d.department_ar].filter(Boolean).join(' | ')}`).join('\n'),
+    {
+      type: 'object',
+      properties: { items: { type: 'array', items: { type: 'object', properties: { id: { type: 'integer' }, chapter: { type: 'string', enum: codes } }, required: ['id', 'chapter'] } } },
+      required: ['items'],
+    },
+    Math.min(1500, 60 + docs.length * 20),
+  );
+  const ids = new Set(docs.map((d) => d.id));
+  const out = {};
+  for (const i of (r && Array.isArray(r.items) ? r.items : [])) {
+    const ch = i && typeof i.chapter === 'string' ? i.chapter.toUpperCase() : '';
+    if (i && ids.has(Number(i.id)) && codes.includes(ch)) out[Number(i.id)] = ch;
+  }
+  return out;
+}
+
 export async function handlePortalDocs(request, env, seg, method, user) {
   if (!has(user.docs) && !has(user.quality) && !isAdmin(user)) fail(403, 'forbidden');
   const s = await getSettings(env);
@@ -392,7 +418,26 @@ export async function handlePortalDocs(request, env, seg, method, user) {
       env.DB.prepare("SELECT code, name_ar, name_en FROM std_chapters WHERE framework = 'cbahi' ORDER BY sort, code").all(),
     ]);
     const host = s.link_url ? new URL(s.link_url).hostname : null;
-    return json({ on: portalDocsOn(s), portal: host, synced_at: s.link_synced_at || null, error: s.link_error || null, can_file: canFile, chapters, docs: results.map((d) => ({ ...d, has_pdf: !!d.has_pdf, pdf_url: portalDocUrl(d.id) })) });
+    return json({ on: portalDocsOn(s), portal: host, synced_at: s.link_synced_at || null, error: s.link_error || null, can_file: canFile, ai: canFile && aiReady(env, s), chapters, docs: results.map((d) => ({ ...d, has_pdf: !!d.has_pdf, pdf_url: portalDocUrl(d.id) })) });
+  }
+  // POST /portal-docs/suggest: proposed chapters for up to 60 unfiled documents (nothing is saved).
+  if (method === 'POST' && seg[1] === 'suggest' && seg.length === 2) {
+    if (!canFile) fail(403, 'forbidden');
+    if (!aiReady(env, s)) fail(409, 'ai_off');
+    const [{ results: docs }, { results: chapters }] = await Promise.all([
+      env.DB.prepare("SELECT id, name_ar, name_en, doc_type, type_ar, department_ar FROM portal_docs WHERE chapter IS NULL OR chapter = '' ORDER BY id LIMIT 60").all(),
+      env.DB.prepare("SELECT code, name_ar, name_en FROM std_chapters WHERE framework = 'cbahi' ORDER BY sort, code").all(),
+    ]);
+    if (!docs.length || !chapters.length) return json({ suggestions: {} });
+    if (!(await aiTake(env, s))) fail(429, 'ai_limit');
+    let suggestions = null;
+    try {
+      suggestions = await suggestDocChapters(env, docs, chapters);
+    } catch (e) {
+      console.error('doc chapters', e);
+    }
+    if (!suggestions || !Object.keys(suggestions).length) fail(502, 'ai_none');
+    return json({ suggestions });
   }
   if (method === 'PUT' && id && seg.length === 2) {
     if (!canFile) fail(403, 'forbidden');

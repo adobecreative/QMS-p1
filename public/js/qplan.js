@@ -4,7 +4,7 @@ import { kpiRow } from './assets.js';
 import { S, h, icon, t } from './core.js';
 import { fmtVal, kpiDialog, libraryDialog, periodLabel, trendChart } from './kpis.js';
 import { isAdminRole, link, printHead, setUrl } from './layout.js';
-import { api, dateEl, errorBox, field, input, openDialog, select, toast } from './offline.js';
+import { api, dateEl, errText, errorBox, field, input, openDialog, select, toast } from './offline.js';
 import { reportMailPanel } from './reports.js';
 import { fmtTime, pick, simpleDelete } from './tickets.js';
 
@@ -531,9 +531,37 @@ export async function qreportPage(root, param, alive) {
   const sat = (x) => (x.survey.satisfied_pct === null ? '-' : x.survey.satisfied_pct + '%');
   const mini = (title, items) => h('section', { class: 'panel' }, panelHead(title), h('dl', { class: 'kv-list qrep-mini' }, items.map(([k, v]) => kv(k.includes('.') ? t(k) : k, h('span', { class: 'mono', dir: 'ltr' }, String(v ?? '-'))))));
   const canMail = isAdminRole(S.user) || S.user.quality === 'manager';
+  // The assistant's written summary of the figures: shown above the figures and printed with them, not saved.
+  const sumText = h('div', { class: 'qrep-summary', dir: 'auto' });
+  const sumErr = h('p', { class: 'form-error no-print', role: 'alert', hidden: true });
+  const sumPanel = h('section', { class: 'panel', hidden: true }, panelHead(t('qrep.summary')), sumText);
+  const sumBtn = d.ai
+    ? h('button', {
+        type: 'button',
+        class: 'btn',
+        onclick: async (ev) => {
+          const b = ev.currentTarget;
+          b.disabled = true;
+          sumErr.hidden = true;
+          try {
+            const r = await api('/qreport/summary?period=' + d.period + '&lang=' + S.lang, { method: 'POST' });
+            if (!alive()) return;
+            sumText.replaceChildren(...r.text.split(/\n+/).filter((x) => x.trim()).map((x) => h('p', {}, x)));
+            sumPanel.hidden = false;
+          } catch (e) {
+            sumErr.textContent = errText(e);
+            sumErr.hidden = false;
+          } finally {
+            b.disabled = false;
+          }
+        },
+      }, icon('spark'), t('qrep.ai_summary'))
+    : '';
   root.replaceChildren(
     printHead(),
-    h('div', { class: 'page-head' }, h('div', {}, h('h1', {}, t('qrep.title', { p: pLabel(d.period) }))), h('div', { class: 'actions no-print' }, pickP, h('button', { type: 'button', class: 'btn', onclick: () => window.print() }, icon('file'), t('rep.print')))),
+    h('div', { class: 'page-head' }, h('div', {}, h('h1', {}, t('qrep.title', { p: pLabel(d.period) }))), h('div', { class: 'actions no-print' }, pickP, sumBtn, h('button', { type: 'button', class: 'btn', onclick: () => window.print() }, icon('file'), t('rep.print')))),
+    sumErr,
+    sumPanel,
     kpiRow([
       ['qrep.k_ovr', c.ovr.n],
       ['qrep.k_complaints', c.pex.complaints],

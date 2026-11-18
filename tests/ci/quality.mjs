@@ -205,6 +205,14 @@ check((await qv('/bootstrap')).j.portal_url === '', 'and the systems button stay
   check((await tech('/portal-docs')).s === 403, 'someone without a documents or quality role cannot see them');
   check((await qv('/portal-docs/' + fire.id, 'PUT', { chapter: 'FMS' })).s === 403, 'a viewer cannot file a document');
   check((await owner('/portal-docs/' + fire.id, 'PUT', { chapter: 'ZZZ' })).s === 400, 'an unknown chapter is refused');
+  // The AI assistant (a stand-in here) proposes a chapter for each unfiled document; nothing is saved.
+  const pd = (await owner('/portal-docs')).j;
+  check(pd.ai === true && r.j.ai === false, 'only who files documents sees the assistant');
+  r = await owner('/portal-docs/suggest', 'POST');
+  const sug = r.j && r.j.suggestions;
+  check(r.s === 200 && sug[fire.id] === pd.chapters[0].code && Object.keys(sug).length === pd.docs.filter((x) => !x.chapter).length && !sug[999999], 'the assistant proposes a known chapter for each unfiled document', r.j);
+  check((await qv('/portal-docs/suggest', 'POST')).s === 403, 'a viewer cannot ask for it');
+  check((await owner('/portal-docs')).j.docs.find((x) => x.id === fire.id).chapter === null, 'the proposal saves nothing');
   check((await owner('/portal-docs/' + fire.id, 'PUT', { chapter: 'ld' })).s === 200, 'a manager files a portal document under a chapter');
   r = await qv('/quality/files?chapter=LD');
   const tile = r.j.files.find((x) => x.portal);

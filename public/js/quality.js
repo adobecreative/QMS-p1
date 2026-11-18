@@ -1041,6 +1041,8 @@ export async function portalDocsPage(root, mode, alive) {
       try {
         await api('/portal-docs/' + doc.id, { method: 'PUT', body: { chapter: sel.value } });
         doc.chapter = sel.value || null;
+        delete sugg[doc.id];
+        if (tip) tip.remove();
         toast(t('pdoc.filed'));
       } catch (e) {
         toast(errText(e), true);
@@ -1048,8 +1050,36 @@ export async function portalDocsPage(root, mode, alive) {
       }
       sel.disabled = false;
     });
-    return sel;
+    // The assistant's proposal: one tap files the document under it.
+    const ch = !doc.chapter && sugg[doc.id] ? d.chapters.find((c) => c.code === sugg[doc.id]) : null;
+    const tip = ch
+      ? h('button', { type: 'button', class: 'btn-link small', onclick: () => ((sel.value = ch.code), sel.dispatchEvent(new Event('change'))) }, icon('spark'), ' ', t('pdoc.ai_pick', { c: chName(ch) }))
+      : null;
+    return tip ? h('div', { class: 'stack' }, sel, tip) : sel;
   };
+  const sugg = {};
+  const unfiled = () => d.docs.some((x) => !x.chapter);
+  const suggestBtn =
+    d.ai && unfiled()
+      ? h('button', {
+          type: 'button',
+          class: 'btn',
+          onclick: async (ev) => {
+            const b = ev.currentTarget;
+            b.disabled = true;
+            try {
+              const r = await api('/portal-docs/suggest', { method: 'POST' });
+              Object.assign(sugg, r.suggestions);
+              f.chapter = pickCh.value = '-';
+              draw();
+              toast(t('pdoc.ai_done', { n: Object.keys(r.suggestions).length }));
+            } catch (e) {
+              toast(errText(e), true);
+            }
+            b.disabled = false;
+          },
+        }, icon('spark'), t('pdoc.ai_suggest'))
+      : '';
   const draw = () => {
     const q = norm(f.q.trim());
     const base = d.docs.filter(
@@ -1142,7 +1172,7 @@ export async function portalDocsPage(root, mode, alive) {
       'div',
       { class: 'page-head' },
       h('div', {}, h('h1', {}, t(dash ? 'nav.dashboard' : 'nav.documents')), h('p', { class: 'muted' }, t('pdoc.sub', { n: d.docs.length, filed }))),
-      S.user.docs === 'admin' || S.user.docs === 'dept_admin' ? h('div', { class: 'actions' }, lockedAdd(t('file.add'))) : '',
+      suggestBtn || S.user.docs === 'admin' || S.user.docs === 'dept_admin' ? h('div', { class: 'actions' }, suggestBtn, S.user.docs === 'admin' || S.user.docs === 'dept_admin' ? lockedAdd(t('file.add')) : '') : '',
     ),
     !d.on ? h('p', { class: 'notice notice-warn' }, t('pdoc.off')) : d.error ? h('p', { class: 'notice notice-warn' }, t('qa.fms.error', { err: linkError(d.error) })) : '',
     cards,

@@ -120,6 +120,11 @@ check(r.j.plan.status === 'approved' && r.j.plan.approved_by, 'the plan is appro
 check((await emp('/qreport')).s === 403, 'an employee has no quality report');
 r = await qm('/qreport?period=' + m0);
 check(r.s === 200 && r.j.kind === 'month' && r.j.kpis.below.some((k) => k.code === 'QP-HH') && typeof r.j.cur.ovr.n === 'number' && r.j.readiness, 'the monthly report has the indicator below target', r.j && r.j.kpis);
+// The AI assistant (a stand-in here) writes the summary of the figures, in the reader's language.
+check(r.j.ai === true, 'the report knows the assistant is on');
+r = await qm('/qreport/summary?period=' + m0 + '&lang=ar', 'POST');
+check(r.s === 200 && r.j.text.includes('توصية'), 'the assistant summarises the report', r.j);
+check((await emp('/qreport/summary?period=' + m0, 'POST')).s === 403, 'an employee cannot ask for it');
 r = await qm('/qreport?period=' + year);
 check(r.s === 200 && r.j.kind === 'year' && r.j.goals.n === 3 && r.j.goals.achieved === 2 && r.j.pdsa.done === 1, 'the yearly report counts goals and projects', r.j && { goals: r.j.goals, pdsa: r.j.pdsa });
 

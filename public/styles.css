@@ -4587,6 +4587,16 @@ tr.is-off td {
 .qrep-grid > .panel {
   margin: 0;
 }
+.qrep-summary {
+  padding: 14px 20px 18px;
+}
+.qrep-summary p {
+  margin: 0 0 8px;
+  line-height: 1.8;
+}
+.qrep-summary p:last-child {
+  margin: 0;
+}
 .qrep-mini {
   padding: 4px 16px 12px;
 }

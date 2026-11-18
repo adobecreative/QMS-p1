@@ -230,6 +230,14 @@ check((await sec('/committees/' + did, 'DELETE')).s === 403, 'only a manager del
   let m = await sec('/committee-sessions/' + ses.id + '/minutes');
   check(m.s === 200 && m.j.can_edit && m.j.members.length === active.length && m.j.session.minutes_status === 'draft', 'the secretary opens the minutes', m.j);
   check((await mv('/committee-sessions/' + ses.id + '/minutes', 'PUT', { items: [] })).s === 403, 'a viewer cannot write the minutes');
+  // The AI assistant (a stand-in here) turns the notes into minutes lines; nothing is saved.
+  const notes = 'نوقشت نتائج جولة النظافة وتقرر رفع خطة تحسين خلال أسبوعين، وتأجل موضوع التدريب.';
+  check(m.j.ai === true && (await mv('/committee-sessions/' + ses.id + '/minutes')).j.ai === false, 'only who writes the minutes sees the assistant');
+  r = await sec('/committee-sessions/' + ses.id + '/minutes/draft', 'POST', { notes });
+  check(r.s === 200 && r.j.items.length === 2 && r.j.items[0].target_date === '2026-12-01' && r.j.items[1].target_date === '' && r.j.items[0].responsibility === 'مدير الخدمات', 'the assistant drafts the lines, dropping empty ones and bad dates', r.j);
+  check((await sec('/committee-sessions/' + ses.id + '/minutes/draft', 'POST', { notes: 'قصير' })).j?.error === 'mtg_notes_short', 'short notes are refused');
+  check((await mv('/committee-sessions/' + ses.id + '/minutes/draft', 'POST', { notes })).s === 403, 'a viewer cannot ask for it');
+  check((await sec('/committee-sessions/' + ses.id + '/minutes')).j.items.length === 0, 'the draft saves nothing');
   const items = [{ subject: 'افتتاح الاجتماع' }, { subject: 'مؤشرات الربع', discussion: 'نقاش', action: 'رفع نسبة الإبلاغ', responsibility: 'مدير الجودة', target_date: plus(today, 30), status: 'open' }];
   const att = active.map((x, i) => ({ member_id: x.id, status: i === 0 ? 'absent' : 'present' }));
   check((await sec('/committee-sessions/' + ses.id + '/minutes', 'PUT', { submit: true, items, attendance: att.slice(1) })).j?.error === 'mtg_attendance_missing', 'every member is marked before sending');
@@ -241,6 +249,7 @@ check((await sec('/committees/' + did, 'DELETE')).s === 403, 'only a manager del
   check((await owner('/committee-sessions/' + ses.id + '/minutes/approve', 'POST')).s === 200, 'a manager approves');
   check((await allSent()).some((x) => x.includes('member@example.com') && x.includes('اعتُمد المحضر')), 'the members are emailed when the minutes are approved');
   check((await sec('/committee-sessions/' + ses.id + '/minutes', 'PUT', { items })).j?.error === 'mtg_minutes_locked', 'approved minutes are locked');
+  check((await sec('/committee-sessions/' + ses.id + '/minutes/draft', 'POST', { notes })).j?.error === 'mtg_minutes_locked', 'no draft for approved minutes');
   const after = (await owner('/committees/' + qid)).j;
   check(after.sessions.find((x) => x.id === ses.id).status === 'held', 'writing the minutes marks the session held');
   const absent = after.members.find((x) => x.id === active[0].id).attendance;
