@@ -13,7 +13,7 @@ import { bothLangs, emailHeader, mailReady, sendMail } from '../lib/mail.js';
 import { sendPush } from '../lib/push.js';
 import { escHtml, fail, json, nowIso, optDate, sha256Hex, str, toHex, todayIn } from '../lib/util.js';
 import { plusDays } from './docs.js';
-import { MAX_PHOTO_BYTES, hashIp, photoType } from './tickets.js';
+import { MAX_PHOTO_BYTES, SUGGEST_PER_HOUR, aiJson, aiReady, aiTake, hashIp, photoType } from './tickets.js';
 
 export const OVR_HARMS = ['near_miss', 'no_harm', 'minor', 'moderate', 'major', 'sentinel'];
 export const SEVERE = ['major', 'sentinel'];
@@ -276,6 +276,73 @@ const rcaData = (r) => {
 // The analysis is done once it names at least one root cause (written, or a fishbone cause marked as root).
 const hasRoot = (d) => (d.roots || []).length > 0 || FISH.some((k) => ((d.bones || {})[k] || []).some((x) => x.root));
 
+/* ------------------------------ the AI assistant ---------------------------- */
+
+// The assistant only suggests: the reporter or quality picks. It reads the description, never the patient's
+// name or file number, and every call counts against the daily allowance (see tickets.js).
+// The type, sub-type and harm that fit what the employee wrote, from the active categories only.
+export async function suggestOvr(env, description, categories) {
+  const tops = categories.filter((c) => !c.parent_id);
+  const lines = tops.flatMap((c) => {
+    const subs = categories.filter((x) => x.parent_id === c.id);
+    return subs.length ? subs.map((x) => `${x.id}: ${c.name_ar} / ${x.name_ar} (${c.name_en} / ${x.name_en})`) : [`${c.id}: ${c.name_ar} (${c.name_en})`];
+  });
+  const r = await aiJson(
+    env,
+    'You sort incident reports (OVR) in a hospital. The report is written by an employee, usually in Arabic. ' +
+      'Pick the one incident type from the list that best fits, and the level of harm to the patient or person: ' +
+      'near_miss (did not reach anyone), no_harm, minor, moderate, major, sentinel (death or permanent harm). Answer as JSON. ' +
+      'If no type fits, answer type_id 0.\n\nIncident types (id: Arabic (English)):\n' + lines.join('\n'),
+    description,
+    { type: 'object', properties: { type_id: { type: 'integer' }, harm: { type: 'string', enum: OVR_HARMS } }, required: ['type_id', 'harm'] },
+    60,
+  );
+  if (!r) return {};
+  const picked = categories.find((c) => c.id === Number(r.type_id));
+  const out = {};
+  if (picked) {
+    const sub = picked.parent_id ? picked : null;
+    const top = sub ? categories.find((c) => c.id === sub.parent_id) : picked;
+    if (top && !top.parent_id) {
+      out.category_id = top.id;
+      if (sub) out.sub_id = sub.id;
+      if (sub && sub.sentinel) out.harm = 'sentinel';
+    }
+  }
+  if (!out.harm && OVR_HARMS.includes(r.harm)) out.harm = r.harm;
+  return out;
+}
+
+// A first draft of the five whys and the fishbone, for the team to correct. Nothing is saved here.
+export async function draftRca(env, o) {
+  const report = [
+    `Type: ${typeText(o, false)} / ${typeText(o, true)}`,
+    `Harm: ${o.harm_final || o.harm}`,
+    `What happened: ${o.description}`,
+    o.immediate_action ? `Immediate action: ${o.immediate_action}` : '',
+  ].filter(Boolean).join('\n');
+  const list = { type: 'array', items: { type: 'string' } };
+  const r = await aiJson(
+    env,
+    'You help a hospital quality team start a root cause analysis of an incident. Write a first draft for the team to correct: ' +
+      'five whys (each answer explains the one before, ending at a system cause, never blaming a person), and likely causes on each ' +
+      'branch of a fishbone (people, methods, equipment, environment, materials, communication), at most 3 short causes per branch, ' +
+      'empty where nothing fits. Use only what the report says or what commonly causes such incidents. ' +
+      'Write in the language of the report (Arabic if it is in Arabic). Answer as JSON.',
+    report,
+    {
+      type: 'object',
+      properties: { whys: list, ...Object.fromEntries(FISH.map((k) => [k, list])) },
+      required: ['whys', ...FISH],
+    },
+    900,
+  );
+  if (!r) return null;
+  const clean = (v, n, len) => (Array.isArray(v) ? v : []).map((x) => str(typeof x === 'string' ? x : '', len)).filter(Boolean).slice(0, n);
+  const out = { whys: clean(r.whys, 5, 500), bones: Object.fromEntries(FISH.map((k) => [k, clean(r[k], 3, 200)])) };
+  return out.whys.length || FISH.some((k) => out.bones[k].length) ? out : null;
+}
+
 /* ------------------------------ public routes ----------------------------- */
 
 // /api/public/ovr/...: the report form (signed in or with an employee number) and the tracking link.
@@ -292,7 +359,27 @@ export async function handlePublicOvr(request, env, url, seg, method, ctx) {
       getUser(request, env),
     ]);
     const staffN = user ? 0 : (await env.DB.prepare('SELECT COUNT(*) AS n FROM staff WHERE active = 1').first()).n;
-    return json({ categories, departments, places, location: loc || null, bad_location: !!code && !loc, signed_in: !!user, staff_check: staffN > 0, harms: OVR_HARMS });
+    return json({ categories, departments, places, location: loc || null, bad_location: !!code && !loc, signed_in: !!user, staff_check: staffN > 0, harms: OVR_HARMS, ai: aiReady(env, await getSettings(env)) });
+  }
+
+  // POST /public/ovr/suggest {description}: the type and harm the assistant would pick. {} when it has none.
+  if (method === 'POST' && seg[2] === 'suggest' && seg.length === 3) {
+    const body = await readJson(request);
+    const description = str(body.description, 3000);
+    const settings = await getSettings(env);
+    if (description.length < 15 || !aiReady(env, settings)) return json({});
+    const ipHash = 'ovrai:' + (await hashIp(request));
+    const hourAgo = new Date(Date.now() - 3600000).toISOString();
+    const hits = await env.DB.prepare('SELECT COUNT(*) AS n FROM public_hits WHERE ip_hash = ? AND at > ?').bind(ipHash, hourAgo).first();
+    if (hits.n >= SUGGEST_PER_HOUR) return json({});
+    await env.DB.prepare('INSERT INTO public_hits (ip_hash, at) VALUES (?, ?)').bind(ipHash, nowIso()).run();
+    if (!(await aiTake(env, settings))) return json({});
+    try {
+      return json(await suggestOvr(env, description, await allCategories(env, true)));
+    } catch (e) {
+      console.error('ovr suggest', e);
+      return json({});
+    }
   }
 
   // POST /public/ovr (multipart): a new report.
@@ -581,6 +668,7 @@ export async function handleOvr(request, env, url, seg, method, user, ctx) {
         problem: data.problem || '', timeline: data.timeline || [], whys: data.whys || [], bones: data.bones || {}, roots: data.roots || [], plan: data.plan || [], measure: data.measure || '',
         can_edit: stage !== 'approved' && o.status !== 'closed' && (role.officer || inTeam),
         can_approve: stage === 'plan' && o.status !== 'closed' && role.manager,
+        ai: aiReady(env, settings),
       };
     }
     return json({ ovr: out, today, role: { officer: role.officer, manager: role.manager, viewer: role.viewer, sees_reporter: role.seesReporter } });
@@ -590,6 +678,23 @@ export async function handleOvr(request, env, url, seg, method, user, ctx) {
     const obj = o.photo_key ? await env.FILES.get(o.photo_key) : null;
     if (!obj) fail(404, 'not_found');
     return new Response(obj.body, { headers: { 'content-type': o.photo_type || 'image/jpeg', 'content-length': String(obj.size), 'cache-control': 'private, max-age=3600', 'x-content-type-options': 'nosniff' } });
+  }
+
+  // POST /ovr/<id>/rca/draft: the assistant's first draft of the five whys and the fishbone (not saved).
+  if (method === 'POST' && seg[2] === 'rca' && seg[3] === 'draft' && seg.length === 4) {
+    if (!rca) fail(404, 'not_found');
+    if (!role.officer && !inTeam) fail(403, 'forbidden');
+    if (rca.approved_at || o.status === 'closed') fail(409, 'ovr_rca_locked');
+    if (!aiReady(env, settings)) fail(409, 'ai_off');
+    if (!(await aiTake(env, settings))) fail(429, 'ai_limit');
+    let draft = null;
+    try {
+      draft = await draftRca(env, o);
+    } catch (e) {
+      console.error('rca draft', e);
+    }
+    if (!draft) fail(502, 'ai_none');
+    return json(draft);
   }
 
   // PUT /ovr/<id>/rca: quality or a team member saves the analysis. The team stage ends once it has enough members,

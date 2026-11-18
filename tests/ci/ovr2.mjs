@@ -51,8 +51,16 @@ const today = (await qo('/ovr')).j.today;
 const base = { occurred_at: today + 'T09:00', department_id: String(depts[1].id), category_id: String(med.id), sub_id: String(medSub.id), harm: 'moderate', description: 'تأخر إعطاء الدواء ساعتين', patient: '0' };
 await sent();
 
+// The AI assistant (a stand-in here) suggests the type and harm from the description, with no sign-in needed.
+let r = await (await fetch(B + '/api/public/ovr/suggest', { method: 'POST', headers: { 'content-type': 'application/json', 'x-requested-with': 'fetch' }, body: JSON.stringify({ description: 'أُعطي المريض جرعة مضاعفة من الدواء' }) })).json();
+const firstListed = cats.find((c) => c.parent_id === cats.filter((x) => !x.parent_id)[0].id);
+check(r.category_id === firstListed.parent_id && r.sub_id === firstListed.id && r.harm === 'minor', 'the assistant suggests a type, its sub-type and the harm', r);
+r = await (await fetch(B + '/api/public/ovr/suggest', { method: 'POST', headers: { 'content-type': 'application/json', 'x-requested-with': 'fetch' }, body: JSON.stringify({ description: 'قصير' }) })).json();
+check(Object.keys(r).length === 0, 'a short description gets no suggestion');
+check((await emp('/public/ovr/form')).j.ai === true, 'the form says the assistant is on');
+
 // A corrective action from an action sent to a person.
-let r = await emp.form('/public/ovr', base);
+r = await emp.form('/public/ovr', base);
 const idA = r.j.id;
 await qo('/ovr/' + idA, 'PUT', {});
 check((await qo('/ovr/' + idA + '/close', 'POST', { note: 'x' })).j.error === 'ovr_capa_required', 'moderate harm cannot close without a corrective action');
@@ -98,6 +106,12 @@ check(r.j.ovr.some((o) => o.id === idS), 'a team member finds the report in thei
 r = await head('/ovr/' + idS);
 check(r.s === 200 && r.j.ovr.rca.can_edit && r.j.ovr.reporter === undefined, 'a team member opens the analysis, without the reporter', r.j.ovr.rca);
 check((await head('/ovr/' + idS + '/rca', 'PUT', { team: [headId] })).s === 403, 'a team member cannot take others off the team');
+// The AI assistant's first draft (a stand-in here): filled in for the team, nothing saved until they save.
+check(r.j.ovr.rca.ai === true, 'the analysis says the assistant is on');
+r = await head('/ovr/' + idS + '/rca/draft', 'POST');
+check(r.s === 200 && r.j.whys.length === 3 && r.j.bones.methods.length === 1 && r.j.bones.communication.length === 1 && r.j.bones.equipment.length === 0, 'a team member gets a draft of the five whys and the fishbone', r.j);
+check((await qo('/ovr/' + idS)).j.ovr.rca.whys.length === 0, 'the draft is not saved by itself');
+check((await qo('/ovr/' + idA + '/rca/draft', 'POST')).s === 404, 'no draft for a report without an analysis');
 const bones = { people: [{ t: 'إرهاق الفريق' }], methods: [{ t: 'لا يوجد تعليم موضع العملية', root: true }], equipment: [], environment: [], materials: [], communication: [{ t: 'تسليم ناقص' }] };
 const analysis = { team: [headId, empId], problem: 'جراحة في الموضع الخطأ', whys: ['لم يُعلَّم الموضع', 'لا توجد سياسة', '', '', ''], bones };
 r = await head('/ovr/' + idS + '/rca', 'PUT', analysis);

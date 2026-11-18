@@ -2,8 +2,18 @@
 // replaced by stand-ins. What would have been sent is read back at GET /api/__sent.
 import worker from '../../src/worker.js';
 
+// Answers by the shape asked for: the first incident type listed with minor harm, a fixed analysis draft,
+// and no request type.
 const fakeAI = {
-  async run() {
+  async run(model, opts) {
+    const props = (opts.response_format && opts.response_format.json_schema && opts.response_format.json_schema.properties) || {};
+    if (props.type_id) {
+      const m = opts.messages[0].content.match(/\n(\d+): /);
+      return { response: { type_id: m ? Number(m[1]) : 0, harm: 'minor' } };
+    }
+    if (props.whys) {
+      return { response: { whys: ['لم يُتحقق من الاسم', 'لا توجد خطوة تحقق ثانية', 'الإجراء لا ينص عليها'], people: ['ضغط العمل'], methods: ['لا يوجد تحقق مزدوج'], equipment: [], environment: [], materials: [], communication: ['تسليم ناقص بين المناوبات'] } };
+    }
     return { response: { category_id: 0 } };
   },
 };
