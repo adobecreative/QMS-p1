@@ -360,14 +360,14 @@ export async function aiTake(env, settings) {
   return row.n <= settings.ai_daily_limit;
 }
 // Asks for a JSON answer. Returns the parsed object, or null when the model gave nothing usable.
-export async function aiJson(env, system, user, schema) {
+export async function aiJson(env, system, user, schema, maxTokens = 100) {
   const out = await env.AI.run(AI_MODEL, {
     messages: [
       { role: 'system', content: system },
       { role: 'user', content: user },
     ],
     response_format: { type: 'json_schema', json_schema: schema },
-    max_tokens: 100,
+    max_tokens: maxTokens,
     temperature: 0,
   });
   const r = out && out.response;

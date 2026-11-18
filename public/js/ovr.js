@@ -84,6 +84,54 @@ function ovrForm(meta, code, done) {
     mrn.required = pname.required = isPatient.checked;
   });
   const desc = h('textarea', { required: true, minlength: 5, maxlength: 3000, rows: 4, dir: 'auto' });
+  // The AI assistant reads the description and suggests the type and harm, until the employee picks them.
+  const aiNote = h('p', { class: 'hint ai-note', 'aria-live': 'polite', hidden: true }, t('ovr.ai_picked'));
+  if (meta.ai) {
+    let timer = null;
+    let asked = '';
+    let calls = 0;
+    let pickedType = false;
+    let pickedHarm = false;
+    const byHand = (ev, set) => {
+      if (ev.isTrusted) {
+        set();
+        aiNote.hidden = pickedType && pickedHarm;
+      }
+    };
+    cat.addEventListener('change', (ev) => byHand(ev, () => (pickedType = true)));
+    sub.addEventListener('change', (ev) => byHand(ev, () => (pickedType = true)));
+    harmBox.addEventListener('change', (ev) => byHand(ev, () => (pickedHarm = true)));
+    desc.addEventListener('input', () => {
+      clearTimeout(timer);
+      timer = setTimeout(async () => {
+        const text = desc.value.trim();
+        if ((pickedType && pickedHarm) || text.length < 15 || text === asked || calls >= 5) return;
+        asked = text;
+        calls++;
+        try {
+          const r = await api('/public/ovr/suggest', { method: 'POST', body: { description: text } });
+          let used = false;
+          if (r.category_id && !pickedType && cat.querySelector('option[value="' + r.category_id + '"]')) {
+            cat.value = String(r.category_id);
+            cat.dispatchEvent(new Event('change'));
+            if (r.sub_id && sub.querySelector('option[value="' + r.sub_id + '"]')) {
+              sub.value = String(r.sub_id);
+              sub.dispatchEvent(new Event('change'));
+            }
+            used = true;
+          }
+          const box = r.harm && !pickedHarm ? harmBox.querySelector('input[value="' + r.harm + '"]') : null;
+          if (box) {
+            box.checked = true;
+            used = true;
+          }
+          if (used) aiNote.hidden = false;
+        } catch {
+          /* no suggestion: the employee picks */
+        }
+      }, 1200);
+    });
+  }
   const immediate = h('textarea', { maxlength: 1000, rows: 2, dir: 'auto' });
   const involved = input({ type: 'text', maxlength: 500, dir: 'auto' });
   const photo = input({ type: 'file', accept: 'image/*' });
@@ -98,12 +146,15 @@ function ovrForm(meta, code, done) {
     signedIn ? null : h('div', { class: 'form-grid' }, field(t('staff.emp_no'), empNo), meta.staff_check ? null : field(t('req.name'), repName)),
     h('div', { class: 'form-grid' }, field(t('ovr.when'), when), field(t('ovr.dept'), dept)),
     place ? h('div', { class: 'form-grid' }, field(t('ovr.place'), place), field(t('ovr.where_more'), where)) : field(t('ovr.where_more'), where),
+    // With the assistant on, the description comes first so it can pick the type and harm.
+    meta.ai ? field(t('ovr.desc'), desc) : null,
     h('div', { class: 'form-grid' }, field(t('ovr.category'), cat), subField),
     sentinelNote,
     harmBox,
+    aiNote,
     checkField(t('ovr.is_patient'), isPatient),
     patientBox,
-    field(t('ovr.desc'), desc),
+    meta.ai ? null : field(t('ovr.desc'), desc),
     field(t('ovr.immediate'), immediate),
     field(t('ovr.involved'), involved),
     field(t('req.photo'), photo),
@@ -683,6 +734,36 @@ function rcaPanel(o, rca, reload) {
   const branches = h('div', { class: 'rca-branches' }, FISH.map(branch));
   drawFish();
 
+  // The assistant's first draft, while the analysis is still empty: it fills the whys and the fishbone, nothing is saved.
+  const empty = () => !whyInputs.some((x) => x.value.trim()) && !FISH.some((k) => st.bones[k].length);
+  const draftBtn =
+    edit && rca.ai && empty()
+      ? h('button', {
+          type: 'button',
+          class: 'btn btn-small',
+          onclick: async (ev) => {
+            const b = ev.currentTarget;
+            b.disabled = true;
+            err.hidden = true;
+            try {
+              const d = await api('/ovr/' + o.id + '/rca/draft', { method: 'POST' });
+              if (!empty()) return;
+              d.whys.forEach((v, i) => (whyInputs[i].value = st.whys[i] = v));
+              FISH.forEach((k) => (st.bones[k] = (d.bones[k] || []).map((v) => ({ t: v, root: false }))));
+              branches.replaceChildren(...FISH.map(branch));
+              showWhys();
+              drawFish();
+              b.remove();
+              toast(t('rca.ai_done'));
+            } catch (e) {
+              err.textContent = errText(e);
+              err.hidden = false;
+              b.disabled = false;
+            }
+          },
+        }, icon('spark'), t('rca.ai_draft'))
+      : '';
+
   // 5. Root causes: the fishbone's marked causes, and any written here.
   const rootsBox = h('div', { class: 'stack' });
   const rootAdd = input({ type: 'text', maxlength: 500, dir: 'auto', placeholder: t('rca.root_add'), 'aria-label': t('rca.root_add') });
@@ -778,6 +859,7 @@ function rcaPanel(o, rca, reload) {
     stages,
     step(1, t('rca.team'), teamBox, edit ? teamPick : ''),
     step(2, t('rca.timeline'), tlBox),
+    draftBtn ? h('div', {}, draftBtn) : '',
     step(3, t('rca.whys'), field(t('rca.problem'), problem), ...whyRows),
     step(4, t('rca.fish'), fishWrap, branches),
     step(5, t('rca.roots'), rootsBox),
