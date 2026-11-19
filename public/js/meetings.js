@@ -454,7 +454,14 @@ async function minutesPage(root, sid, alive) {
     h('div', { class: 'panel-head' }, h('div', { class: 'panel-title' }, h('h2', {}, t('mtg.minutes')))),
     list,
     !start.length && !edit ? h('p', { class: 'empty' }, t('mtg.minutes_empty')) : null,
-    edit ? h('button', { type: 'button', class: 'btn', onclick: () => addRow({}) }, icon('plus'), t('mtg.item_add')) : null,
+    edit
+      ? h(
+          'div',
+          { class: 'row-actions' },
+          h('button', { type: 'button', class: 'btn', onclick: () => addRow({}) }, icon('plus'), t('mtg.item_add')),
+          d.ai ? h('button', { type: 'button', class: 'btn', onclick: () => notesDialog(s, addRow) }, icon('spark'), t('mtg.ai_draft')) : null,
+        )
+      : null,
   );
 
   const started = input({ type: 'time', value: s.time_started || s.start_time, disabled: !edit });
@@ -916,4 +923,19 @@ export async function calendarPage(root, param, alive) {
         : h('p', { class: 'empty' }, t('mtg.month_empty')),
     ),
   );
+}
+
+// The secretary pastes the meeting notes; the assistant adds them as minutes lines to review before saving.
+function notesDialog(s, addRow) {
+  const notes = h('textarea', { rows: 10, maxlength: 8000, required: true, minlength: 15, dir: 'auto' });
+  openDialog({
+    title: t('mtg.ai_draft'),
+    submitLabel: t('mtg.ai_make'),
+    body: field(t('mtg.ai_notes'), notes),
+    onSubmit: async () => {
+      const r = await api('/committee-sessions/' + s.id + '/minutes/draft', { method: 'POST', body: { notes: notes.value } });
+      r.items.forEach((i) => addRow({ ...i, status: 'open' }));
+      toast(t('rca.ai_done'));
+    },
+  });
 }

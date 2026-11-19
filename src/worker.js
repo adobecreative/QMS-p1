@@ -704,6 +704,7 @@ async function handleApi(request, env, url, ctx) {
   if (seg[0] === 'plan') return handlePlan(request, env, url, seg, method, user, ctx);
   if (seg[0] === 'pdsa') return handlePdsa(request, env, url, seg, method, user, ctx);
   if (seg[0] === 'qreport' && seg.length === 1 && method === 'GET') return handleQReport(env, url, user);
+  if (seg[0] === 'qreport' && seg[1] === 'summary' && seg.length === 2 && method === 'POST') return handleQReport(env, url, user, 'POST');
   // Mock surveys, tracers and clinical audits.
   if (seg[0] === 'mock') return handleMock(request, env, url, seg, method, user);
   if (seg[0] === 'tracers') return handleTracers(request, env, url, seg, method, user);

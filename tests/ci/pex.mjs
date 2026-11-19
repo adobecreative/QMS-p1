@@ -80,6 +80,15 @@ check((await boot(emp)) === 'member' && (await emp('/pex')).j.pex.length === 1, 
 check((await emp('/pex/' + cid + '/close', 'POST', { resolution: 'x' })).s === 403, 'they cannot close it');
 check((await emp('/pex/' + cid + '/reply', 'POST', { reply: 'تم تعديل جدول المواعيد' })).s === 200, 'they reply');
 check((await qm('/pex/' + cid)).j.pex.status === 'replied', 'it goes back to quality');
+// The AI assistant (a stand-in here): the subject from the form's description, and a draft of what the patient is told.
+check(meta.ai === true, 'the form knows the assistant is on');
+check((await pub('/public/pex/suggest', 'POST', { description: 'انتظرت في العيادة أكثر من ثلاث ساعات' })).j.category === 'waiting', 'the assistant picks the subject');
+check(Object.keys((await pub('/public/pex/suggest', 'POST', { description: 'قصير' })).j).length === 0, 'a short description gets no subject');
+check((await qo('/pex/' + cid)).j.pex.ai === true && (await emp('/pex/' + cid)).j.pex.ai === false, 'only quality sees the reply draft');
+r = await qo('/pex/' + cid + '/draft', 'POST');
+check(r.s === 200 && r.j.text.length > 5, 'the assistant drafts the reply to the patient', r);
+check((await emp('/pex/' + cid + '/draft', 'POST')).s === 403, 'the department cannot ask for it');
+check((await qm('/pex/' + cid)).j.pex.status === 'replied', 'the draft saves nothing');
 check((await qo('/pex/' + cid + '/close', 'POST', {})).j.error === 'pex_resolution_required', 'closing a complaint needs what the patient is told');
 check((await qo('/pex/' + cid + '/close', 'POST', { resolution: 'نعتذر، تم تعديل المواعيد' })).s === 200, 'quality closes it');
 r = await pub('/public/pex/' + cid + '?k=' + track);

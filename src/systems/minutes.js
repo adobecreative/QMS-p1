@@ -9,6 +9,7 @@ import { bothLangs, emailHeader, mailReady, sendMail } from '../lib/mail.js';
 import { escHtml, fail, isDate, json, nowIso, str } from '../lib/util.js';
 import { sessionEnded } from './checkin.js';
 import { absenceInvestigations } from './inv.js';
+import { aiJson, aiReady, aiTake } from './tickets.js';
 
 export const ATTENDANCE = ['present', 'late', 'absent', 'excused'];
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -60,7 +61,49 @@ const later = (ctx, job) => {
   else return p;
 };
 
-// /api/committee-sessions/:id/minutes (GET, PUT) and /approve, /reopen (POST).
+// The assistant turns the secretary's rough notes into minutes lines: subject, discussion, action, who and by when.
+export async function draftMinutes(env, notes, members, date) {
+  const names = members.map((m) => (m.name_en && m.name_en !== m.name ? `${m.name} / ${m.name_en}` : m.name) + (m.position ? ` (${m.position})` : '')).join('\n');
+  const r = await aiJson(
+    env,
+    'You help the secretary of a hospital committee write the minutes of a meeting. From the notes, write one line per topic discussed: ' +
+      'subject (short), discussion (what was said, in brief), action (the task decided, empty if none), responsibility (who does it: a member name ' +
+      'from the list when the notes name one, otherwise the role or department named, empty if none), target_date (YYYY-MM-DD when the notes ' +
+      `give a date or a period from the meeting day ${date}, otherwise empty). Use only what the notes say. ` +
+      'Write in the language of the notes (Arabic if they are in Arabic). Answer as JSON.' + (names ? '\n\nMembers:\n' + names : ''),
+    notes,
+    {
+      type: 'object',
+      properties: {
+        items: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: { subject: { type: 'string' }, discussion: { type: 'string' }, action: { type: 'string' }, responsibility: { type: 'string' }, target_date: { type: 'string' } },
+            required: ['subject', 'discussion', 'action', 'responsibility', 'target_date'],
+          },
+        },
+      },
+      required: ['items'],
+    },
+    1500,
+  );
+  if (!r || !Array.isArray(r.items)) return null;
+  const items = r.items
+    .filter((i) => i && typeof i === 'object')
+    .slice(0, 30)
+    .map((i) => ({
+      subject: str(i.subject, 300),
+      discussion: str(i.discussion, 4000),
+      action: str(i.action, 1000),
+      responsibility: str(i.responsibility, 200),
+      target_date: isDate(i.target_date) ? i.target_date : '',
+    }))
+    .filter((i) => i.subject);
+  return items.length ? items : null;
+}
+
+// /api/committee-sessions/:id/minutes (GET, PUT) and /approve, /reopen, /draft (POST).
 export async function handleMinutes(request, env, method, seg, ctx) {
   const { user, c, s, run, manager, today, lead } = ctx;
   const email = String(user.email || '').toLowerCase();
@@ -101,7 +144,28 @@ export async function handleMinutes(request, env, method, seg, ctx) {
       can_edit: run && status !== 'approved' && s.status !== 'cancelled' && s.date <= today,
       can_approve: canApprove && status === 'pending',
       can_reopen: manager && status === 'approved',
+      ai: run && status !== 'approved' && aiReady(env, await getSettings(env)),
     });
+  }
+
+  // POST .../minutes/draft {notes}: minutes lines drafted from the notes (not saved).
+  if (method === 'POST' && seg[3] === 'draft' && seg.length === 4) {
+    if (!run) fail(403, 'forbidden');
+    if (status === 'approved') fail(409, 'mtg_minutes_locked');
+    const notes = str((await readJson(request)).notes, 8000);
+    if (notes.length < 15) fail(400, 'mtg_notes_short');
+    const settings = await getSettings(env);
+    if (!aiReady(env, settings)) fail(409, 'ai_off');
+    if (!(await aiTake(env, settings))) fail(429, 'ai_limit');
+    const { results: members } = await env.DB.prepare('SELECT name, name_en, position FROM committee_members WHERE committee_id = ? AND active = 1 ORDER BY sort, id').bind(c.id).all();
+    let items = null;
+    try {
+      items = await draftMinutes(env, notes, members, s.date);
+    } catch (e) {
+      console.error('minutes draft', e);
+    }
+    if (!items) fail(502, 'ai_none');
+    return json({ items });
   }
 
   if (method === 'PUT' && seg.length === 3) {

@@ -64,9 +64,42 @@ export async function feedbackPage() {
     const mrn = input({ type: 'text', maxlength: 40, dir: 'ltr', autocomplete: 'off' });
     const trap = input({ type: 'text', name: 'website', tabindex: '-1', autocomplete: 'off', class: 'visually-hidden', 'aria-hidden': 'true' });
     const catField = field(t('pex.category'), cat);
+    // The AI assistant reads the complaint and picks its subject, until the patient picks it.
+    const aiNote = h('p', { class: 'hint ai-note', 'aria-live': 'polite', hidden: true }, t('pex.ai_picked'));
+    if (meta.ai) {
+      let timer = null;
+      let asked = '';
+      let calls = 0;
+      let picked = false;
+      cat.addEventListener('change', (ev) => {
+        if (ev.isTrusted) {
+          picked = true;
+          aiNote.hidden = true;
+        }
+      });
+      desc.addEventListener('input', () => {
+        clearTimeout(timer);
+        timer = setTimeout(async () => {
+          const text = desc.value.trim();
+          if (picked || catField.hidden || text.length < 15 || text === asked || calls >= 5) return;
+          asked = text;
+          calls++;
+          try {
+            const r = await api('/public/pex/suggest', { method: 'POST', body: { description: text } });
+            if (r.category && !picked && cat.querySelector('option[value="' + r.category + '"]')) {
+              cat.value = r.category;
+              aiNote.hidden = false;
+            }
+          } catch {
+            /* no suggestion: the patient picks */
+          }
+        }, 1200);
+      });
+    }
     const sync = () => {
       const k = kinds.querySelector('input:checked').value;
       catField.hidden = k !== 'complaint';
+      if (catField.hidden) aiNote.hidden = true;
       name.required = phone.required = k === 'complaint';
     };
     kinds.addEventListener('change', sync);
@@ -74,9 +107,11 @@ export async function feedbackPage() {
       'form',
       { class: 'stack', novalidate: false },
       kinds,
+      meta.ai ? field(t('pex.desc'), desc) : '',
       catField,
+      aiNote,
       dept ? field(t('ovr.dept'), dept) : '',
-      field(t('pex.desc'), desc),
+      meta.ai ? '' : field(t('pex.desc'), desc),
       h('div', { class: 'form-grid' }, field(t('pex.name'), name), field(t('pex.phone'), phone)),
       field(t('pex.mrn'), mrn),
       trap,
@@ -325,9 +360,32 @@ function replyDialog(p) {
 }
 function closeDialog(p) {
   const res = h('textarea', { rows: 4, maxlength: 3000, required: p.kind === 'complaint', dir: 'auto' }, p.reply || '');
+  const err = h('p', { class: 'form-error', role: 'alert', hidden: true });
+  // The assistant drafts the reply to the patient from the complaint and the department's reply; the officer edits it.
+  const draft = p.ai
+    ? h('button', {
+        type: 'button',
+        class: 'btn btn-small',
+        onclick: async (ev) => {
+          const b = ev.currentTarget;
+          b.disabled = true;
+          err.hidden = true;
+          try {
+            const d = await api('/pex/' + p.id + '/draft', { method: 'POST' });
+            res.value = d.text;
+            toast(t('rca.ai_done'));
+          } catch (e) {
+            err.textContent = errText(e);
+            err.hidden = false;
+          } finally {
+            b.disabled = false;
+          }
+        },
+      }, icon('spark'), t('pex.ai_draft'))
+    : '';
   openDialog({
     title: t('pex.close'),
-    body: field(t('pex.resolution'), res),
+    body: h('div', { class: 'stack' }, field(t('pex.resolution'), res), draft, err),
     onSubmit: async () => {
       await api('/pex/' + p.id + '/close', { method: 'POST', body: { resolution: res.value } });
       toast(t('capa.saved'));

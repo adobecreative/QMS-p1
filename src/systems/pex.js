@@ -9,7 +9,7 @@ import { sendPush } from '../lib/push.js';
 import { escHtml, fail, json, nowIso, sha256Hex, str, toHex, todayIn } from '../lib/util.js';
 import { plusDays } from './docs.js';
 import { plusWorkdays } from './ovr.js';
-import { hashIp } from './tickets.js';
+import { SUGGEST_PER_HOUR, aiJson, aiReady, aiTake, hashIp } from './tickets.js';
 
 export const PEX_KINDS = ['complaint', 'suggestion', 'praise'];
 export const PEX_CATS = ['access', 'waiting', 'staff', 'communication', 'care', 'cleanliness', 'food', 'billing', 'privacy', 'other'];
@@ -25,6 +25,40 @@ export const SURVEY_STARTER = [
   ['تقييمك العام للخدمة', 'Overall rating of the service'],
 ];
 export const daysOf = (s) => ({ reply: Math.max(1, Number(s.pex_reply_days) || 3), close: Math.max(1, Number(s.pex_close_days) || 14) });
+// What each complaint category covers, for the AI assistant.
+const CAT_HINT = {
+  access: 'getting an appointment or reaching the service', waiting: 'waiting times', staff: 'staff behaviour or courtesy',
+  communication: 'explanations and information given', care: 'medical or nursing care', cleanliness: 'cleanliness and comfort',
+  food: 'food', billing: 'bills, insurance and payments', privacy: 'privacy and dignity', other: 'anything else',
+};
+// The complaint category that fits what the patient wrote (the assistant only suggests).
+export async function suggestPexCategory(env, description) {
+  const r = await aiJson(
+    env,
+    'You sort patient complaints in a hospital, usually written in Arabic. Pick the one category that fits best. Answer as JSON.\n\nCategories:\n' +
+      PEX_CATS.map((c) => `${c}: ${CAT_HINT[c]}`).join('\n'),
+    description,
+    { type: 'object', properties: { category: { type: 'string', enum: PEX_CATS } }, required: ['category'] },
+    30,
+  );
+  return r && PEX_CATS.includes(r.category) ? r.category : null;
+}
+// A first draft of what the patient is told when the complaint closes, for quality to correct.
+export async function draftPexResolution(env, p) {
+  const r = await aiJson(
+    env,
+    'You help a hospital quality department answer a patient complaint. Write a short, polite and respectful reply to the patient ' +
+      '(4 sentences at most): thank them, say what was looked into and what was done or will be done, using only the facts given. ' +
+      'Never promise compensation, never blame a named person, and never add facts. Write in the language of the complaint (Arabic if it is in Arabic). ' +
+      'Do not include a greeting line with a name or a signature. Answer as JSON.',
+    [`Category: ${p.category}`, `Complaint: ${p.description}`, p.reply ? `What the department found and did: ${p.reply}` : ''].filter(Boolean).join('\n'),
+    { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
+    500,
+  );
+  const text = r ? str(typeof r.text === 'string' ? r.text : '', 3000) : '';
+  return text || null;
+}
+
 const toId = (v) => (Number.isInteger(Number(v)) && Number(v) > 0 ? Number(v) : null);
 
 export async function seedSurvey(env) {
@@ -131,7 +165,27 @@ export async function handlePublicPex(request, env, url, seg, method, ctx) {
       code ? env.DB.prepare('SELECT id, name_ar, name_en, department_id FROM locations WHERE code = ? AND active = 1').bind(code).first() : null,
       env.DB.prepare('SELECT id, text_ar, text_en FROM survey_questions WHERE active = 1 ORDER BY sort, id').all(),
     ]);
-    return json({ departments, location: loc || null, questions, kinds: PEX_KINDS, categories: PEX_CATS });
+    return json({ departments, location: loc || null, questions, kinds: PEX_KINDS, categories: PEX_CATS, ai: aiReady(env, await getSettings(env)) });
+  }
+
+  // POST /public/pex/suggest {description}: the category the assistant would pick. {} when it has none.
+  if (method === 'POST' && seg[2] === 'suggest' && seg.length === 3) {
+    const b = await readJson(request);
+    const description = str(b.description, 3000);
+    const settings = await getSettings(env);
+    if (description.length < 15 || !aiReady(env, settings)) return json({});
+    const tag = 'pexai:' + (await hashIp(request));
+    const hits = await env.DB.prepare('SELECT COUNT(*) AS n FROM public_hits WHERE ip_hash = ? AND at > ?').bind(tag, new Date(Date.now() - 3600000).toISOString()).first();
+    if (hits.n >= SUGGEST_PER_HOUR) return json({});
+    await env.DB.prepare('INSERT INTO public_hits (ip_hash, at) VALUES (?, ?)').bind(tag, nowIso()).run();
+    if (!(await aiTake(env, settings))) return json({});
+    try {
+      const category = await suggestPexCategory(env, description);
+      return json(category ? { category } : {});
+    } catch (e) {
+      console.error('pex suggest', e);
+      return json({});
+    }
   }
 
   const limit = async (tag) => {
@@ -363,7 +417,23 @@ export async function handlePex(request, env, url, seg, method, user, ctx) {
   if (method === 'GET' && seg.length === 2) {
     const out = pexOut(p, today, true);
     out.can = { route: role.officer && p.kind === 'complaint' && p.status !== 'closed', reply: mine && p.status === 'routed', close: role.officer && p.status !== 'closed', reopen: role.manager && p.status === 'closed', delete: role.manager };
+    out.ai = role.officer && p.status !== 'closed' && aiReady(env, settings);
     return json({ pex: out });
+  }
+
+  // POST /pex/<id>/draft: the assistant's draft of what the patient is told (not saved).
+  if (method === 'POST' && seg[2] === 'draft' && seg.length === 3) {
+    if (!role.officer || p.status === 'closed') fail(403, 'forbidden');
+    if (!aiReady(env, settings)) fail(409, 'ai_off');
+    if (!(await aiTake(env, settings))) fail(429, 'ai_limit');
+    let text = null;
+    try {
+      text = await draftPexResolution(env, p);
+    } catch (e) {
+      console.error('pex draft', e);
+    }
+    if (!text) fail(502, 'ai_none');
+    return json({ text });
   }
 
   // POST /pex/<id>/route {user_id, note}: send a complaint to a person for a reply.

@@ -4,7 +4,7 @@
 import { appName } from '../lib/config.js';
 import { getSettings } from '../lib/db.js';
 import { bothLangs, emailHeader } from '../lib/mail.js';
-import { escHtml, fail, json, todayIn } from '../lib/util.js';
+import { escHtml, fail, json, str, todayIn } from '../lib/util.js';
 import { kpiMet, kpiValue } from './kpis.js';
 import { ovrReport } from './ovr.js';
 import { yearGoals } from './qplan.js';
@@ -12,6 +12,7 @@ import { FRAMEWORKS, fwOn } from './quality.js';
 import { riskRole } from './risk.js';
 import { auditSnapshot } from './audit.js';
 import { surveySnapshot } from './survey.js';
+import { aiJson, aiReady, aiTake } from './tickets.js';
 
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 const YEAR_RE = /^\d{4}$/;
@@ -124,15 +125,43 @@ export async function qualityReport(env, settings, period) {
   };
 }
 
-// GET /qreport?period=2026-10 (or 2026): quality staff and the admins.
-export async function handleQReport(env, url, user) {
+// The assistant's written summary of the report's figures (counts only, nothing about a patient or a reporter).
+export async function summarizeReport(env, d, lang) {
+  const r = await aiJson(
+    env,
+    'You write the summary of a hospital\'s monthly (or yearly) quality report for its management and quality committee. ' +
+      'From the figures (this period against the previous one), write 3 to 5 short paragraphs: what improved, what got worse or needs attention ' +
+      '(late corrective actions, indicators below target, critical risks, accreditation gaps), and 2 to 4 practical recommendations. ' +
+      'Use only the figures given, quote the numbers, never invent causes. Plain text, no headings or markdown. ' +
+      (lang === 'en' ? 'Write in English.' : 'Write in Arabic.') + ' Answer as JSON.',
+    JSON.stringify(d).slice(0, 14000),
+    { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
+    900,
+  );
+  const text = r && typeof r.text === 'string' ? str(r.text.replace(/\r/g, ''), 6000) : '';
+  return text || null;
+}
+
+// GET /qreport?period=2026-10 (or 2026): quality staff and the admins. POST /qreport/summary?period=&lang=: the assistant's summary.
+export async function handleQReport(env, url, user, method = 'GET') {
   const role = riskRole(user);
   if (!role.viewer) fail(403, 'forbidden');
   const settings = await getSettings(env);
   const today = todayIn(settings.timezone);
   const asked = url.searchParams.get('period') || '';
   const period = MONTH_RE.test(asked) || YEAR_RE.test(asked) ? asked : prevMonth(today.slice(0, 7));
-  return json(await qualityReport(env, settings, period));
+  const d = await qualityReport(env, settings, period);
+  if (method !== 'POST') return json({ ...d, ai: aiReady(env, settings) });
+  if (!aiReady(env, settings)) fail(409, 'ai_off');
+  if (!(await aiTake(env, settings))) fail(429, 'ai_limit');
+  let text = null;
+  try {
+    text = await summarizeReport(env, d, url.searchParams.get('lang') === 'en' ? 'en' : 'ar');
+  } catch (e) {
+    console.error('qreport summary', e);
+  }
+  if (!text) fail(502, 'ai_none');
+  return json({ text });
 }
 
 /* -------------------------------- the email -------------------------------- */
