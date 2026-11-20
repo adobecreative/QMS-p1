@@ -432,6 +432,20 @@ file form). The chapter page in Quality shows those files as tiles ("Chapter fil
 - Next phases: agenda, minutes, actions, approval, QR attendance; then Word/PDF reports, KPIs, import and links to
   standards.
 
+## One-click linking from the portal (20 Nov 2026)
+
+- The owner found copying keys both ways too hard. Now: in the portal, Settings → «أنظمة البوابة» → «ربط نظام»,
+  type this system's address only. The portal opens `/#/pair/<code>.<portal address in base64url>` here
+  (`public/app.js` keeps it in `sessionStorage` `fm_pair` over a sign-in; page `pairPage` in `public/js/quality.js`).
+- The system owner presses «ربط»: `POST /api/fms-link/pair {code, portal}` (`pairWithPortal` in `fmslink.js`) makes
+  a key here with the `portal` scope (named `Fikra Portal (link)`, an older one of that name is replaced), sends it
+  with the code to the portal's `POST /api/link/pair`, gets the portal's key back (staff, tickets_read, assets_read,
+  docs_read, users_read), switches the link on and syncs. If the portal does not answer, the new key is deleted.
+- The portal side is in Portal-p1 `src/systems/linked.js` (`startPair`, `finishPair`; codes in `link_codes`, 15 min,
+  one use). The manual way (keys copied by hand) still works.
+- To give another system (e.g. INF) the same button, copy `pairWithPortal`, the `pair/` route in `app.js`, `pairPage`
+  and the `pair.*` texts.
+
 ## Portal documents and staff over the link
 
 - The link reads whatever the portal key allows (the portal decides it on the key): `tickets_read` and `assets_read`

@@ -1005,6 +1005,73 @@ export function linkPanel() {
   return box;
 }
 
+/* -------------------- one-click linking from the portal -------------------- */
+
+// Opened from the portal's "Link a system" (/#/pair/<code>.<portal address>). The system owner presses "Link";
+// the rest happens between the two servers. Kept in this tab's storage over a sign-in.
+const PAIR_STORE = 'fm_pair';
+export function pendingPair() {
+  try {
+    return S.pair || sessionStorage.getItem(PAIR_STORE) || '';
+  } catch {
+    return S.pair || '';
+  }
+}
+export function keepPair(v) {
+  S.pair = v || '';
+  try {
+    if (v) sessionStorage.setItem(PAIR_STORE, v);
+    else sessionStorage.removeItem(PAIR_STORE);
+  } catch {
+    /* private window: S.pair is enough until a reload */
+  }
+}
+
+export function pairPage(pending) {
+  const [code, from] = pending.split('.');
+  let portal = '';
+  try {
+    portal = new URL(atob(from.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (from.length % 4)) % 4))).origin;
+  } catch {
+    portal = '';
+  }
+  const done = () => {
+    keepPair('');
+    render();
+  };
+  const card = h('div', { class: 'auth-card stack' });
+  const host = h('p', { class: 'muted', dir: 'ltr' }, portal.replace(/^https?:\/\//, ''));
+  if (!portal || !code) {
+    card.replaceChildren(h('h1', {}, t('pair.title')), h('p', { class: 'form-error' }, t('err.pair_invalid')), h('button', { type: 'button', class: 'btn', onclick: done }, t('pair.skip')));
+  } else if (!S.user.is_owner) {
+    card.replaceChildren(h('h1', {}, t('pair.title')), host, h('p', { class: 'form-error' }, t('pair.owner_only')), h('button', { type: 'button', class: 'btn', onclick: done }, t('pair.skip')));
+  } else {
+    const err = h('p', { class: 'form-error', role: 'alert', hidden: true });
+    const go = h('button', { type: 'button', class: 'btn btn-primary' }, t('pair.go'));
+    go.addEventListener('click', async () => {
+      go.disabled = true;
+      err.hidden = true;
+      try {
+        const r = await api('/fms-link/pair', { method: 'POST', body: { code, portal } });
+        keepPair('');
+        card.replaceChildren(
+          h('h1', {}, '✓ ' + t('pair.done')),
+          host,
+          h('p', {}, t('pair.done_hint')),
+          r.sync && !r.sync.ok ? h('p', { class: 'small form-error' }, t('link.failed', { err: r.sync.error || '' })) : '',
+          h('div', { class: 'actions' }, h('a', { class: 'btn btn-primary', href: portal }, t('pair.back')), h('button', { type: 'button', class: 'btn', onclick: done }, t('pair.stay'))),
+        );
+      } catch (e) {
+        err.textContent = errText(e);
+        err.hidden = false;
+        go.disabled = false;
+      }
+    });
+    card.replaceChildren(h('h1', {}, t('pair.title')), host, h('p', {}, t('pair.intro')), err, h('div', { class: 'actions' }, go, h('button', { type: 'button', class: 'btn', onclick: done }, t('common.cancel'))));
+  }
+  return h('div', { class: 'auth' }, card);
+}
+
 /* ----------------------- the Fikra portal's documents ---------------------- */
 
 // Document Control → Portal documents: the register read over the optional link. The files stay in the

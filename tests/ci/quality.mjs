@@ -155,6 +155,14 @@ r = await owner('/fms-link', 'PUT', { on: false });
 check(r.s === 200 && !r.j.on && !r.j.key_set && r.j.snapshot === null, 'switching off forgets the key and the summary', r.j);
 check((await qv('/quality')).j.fms === null, 'and the evidence leaves the FMS chapter');
 check((await qv('/bootstrap')).j.portal_url === '', 'and the systems button stays in this system');
+// One-click linking from the portal: only the owner, with a well-formed code; a portal that does not answer leaves nothing behind.
+{
+  const keysBefore = (await owner('/api-keys')).j.keys.length;
+  check((await qv('/fms-link/pair', 'POST', { code: 'a'.repeat(64), portal: B })).s === 403, 'only the system owner links to the portal');
+  check((await owner('/fms-link/pair', 'POST', { code: 'xyz', portal: B })).j?.error === 'pair_invalid', 'a code in the wrong form is refused');
+  r = await owner('/fms-link/pair', 'POST', { code: 'a'.repeat(64), portal: 'http://localhost:9' });
+  check(r.s === 400 && r.j.error === 'link_unreachable' && (await owner('/api-keys')).j.keys.length === keysBefore && !(await owner('/fms-link')).j.on, 'a portal that does not answer: no key made, the link stays off', r.j);
+}
 
 // Chapter files: a documents file filed under a CBAHI chapter shows on that chapter's page.
 {

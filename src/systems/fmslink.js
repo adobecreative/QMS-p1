@@ -5,7 +5,7 @@
 // read-only key and keeps a small summary: requests, work orders and devices. The summary is shown as
 // evidence on the FMS chapter. Nothing is written to the portal and no patient or staff data is kept.
 import { readJson } from '../lib/auth.js';
-import { isAdmin } from '../lib/config.js';
+import { DEFAULT_APP_NAME, isAdmin } from '../lib/config.js';
 import { getSettings, logStmt, setSettingStmt } from '../lib/db.js';
 import { fail, json, nowIso, sha256Hex, str, toHex, todayIn } from '../lib/util.js';
 import { API_KEY_RE } from './api.js';
@@ -370,7 +370,58 @@ export async function handleFmsLink(request, env, seg, method, user, isOwner) {
     return json({ ...out(await getSettings(env)), sync });
   }
   if (route === 'POST /fms-link/sync') return json(await runFmsSync(env, user, true));
+  if (route === 'POST /fms-link/pair') return json(await pairWithPortal(request, env, user));
   fail(405, 'method_not_allowed');
+}
+
+/* ---- one-click linking, started from the portal ---- */
+
+// The portal's owner typed this system's address and pressed "Link a system"; the portal opened
+// /#/pair/<code>.<portal address> here. When this system's owner presses "Link": a key with the "Fikra portal"
+// permission is made here, sent to the portal with the code, and the portal answers with its own key for this
+// system. The link is then switched on and synced, as if both keys had been copied by hand.
+const PAIR_KEY_EN = 'Fikra Portal (link)';
+async function pairWithPortal(request, env, user) {
+  const body = await readJson(request);
+  const portal = checkPortalUrl(body.portal);
+  const code = typeof body.code === 'string' && /^[0-9a-f]{64}$/.test(body.code) ? body.code : '';
+  if (!code) fail(400, 'pair_invalid');
+  const self = new URL(request.url).origin;
+  const mine = 'fms_' + toHex(crypto.getRandomValues(new Uint8Array(20)));
+  const made = await env.DB.prepare('INSERT INTO api_keys (name_ar, name_en, prefix, key_hash, scopes, active, created_by, created_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)')
+    .bind('بوابة فكرة (ربط)', PAIR_KEY_EN, mine.slice(0, 10), await sha256Hex(mine), 'portal', user.name, nowIso())
+    .run();
+  const keyId = made.meta.last_row_id;
+  let r = null;
+  let err = 'link_unreachable';
+  try {
+    const res = await fetch(portal + '/api/link/pair', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({ code, url: self, name: DEFAULT_APP_NAME.ar, name_en: DEFAULT_APP_NAME.en, key: mine }),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+      redirect: 'manual',
+    });
+    const d = await res.json().catch(() => null);
+    if (res.ok && d && typeof d.key === 'string' && API_KEY_RE.test(d.key)) r = d;
+    else if (d && typeof d.error === 'string' && /^[a-z_]{2,40}$/.test(d.error)) err = d.error;
+  } catch {
+    /* the portal did not answer */
+  }
+  if (!r) {
+    await env.DB.prepare('DELETE FROM api_keys WHERE id = ?').bind(keyId).run();
+    fail(400, err);
+  }
+  // A key from an earlier link is replaced by this one.
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM api_keys WHERE name_en = ? AND id <> ?').bind(PAIR_KEY_EN, keyId),
+    setSettingStmt(env, 'link_on', '1'),
+    setSettingStmt(env, 'link_url', portal),
+    setSettingStmt(env, 'link_key', r.key),
+    logStmt(env, user, 'update', 'fms_link', null, portal, { link_on: [null, '1'], link_key: ['***', '***'], method: [null, 'pair'] }),
+  ]);
+  const sync = await runFmsSync(env, user, true);
+  return { ok: true, portal, sync };
 }
 
 /* ---- the portal's documents, read over the link ---- */

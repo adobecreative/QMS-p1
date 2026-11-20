@@ -9,7 +9,7 @@ import { costsPage, devTypesPage, movesPage, partsPage, pmPage, requestsPage } f
 import { APPS, access, appPages, applyBrand, authPage, currentRoute, forgotPage, header, link, loginCodeStep, myApps, resetPage, roleLabel, setUrl, twoFactorRequiredPage } from './js/layout.js';
 import { IDB, OFF, api, drawOffBar, errText, loading, personName, syncQueue, toast, warmPages } from './js/offline.js';
 import { attendancePage, calendarPage, checkinPage, committeesPage } from './js/meetings.js';
-import { assessPage, chaptersPage, portalDocsPage, standardsPage } from './js/quality.js';
+import { assessPage, chaptersPage, keepPair, pairPage, pendingPair, portalDocsPage, standardsPage } from './js/quality.js';
 import { capaPage } from './js/capa.js';
 import { incidentPage, ovrCatsPage, ovrListPage, ovrNewPage, ovrReportPage, ovrTrackPage } from './js/ovr.js';
 import { kpisPage, readinessPage } from './js/kpis.js';
@@ -145,6 +145,13 @@ export function render() {
     portalSignIn(so[1]);
     return;
   }
+  // Arriving from the portal's "Link a system": kept over a sign-in, then the system owner presses "Link".
+  const pr = /^pair\/([0-9a-f]{64}\.[A-Za-z0-9_-]{4,400})$/.exec(S.route);
+  if (pr) {
+    keepPair(pr[1]);
+    S.route = '';
+    setUrl('', false);
+  }
   if (!S.needsSetup && S.route === 'reset' && S.resetToken) {
     $app.replaceChildren(resetPage(S.resetToken));
     return;
@@ -199,6 +206,10 @@ export function render() {
   }
   if (S.user.must_2fa) {
     $app.replaceChildren(twoFactorRequiredPage());
+    return;
+  }
+  if (pendingPair()) {
+    $app.replaceChildren(pairPage(pendingPair()));
     return;
   }
   const [app, name, param] = currentRoute();
