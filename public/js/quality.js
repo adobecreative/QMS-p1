@@ -3,7 +3,7 @@
 import { render } from '../app.js';
 import { kpiRow } from './assets.js';
 import { lockedAdd, pdfViewer } from './docs.js';
-import { S, h, has, icon, t } from './core.js';
+import { I18N, S, h, has, icon, t } from './core.js';
 import { link, navigate } from './layout.js';
 import { api, checkField, errText, errorBox, field, fmtDate, input, openDialog, select, statusChip, toast } from './offline.js';
 import { pick, simpleDelete } from './tickets.js';
@@ -1027,6 +1027,12 @@ export function keepPair(v) {
   }
 }
 
+// Arabic and English together on this page (the owner asked for both, and it has no language switch).
+const ar = (k) => (I18N.ar && I18N.ar[k]) || t(k);
+const en = (k) => (I18N.en && I18N.en[k]) || t(k);
+const both = (k) => ar(k) + ' · ' + en(k);
+const bothBlock = (tag, k, cls) => h(tag, cls ? { class: cls } : {}, ar(k), h('span', { class: 'muted small', dir: 'ltr', style: 'display:block;font-weight:400' }, en(k)));
+
 export function pairPage(pending) {
   const [code, from] = pending.split('.');
   let portal = '';
@@ -1042,12 +1048,12 @@ export function pairPage(pending) {
   const card = h('div', { class: 'auth-card stack' });
   const host = h('p', { class: 'muted', dir: 'ltr' }, portal.replace(/^https?:\/\//, ''));
   if (!portal || !code) {
-    card.replaceChildren(h('h1', {}, t('pair.title')), h('p', { class: 'form-error' }, t('err.pair_invalid')), h('button', { type: 'button', class: 'btn', onclick: done }, t('pair.skip')));
+    card.replaceChildren(bothBlock('h1', 'pair.title'), bothBlock('p', 'err.pair_invalid', 'form-error'), h('button', { type: 'button', class: 'btn', onclick: done }, both('pair.skip')));
   } else if (!S.user.is_owner) {
-    card.replaceChildren(h('h1', {}, t('pair.title')), host, h('p', { class: 'form-error' }, t('pair.owner_only')), h('button', { type: 'button', class: 'btn', onclick: done }, t('pair.skip')));
+    card.replaceChildren(bothBlock('h1', 'pair.title'), host, bothBlock('p', 'pair.owner_only', 'form-error'), h('button', { type: 'button', class: 'btn', onclick: done }, both('pair.skip')));
   } else {
     const err = h('p', { class: 'form-error', role: 'alert', hidden: true });
-    const go = h('button', { type: 'button', class: 'btn btn-primary' }, t('pair.go'));
+    const go = h('button', { type: 'button', class: 'btn btn-primary' }, both('pair.go'));
     go.addEventListener('click', async () => {
       go.disabled = true;
       err.hidden = true;
@@ -1055,11 +1061,10 @@ export function pairPage(pending) {
         const r = await api('/fms-link/pair', { method: 'POST', body: { code, portal } });
         keepPair('');
         card.replaceChildren(
-          h('h1', {}, '✓ ' + t('pair.done')),
+          bothBlock('h1', 'pair.done'),
           host,
-          h('p', {}, t('pair.done_hint')),
           r.sync && !r.sync.ok ? h('p', { class: 'small form-error' }, t('link.failed', { err: r.sync.error || '' })) : '',
-          h('div', { class: 'actions' }, h('a', { class: 'btn btn-primary', href: portal }, t('pair.back')), h('button', { type: 'button', class: 'btn', onclick: done }, t('pair.stay'))),
+          h('div', { class: 'actions' }, h('a', { class: 'btn btn-primary', href: portal }, both('pair.back')), h('button', { type: 'button', class: 'btn', onclick: done }, both('pair.stay'))),
         );
       } catch (e) {
         err.textContent = errText(e);
@@ -1067,7 +1072,7 @@ export function pairPage(pending) {
         go.disabled = false;
       }
     });
-    card.replaceChildren(h('h1', {}, t('pair.title')), host, h('p', {}, t('pair.intro')), err, h('div', { class: 'actions' }, go, h('button', { type: 'button', class: 'btn', onclick: done }, t('common.cancel'))));
+    card.replaceChildren(bothBlock('h1', 'pair.title'), host, err, h('div', { class: 'actions' }, go, h('button', { type: 'button', class: 'btn', onclick: done }, both('common.cancel'))));
   }
   return h('div', { class: 'auth' }, card);
 }

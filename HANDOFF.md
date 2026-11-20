@@ -443,6 +443,7 @@ file form). The chapter page in Quality shows those files as tiles ("Chapter fil
   docs_read, users_read), switches the link on and syncs. If the portal does not answer, the new key is deleted.
 - The portal side is in Portal-p1 `src/systems/linked.js` (`startPair`, `finishPair`; codes in `link_codes`, 15 min,
   one use). The manual way (keys copied by hand) still works.
+- The pairing page shows Arabic and English together (owner's ask), short texts only (`bothBlock`/`both` in `quality.js`).
 - To give another system (e.g. INF) the same button, copy `pairWithPortal`, the `pair/` route in `app.js`, `pairPage`
   and the `pair.*` texts.
 
