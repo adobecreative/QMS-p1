@@ -14,7 +14,7 @@
 
 إعداد النشر في Cloudflare (Workers & Pages ← المشروع ← Settings ← Build): **Build command فارغ**، و **Deploy command = `npx wrangler deploy`**، والفرع `main`.
 
-**الترخيص:** الترخيص في `wrangler.jsonc` صادر لنطاق **`qms.ai-fikra.com`** (المستشفى العام، ينتهي 2027-11-04). اربط هذا النطاق بالـ Worker من Cloudflare: Workers & Pages ← qms-p1 ← Settings ← Domains & Routes ← Add ← Custom domain. أي نطاق آخر (مثل workers.dev) يظهر عليه «غير مرخّص».
+**الترخيص:** الترخيص في `wrangler.jsonc` صادر لنطاق **`qms1.ai-fikra.com`** (المستشفى السعودي الألماني، حتى 100 مستخدم نشط، ينتهي 2027-11-20). اربط هذا النطاق بالـ Worker من Cloudflare: Workers & Pages ← qms-p1 ← Settings ← Domains & Routes ← Add ← Custom domain. أي نطاق آخر (مثل workers.dev) يظهر عليه «غير مرخّص».
 
 **خطة الوحدات:** الأساس (هذه النسخة) ← فصول سباهي والمعايير ونسبة الجاهزية ← بلاغات OVR والشكاوى ← الإجراءات التصحيحية CAPA ← المؤشرات ولوحة الإدارة ← اللجان والاجتماعات. الوثائق والجولات والعقود والتقارير موجودة من المنصة وتُكيَّف للجودة.
 

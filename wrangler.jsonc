@@ -51,7 +51,7 @@
   // It is not a secret: it only works on the domains it names, and changing any part of it breaks the signature.
   // To renew, replace the value with the new license and merge.
   "vars": {
-    "LICENSE": "PORTAL1.eyJ2IjoxLCJpZCI6IkdXLTg2ZDNFIiwib3JnX2FyIjoi2KfZhNmF2LPYqti02YHZiSDYp9mE2LnYp9mFIiwib3JnX2VuIjoiR2VuZXJhbCBIb3NwaXRhbCIsImRvbWFpbnMiOlsicW1zLmFpLWZpa3JhLmNvbSJdLCJleHBpcmVzIjoiMjAyNy0xMS0wNCIsIm1heF91c2VycyI6MCwiaXNzdWVkIjoiMjAyNi0xMS0wNCJ9.r9waMumELTdYSMNiSRtqIEWwH8314s_9DkraVFnz37pv04TXBIBgo2j3__itt04VUqcCQZh14STyesAWPl1sOA"
+    "LICENSE": "PORTAL1.eyJ2IjoxLCJpZCI6IlFMYmQxTTdZIiwib3JnX2FyIjoi2KfZhNmF2LPYqti02YHZiSDYp9mE2LPYudmI2K_ZiiDYp9mE2KPZhNmF2KfZhtmKIiwib3JnX2VuIjoiU2F1ZGkgR2VybWFuIEhvc3BpdGFsIiwiZG9tYWlucyI6WyJxbXMxLmFpLWZpa3JhLmNvbSJdLCJleHBpcmVzIjoiMjAyNy0xMS0yMCIsIm1heF91c2VycyI6MTAwLCJpc3N1ZWQiOiIyMDI2LTExLTIwIn0.iXoEPcQjMm3lDaviEx0SzEazQ-H4yt9kQdbYGdUSR8oD2k5bo6nRPdwgGdvxqQB2x5CNR3PCtnTR3h0D7foSrw"
   },
 
   // PR preview builds (Workers Builds runs `wrangler preview` for non-main branches).
@@ -61,7 +61,7 @@
   // so a preview link opens on the license page; it still proves the build works.
   "previews": {
     "vars": {
-      "LICENSE": "PORTAL1.eyJ2IjoxLCJpZCI6IkdXLTg2ZDNFIiwib3JnX2FyIjoi2KfZhNmF2LPYqti02YHZiSDYp9mE2LnYp9mFIiwib3JnX2VuIjoiR2VuZXJhbCBIb3NwaXRhbCIsImRvbWFpbnMiOlsicW1zLmFpLWZpa3JhLmNvbSJdLCJleHBpcmVzIjoiMjAyNy0xMS0wNCIsIm1heF91c2VycyI6MCwiaXNzdWVkIjoiMjAyNi0xMS0wNCJ9.r9waMumELTdYSMNiSRtqIEWwH8314s_9DkraVFnz37pv04TXBIBgo2j3__itt04VUqcCQZh14STyesAWPl1sOA"
+      "LICENSE": "PORTAL1.eyJ2IjoxLCJpZCI6IlFMYmQxTTdZIiwib3JnX2FyIjoi2KfZhNmF2LPYqti02YHZiSDYp9mE2LPYudmI2K_ZiiDYp9mE2KPZhNmF2KfZhtmKIiwib3JnX2VuIjoiU2F1ZGkgR2VybWFuIEhvc3BpdGFsIiwiZG9tYWlucyI6WyJxbXMxLmFpLWZpa3JhLmNvbSJdLCJleHBpcmVzIjoiMjAyNy0xMS0yMCIsIm1heF91c2VycyI6MTAwLCJpc3N1ZWQiOiIyMDI2LTExLTIwIn0.iXoEPcQjMm3lDaviEx0SzEazQ-H4yt9kQdbYGdUSR8oD2k5bo6nRPdwgGdvxqQB2x5CNR3PCtnTR3h0D7foSrw"
   },
     "d1_databases": [
       {
