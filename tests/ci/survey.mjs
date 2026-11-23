@@ -64,6 +64,37 @@ check(official.score === before.score && official.elements[0].score === before.e
 r = await qm('/mock/' + mid);
 check(r.j.esr_gaps.some((g) => g.id === sEl) && r.j.scored === 3, 'the report shows the ESR gap and the progress', r.j);
 
+// Debriefing: a gap moved to the survey's closing summary, with where it was seen.
+check((await qo('/mock/' + mid + '/findings', 'PUT', { standard_id: sEl, element_id: e2.id, kind: 'observation', finding: '' })).j.error === 'mock_no_finding', 'a debriefing item needs a finding');
+check((await emp('/mock/' + mid + '/findings', 'PUT', { standard_id: sEl, element_id: e2.id, kind: 'observation', finding: 'x' })).s === 403, 'an employee cannot add to the debriefing');
+r = await qo('/mock/' + mid + '/findings', 'PUT', { standard_id: sEl, element_id: e2.id, kind: 'observation', score: 'partial', area: 'الطوارئ', finding: 'لا توجد خطة' });
+check(r.s === 200 && r.j.finding.code === 'QM.40.2' && r.j.finding.area === 'الطوارئ', 'an assessor moves a gap to the debriefing', r.j);
+const fid = r.j.finding.id;
+r = await qo('/mock/' + mid + '/findings', 'PUT', { standard_id: sEl, element_id: e2.id, kind: 'observation', score: 'partial', area: 'الطوارئ', finding: 'لا توجد خطة معتمدة' });
+check(r.j.finding.id === fid && r.j.finding.finding === 'لا توجد خطة معتمدة', 'moving it again changes it', r.j);
+r = await qm('/mock/' + mid);
+check(r.j.findings.length === 1 && r.j.findings[0].id === fid, 'the report lists the debriefing', r.j.findings);
+check((await qo('/mock/' + mid + '/standards?chapter=QM')).j.findings.length === 1, 'the scoring page knows what is in the debriefing');
+check((await qo('/mock/' + mid + '/findings/' + fid, 'DELETE')).s === 200 && (await qm('/mock/' + mid)).j.findings.length === 0, 'it can be taken back');
+
+// A planned activity that scores another sub-standard passes its score on inside the survey only.
+r = await owner('/standards/pack', 'POST', {
+  framework: 'cbahi',
+  standards: [
+    { code: 'QM.42', title_en: 'Survey master.', elements: [{ num: '1', text: 'Master.', acts: [{ kind: 'qmc', teams: ['LD'], children: ['QM.43.1'] }] }] },
+    { code: 'QM.43', title_en: 'Survey child.', elements: [{ num: '1', text: 'Child.', acts: [{ kind: 'qmc', teams: ['LD'], master: { LD: 'QM.42.1' } }, { kind: 'document', teams: ['LD'] }] }] },
+  ],
+});
+check(r.s === 200 && r.j.saved === 2, 'a pack with a master and its child');
+let qmStds = (await qo('/mock/' + mid + '/standards?chapter=QM')).j.standards;
+const sm = qmStds.find((x) => x.code === 'QM.42');
+r = await qo('/mock/' + mid + '/score', 'PUT', { standard_id: sm.id, element_id: sm.elements[0].id, activities: [{ kind: 'qmc', score: 'not_met', note: 'No minutes' }] });
+check(r.s === 200 && r.j.passed[0] === 'QM.43.1', 'the master passes its score on in the survey', r.j);
+qmStds = (await qo('/mock/' + mid + '/standards?chapter=QM')).j.standards;
+const kc = qmStds.find((x) => x.code === 'QM.43').elements[0];
+check(kc.activities.length === 2 && kc.activities[0].score === 'not_met' && kc.activities[0].via === 'QM.42.1' && kc.score === null, 'the child has the score, its origin and its own open activity', kc);
+check((await owner('/standards?framework=cbahi&chapter=QM')).j.standards.find((x) => x.code === 'QM.43').elements[0].score === null, 'the official assessment stays untouched');
+
 // Tracers inside the survey.
 check((await emp('/tracers', 'POST', { kind: 'patient', mrn: '1' })).s === 403, 'an employee cannot start a tracer');
 check((await qo('/tracers', 'POST', { kind: 'patient' })).j.error === 'tracer_mrn', 'a patient tracer needs the record number');
@@ -96,15 +127,16 @@ check((await qo('/tracers', 'POST', { kind: 'system', topic: 'x' })).s === 400, 
 check((await qo('/mock/' + mid + '/close', 'POST', {})).s === 403, 'only the quality manager closes a survey');
 check((await qm('/mock/' + mid + '/apply', 'POST')).j.error === 'mock_not_closed', 'a survey is applied after closing');
 r = await qm('/mock/' + mid + '/close', 'POST', { result: 'جاهزية جيدة' });
-check(r.s === 200 && r.j.capa === 1, 'closing opens a CAPA for each standard with a gap', r.j);
+check(r.s === 200 && r.j.capa === 2, 'closing opens a CAPA for each standard with a gap (QM.40, QM.42)', r.j);
 check((await qo('/mock/' + mid + '/score', 'PUT', { standard_id: sNo, element_id: 0, activities: [{ kind: 'interview', score: 'na' }] })).s === 403, 'a closed survey cannot be scored');
 const capa = (await qm('/capa')).j.capa;
 check(capa.some((c) => c.source === 'mock' && c.std_code === 'QM.40') && capa.some((c) => c.source === 'tracer'), 'the CAPAs are there', capa.slice(0, 3));
 r = await qm('/mock/' + mid + '/apply', 'POST');
-check(r.s === 200 && r.j.standards === 2, 'the manager applies the scores', r.j);
+check(r.s === 200 && r.j.standards === 4, 'the manager applies the scores', r.j);
 check((await qm('/mock/' + mid + '/apply', 'POST')).j.error === 'mock_applied', 'once');
 const after = (await owner('/standards?framework=cbahi&chapter=QM')).j.standards;
 check(after.find((s) => s.id === sEl).score === 'not_met' && after.find((s) => s.id === sNo).score === 'met' && after.find((s) => s.id === sEl).elements[0].activities.length === 1, 'the official assessment now has them', after.find((s) => s.id === sEl));
+check(after.find((s) => s.code === 'QM.43').elements[0].activities.find((a) => a.kind === 'qmc').via === 'QM.42.1', 'an applied score keeps where it came from', after.find((s) => s.code === 'QM.43').elements[0]);
 r = await qm('/mock', 'POST', { title: 'المسح الثاني', chapters: ['QM'] });
 const mid2 = r.j.id;
 r = await qm('/mock/' + mid2);

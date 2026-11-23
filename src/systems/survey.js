@@ -12,7 +12,7 @@ import { getSettings } from '../lib/db.js';
 import { fail, json, nowIso, optDate, str, todayIn } from '../lib/util.js';
 import { CAPA_DAYS } from './capa.js';
 import { plusDays } from './docs.js';
-import { FRAMEWORKS, STD_ACTIVITIES, STD_SCORES, fwOn, readiness, rollup } from './quality.js';
+import { FRAMEWORKS, STD_ACTIVITIES, STD_SCORES, childElements, fwOn, parsePlan, readiness, rollup } from './quality.js';
 import { riskRole } from './risk.js';
 
 export const TRACER_KINDS = ['patient', 'system'];
@@ -127,7 +127,7 @@ async function surveyStandards(env, sv, chapter) {
     const elements = (byStd[s.id] || []).map((e) => {
       const r = sc[s.id + ':' + e.id];
       const acts = r ? parseActs(r.acts).map((a, i) => ({ id: i + 1, ...a })) : [];
-      return { ...e, score: r ? r.score : null, note: r ? r.note : null, activities: acts, official: e.score };
+      return { ...e, plan: parsePlan(e.plan), score: r ? r.score : null, note: r ? r.note : null, activities: acts, official: e.score };
     });
     const own = sc[s.id + ':0'];
     const score = elements.length ? rollup(elements.map((e) => e.score), esrOn && s.esr) : own ? own.score : null;
@@ -268,7 +268,7 @@ export async function handleMock(request, env, url, seg, method, user) {
 
   // The survey: chapters with who scores them and their results, the previous survey to compare, its tracers.
   if (method === 'GET' && seg.length === 2) {
-    const [r, prev, { results: tracers }, { results: names }] = await Promise.all([
+    const [r, prev, { results: tracers }, { results: names }, { results: findings }] = await Promise.all([
       surveyResults(env, sv),
       env.DB.prepare("SELECT * FROM mock_surveys WHERE framework = ? AND status = 'closed' AND id <> ? AND created_at < ? ORDER BY created_at DESC LIMIT 1").bind(sv.framework, id, sv.created_at).first(),
       env.DB.prepare(
@@ -279,6 +279,7 @@ export async function handleMock(request, env, url, seg, method, user) {
            FROM tracers t LEFT JOIN departments d ON d.id = t.department_id WHERE t.survey_id = ? ORDER BY t.id`,
       ).bind(id).all(),
       env.DB.prepare('SELECT code, name_ar, name_en FROM std_chapters WHERE framework = ?').bind(sv.framework).all(),
+      env.DB.prepare('SELECT * FROM mock_findings WHERE survey_id = ? ORDER BY code, id').bind(id).all(),
     ]);
     const pr = prev ? await surveyResults(env, prev) : null;
     const pmap = pr ? Object.fromEntries(pr.chapters.map((c) => [c.code, c.pct])) : {};
@@ -302,6 +303,7 @@ export async function handleMock(request, env, url, seg, method, user) {
       scored: r.scored,
       units: r.units,
       esr_gaps: r.esr_gaps,
+      findings,
       prev: prev ? { id: prev.id, code: prev.code, title: prev.title, pct: pr.total.pct, esr_gap: pr.total.esr_gap } : null,
       tracers,
       has_esr: !!FRAMEWORKS[sv.framework]?.esr,
@@ -316,10 +318,15 @@ export async function handleMock(request, env, url, seg, method, user) {
     if (!chaptersOf(sv.chapters).includes(ch)) fail(404, 'not_found');
     const stds = await surveyStandards(env, sv, ch);
     const can = canScore(ch);
+    const ids = stds.map((s) => s.id);
+    const { results: findings } = ids.length
+      ? await env.DB.prepare(`SELECT * FROM mock_findings WHERE survey_id = ? AND standard_id IN (${ids.map(() => '?').join(',')})`).bind(id, ...ids).all()
+      : { results: [] };
     return json({
       survey: { id: sv.id, code: sv.code, title: sv.title, status: sv.status },
       framework: sv.framework,
       standards: stds.map((s) => ({ ...s, can_score: can })),
+      findings,
     });
   }
 
@@ -331,23 +338,91 @@ export async function handleMock(request, env, url, seg, method, user) {
     if (!std || !chaptersOf(sv.chapters).includes(std.chapter)) fail(404, 'not_found');
     if (!canScore(std.chapter)) fail(403, 'forbidden');
     const eid = Number(body.element_id) || 0;
-    const { results: els } = await env.DB.prepare('SELECT id FROM std_elements WHERE standard_id = ?').bind(sid).all();
-    if (eid ? !els.some((e) => e.id === eid) : els.length) fail(404, 'not_found');
-    const list = (Array.isArray(body.activities) ? body.activities : []).slice(0, 10);
+    const { results: els } = await env.DB.prepare('SELECT id, num, plan FROM std_elements WHERE standard_id = ?').bind(sid).all();
+    const el = els.find((e) => e.id === eid);
+    if (eid ? !el : els.length) fail(404, 'not_found');
+    const list = (Array.isArray(body.activities) ? body.activities : []).slice(0, 12);
     if (!list.length) fail(400, 'std_no_activity');
-    const acts = list.map((a) => ({
-      kind: STD_ACTIVITIES.includes(a && a.kind) ? a.kind : fail(400, 'std_bad_activity'),
-      score: a.score === null || a.score === undefined || a.score === '' ? null : STD_SCORES.includes(a.score) ? a.score : fail(400, 'std_bad_score'),
-      note: str(a.note, 1000) || null,
-    }));
-    const escore = rollup(acts.map((a) => a.score), false);
-    const enote = acts.map((a) => a.note).filter(Boolean).join(' · ').slice(0, 1000) || null;
+    const had = await env.DB.prepare('SELECT acts FROM mock_scores WHERE survey_id = ? AND standard_id = ? AND element_id = ?').bind(id, sid, eid).first();
+    const before = had ? parseActs(had.acts) : [];
+    const acts = list.map((a) => {
+      const x = {
+        kind: STD_ACTIVITIES.includes(a && a.kind) ? a.kind : fail(400, 'std_bad_activity'),
+        score: a.score === null || a.score === undefined || a.score === '' ? null : STD_SCORES.includes(a.score) ? a.score : fail(400, 'std_bad_score'),
+        note: str(a.note, 1000) || null,
+      };
+      // A score passed on from another sub-standard keeps its origin until it is scored here.
+      const b = before.find((y) => y.kind === x.kind);
+      if (b && b.via && b.score === x.score && (b.note || null) === x.note) x.via = b.via;
+      return x;
+    });
+    const now = nowIso();
     await env.DB.prepare(
       `INSERT INTO mock_scores (survey_id, standard_id, element_id, acts, score, note, user_id, user_name, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(survey_id, standard_id, element_id) DO UPDATE SET acts = excluded.acts, score = excluded.score, note = excluded.note, user_id = excluded.user_id, user_name = excluded.user_name, at = excluded.at`,
-    ).bind(id, sid, eid, JSON.stringify(acts), escore, enote, user.id, user.name, nowIso()).run();
+    ).bind(id, sid, eid, JSON.stringify(acts), rollup(acts.map((a) => a.score), false), acts.map((a) => a.note).filter(Boolean).join(' · ').slice(0, 1000) || null, user.id, user.name, now).run();
+    // The sub-standards this one scores along with itself get the same score in the survey.
+    const plan = el ? parsePlan(el.plan) || [] : [];
+    const moved = acts.filter((a) => {
+      const b = before.find((y) => y.kind === a.kind);
+      return !b || b.score !== a.score || (b.note || null) !== a.note;
+    });
+    const pass = moved.flatMap((a) => (plan.find((p) => p.kind === a.kind)?.children || []).map((code) => ({ code, a })));
+    const passed = [];
+    if (pass.length) {
+      const master = std.code + '.' + el.num;
+      for (const k of await childElements(env, sv.framework, [...new Set(pass.map((p) => p.code))])) {
+        const code = k.std_code + '.' + k.num;
+        const row = await env.DB.prepare('SELECT acts FROM mock_scores WHERE survey_id = ? AND standard_id = ? AND element_id = ?').bind(id, k.standard_id, k.id).first();
+        const kacts = row ? parseActs(row.acts) : [];
+        for (const { a } of pass.filter((p) => p.code === code)) {
+          const x = kacts.find((y) => y.kind === a.kind);
+          if (x) Object.assign(x, { score: a.score, note: a.note, via: master });
+          else kacts.push({ kind: a.kind, score: a.score, note: a.note, via: master });
+        }
+        for (const p of parsePlan(k.plan) || []) if (!kacts.some((y) => y.kind === p.kind)) kacts.push({ kind: p.kind, score: null, note: null });
+        await env.DB.prepare(
+          `INSERT INTO mock_scores (survey_id, standard_id, element_id, acts, score, note, user_id, user_name, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(survey_id, standard_id, element_id) DO UPDATE SET acts = excluded.acts, score = excluded.score, note = excluded.note, user_id = excluded.user_id, user_name = excluded.user_name, at = excluded.at`,
+        ).bind(id, k.standard_id, k.id, JSON.stringify(kacts), rollup(kacts.map((y) => y.score), false), kacts.map((y) => y.note).filter(Boolean).join(' · ').slice(0, 1000) || null, user.id, user.name + ' (' + master + ')', now).run();
+        passed.push(code);
+      }
+    }
+    const escore = rollup(acts.map((a) => a.score), false);
+    const enote = acts.map((a) => a.note).filter(Boolean).join(' · ').slice(0, 1000) || null;
     const [s] = (await surveyStandards(env, sv, std.chapter)).filter((x) => x.id === sid);
-    return json({ ok: true, element: { id: eid, score: escore, note: enote }, activities: acts.map((a, i) => ({ id: i + 1, ...a })), score: s ? s.score : null });
+    return json({ ok: true, element: { id: eid, score: escore, note: enote }, activities: acts.map((a, i) => ({ id: i + 1, ...a })), score: s ? s.score : null, passed });
+  }
+
+  // Debriefing: a finding moved from a scored activity to the survey's closing summary, with the place it was
+  // seen. Moving the same activity again changes it; DELETE takes it back.
+  if (method === 'PUT' && seg[2] === 'findings' && seg.length === 3) {
+    const body = await readJson(request);
+    const sid = toId(body.standard_id);
+    const std = sid ? await env.DB.prepare('SELECT * FROM standards WHERE id = ? AND framework = ? AND active = 1').bind(sid, sv.framework).first() : null;
+    if (!std || !chaptersOf(sv.chapters).includes(std.chapter)) fail(404, 'not_found');
+    if (!canScore(std.chapter)) fail(403, 'forbidden');
+    const eid = Number(body.element_id) || 0;
+    const el = eid ? await env.DB.prepare('SELECT num FROM std_elements WHERE id = ? AND standard_id = ?').bind(eid, sid).first() : null;
+    if (eid && !el) fail(404, 'not_found');
+    const kind = STD_ACTIVITIES.includes(body.kind) ? body.kind : fail(400, 'std_bad_activity');
+    const finding = str(body.finding, 2000);
+    if (!finding) fail(400, 'mock_no_finding');
+    const score = STD_SCORES.includes(body.score) ? body.score : null;
+    const code = el ? std.code + '.' + el.num : std.code;
+    await env.DB.prepare(
+      `INSERT INTO mock_findings (survey_id, standard_id, element_id, code, kind, score, area, finding, user_id, user_name, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(survey_id, element_id, standard_id, kind) DO UPDATE SET score = excluded.score, area = excluded.area, finding = excluded.finding, user_id = excluded.user_id, user_name = excluded.user_name, at = excluded.at`,
+    ).bind(id, sid, eid, code, kind, score, str(body.area, 150) || null, finding, user.id, user.name, nowIso()).run();
+    const f = await env.DB.prepare('SELECT * FROM mock_findings WHERE survey_id = ? AND standard_id = ? AND element_id = ? AND kind = ?').bind(id, sid, eid, kind).first();
+    return json({ ok: true, finding: f });
+  }
+  if (method === 'DELETE' && seg[2] === 'findings' && toId(seg[3]) && seg.length === 4) {
+    const f = await env.DB.prepare('SELECT f.*, s.chapter FROM mock_findings f JOIN standards s ON s.id = f.standard_id WHERE f.id = ? AND f.survey_id = ?').bind(toId(seg[3]), id).first();
+    if (!f) fail(404, 'not_found');
+    if (!canScore(f.chapter)) fail(403, 'forbidden');
+    await env.DB.prepare('DELETE FROM mock_findings WHERE id = ?').bind(f.id).run();
+    return json({ ok: true });
   }
 
   if (method === 'PUT' && seg.length === 2) {
@@ -403,7 +478,7 @@ export async function handleMock(request, env, url, seg, method, user) {
           stmts.push(env.DB.prepare('DELETE FROM std_activities WHERE element_id = ?').bind(e.id));
           e.activities.forEach((a, k) =>
             stmts.push(
-              env.DB.prepare('INSERT INTO std_activities (standard_id, element_id, kind, score, note, assessed_at, assessed_by, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').bind(s.id, e.id, a.kind, a.score, a.note, a.score ? now : null, a.score ? by : null, k + 1),
+              env.DB.prepare('INSERT INTO std_activities (standard_id, element_id, kind, score, note, via, assessed_at, assessed_by, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(s.id, e.id, a.kind, a.score, a.note, a.via || null, a.score ? now : null, a.score ? by : null, k + 1),
             ),
           );
           stmts.push(env.DB.prepare('UPDATE std_elements SET score = ?, note = ?, assessed_at = ?, assessed_by = ? WHERE id = ?').bind(e.score, e.note, e.score ? now : null, e.score ? by : null, e.id));
@@ -431,6 +506,7 @@ export async function handleMock(request, env, url, seg, method, user) {
     needManager();
     await env.DB.batch([
       env.DB.prepare('DELETE FROM mock_scores WHERE survey_id = ?').bind(id),
+      env.DB.prepare('DELETE FROM mock_findings WHERE survey_id = ?').bind(id),
       env.DB.prepare('DELETE FROM mock_assign WHERE survey_id = ?').bind(id),
       env.DB.prepare('UPDATE tracers SET survey_id = NULL WHERE survey_id = ?').bind(id),
       env.DB.prepare('DELETE FROM mock_surveys WHERE id = ?').bind(id),

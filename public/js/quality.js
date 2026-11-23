@@ -567,12 +567,15 @@ function openAssess(fw, chapter, code) {
 // The surveyors' marks: CBAHI and CHI 2 / 1 / 0, JCI 10 / 5 / 0, and NA.
 const MARKS = { cbahi: { met: '2', partial: '1', not_met: '0', na: 'NA' }, jci: { met: '10', partial: '5', not_met: '0', na: 'NA' } };
 const marks = (fw) => MARKS[fw] || MARKS.cbahi;
-const ACTIVITIES = ['document', 'observation', 'interview'];
-// A first guess for a sub-standard with no activity yet; it can be changed on the page.
+const ACTIVITIES = ['document', 'omr', 'personnel', 'observation', 'interview', 'evidence', 'cmr', 'ptc', 'ipcc', 'esc', 'qmc', 'contracts'];
+const TEAMS = ['LD', 'MD', 'NR', 'MM', 'LB', 'FMS', 'IC'];
+// A first guess for a sub-standard with no activity plan and no activity yet; it can be changed on the page.
 const DOC_RE = /\b(policy|policies|procedure|plan|program|programme|written|documented|records?|minutes|log|bylaws|approved)\b/i;
 const guessKind = (e) => (e.doc || DOC_RE.test(e.text) ? 'document' : 'observation');
 const isGap = (a) => a.score === 'partial' || a.score === 'not_met';
 const needsNote = (a) => isGap(a) && !String(a.note || '').trim();
+const PAGE_SIZE = 50;
+const sentKey = (a) => (a.score || '') + '|' + String(a.note || '').trim();
 // The element's own text, and its listed items (the "•" lines) numbered under it: FMS.33.1.1, FMS.33.1.2...
 function elBody(s, e) {
   const [lead, ...items] = String(e.text).split(/\n\s*[•▪●◦-]\s*/);
@@ -590,6 +593,8 @@ function elBody(s, e) {
 }
 
 // mock: { id, chapter } scores a chapter inside a mock survey; its scores are kept with the survey.
+// Like the surveyors' scoring page: pages of about 50 activities, each sub-standard scored by the activities
+// its standard calls for, a specialty filter, and an activity that scores other sub-standards along with itself.
 export async function assessPage(root, param, alive, _app, mock) {
   const raw = String(param || '');
   const m = /^(cbahi|jci|chi)(?:\.(.*))?$/.exec(raw);
@@ -613,57 +618,132 @@ export async function assessPage(root, param, alive, _app, mock) {
   const chapter = d.chapters.find((c) => c.code === ch);
   const title = ch === 'ESR' ? t('qa.esr') : chapter ? chapter.code + ' · ' + chapterName(chapter) : ch;
   const stds = list.standards;
-  // Every element works from a list of activities; one not scored by activity yet shows a single one,
-  // carrying the element's own score, until it is saved.
   // In a survey a standard with no elements is scored as one line of its own.
   if (mock) for (const s of stds) if (!s.elements.length) s.elements = [{ id: 0, num: '', text: '', pseudo: true, activities: s.own_acts || [], score: s.score, note: s.note }];
+  // A sub-standard with an activity plan shows its planned activities (in the plan's order), then any other
+  // activity it was scored by before; one with no plan works from its own list, or a single guessed activity.
+  const byCode = new Map();
   for (const s of stds)
-    for (const e of s.elements)
-      e.acts = e.activities.length ? e.activities.map((a) => ({ ...a, note: a.note || '' })) : [{ id: null, kind: guessKind(e), score: e.score || null, note: e.note || '' }];
+    for (const e of s.elements) {
+      const have = e.activities.map((a) => ({ ...a, note: a.note || '' }));
+      if (e.plan && e.plan.length) {
+        const planned = e.plan.map((p) => {
+          const i = have.findIndex((a) => a.kind === p.kind);
+          return { ...(i >= 0 ? have.splice(i, 1)[0] : { id: null, kind: p.kind, score: null, note: '' }), p };
+        });
+        e.acts = planned.concat(have);
+      } else e.acts = have.length ? have : [{ id: null, kind: guessKind(e), score: e.score || null, note: e.note || '' }];
+      for (const a of e.acts) a.sent = a.id ? sentKey(a) : '|';
+      if (!e.pseudo) byCode.set(elLabel(s, e), { s, e });
+    }
+  const findings = new Map((list.findings || []).map((f) => [f.standard_id + ':' + f.element_id + ':' + f.kind, f]));
+  const teams = TEAMS.filter((x) => stds.some((s) => s.elements.some((e) => e.acts.some((a) => a.p && (a.p.teams || []).includes(x)))));
   const mk = marks(fw);
   const key = (mock ? 'm' + mock.id + '.' : '') + fw + '.' + ch;
   const pos = (S.qaPos = S.qaPos || {});
-  if (S.qaGo) {
-    const i = stds.findIndex((s) => s.code === S.qaGo);
-    if (i >= 0) pos[key] = i;
-    S.qaGo = null;
-  }
-  let at = Math.min(pos[key] || 0, Math.max(stds.length - 1, 0));
+  let team = teams.includes(S.qaTeam) ? S.qaTeam : '';
 
-  const acts = (s) => s.elements.flatMap((e) => e.acts);
-  const state = (s) => {
-    const a = acts(s);
-    if (!a.length) return s.score ? 'done' : 'empty';
+  const shown = (a) => !team || !a.p || !a.p.teams || a.p.teams.includes(team);
+  const lockedBy = (a) => (team && a.p && a.p.master && a.p.master[team]) || null;
+  const visActs = (e) => e.acts.filter(shown);
+  const allActs = () => stds.flatMap((s) => s.elements.flatMap(visActs));
+
+  // Pages of about 50 activities, cut between sub-standards; a standard cut in two carries on on the next page.
+  let pages = [];
+  const paginate = () => {
+    pages = [];
+    let cur = [];
+    let n = 0;
+    for (const s of stds) {
+      const els = s.elements.filter((e) => visActs(e).length);
+      if (team && !els.length) continue;
+      let part = { s, els: [], cont: false };
+      cur.push(part);
+      if (!els.length) n += 1;
+      for (const e of els) {
+        const k = visActs(e).length;
+        if (n && n + k > PAGE_SIZE) {
+          pages.push(cur);
+          cur = [];
+          n = 0;
+          if (part.els.length) {
+            part = { s, els: [], cont: true };
+          }
+          cur.push(part);
+        }
+        part.els.push(e);
+        n += k;
+      }
+    }
+    if (cur.length) pages.push(cur);
+    pages = pages.map((p) => p.filter((x) => x.els.length || !x.s.elements.length));
+  };
+  const pageActs = (p) => p.flatMap((x) => x.els.flatMap(visActs));
+  const pageState = (p) => {
+    const a = pageActs(p);
+    if (!a.length) return p.every((x) => x.s.score) ? 'done' : 'empty';
     const n = a.filter((x) => x.score).length;
     return a.some(needsNote) ? 'note' : n === a.length ? 'done' : n ? 'part' : 'empty';
   };
+  paginate();
+  if (S.qaGo) {
+    const i = pages.findIndex((p) => p.some((x) => x.s.code === S.qaGo));
+    if (i >= 0) pos[key] = i;
+    S.qaGo = null;
+  }
+  let at = Math.min(pos[key] || 0, Math.max(pages.length - 1, 0));
+
   const tally = h('div', { class: 'qa-tally', role: 'status' });
   const pager = h('nav', { class: 'qa-pager', 'aria-label': t('qa.pages') });
   const page = h('div', { class: 'qa-page' });
   const drawTally = () => {
-    const all = stds.flatMap(acts);
+    const all = allActs();
+    const shownStds = stds.filter((s) => !team || s.elements.some((e) => visActs(e).length));
     const items = [
-      ['qa.t_standards', stds.length],
-      ['qa.t_subs', stds.reduce((n, s) => n + s.elements.length, 0)],
+      ['qa.t_standards', shownStds.length],
+      ['qa.t_subs', shownStds.reduce((n, s) => n + s.elements.filter((e) => visActs(e).length).length, 0)],
       ['qa.t_scorables', all.length],
       ['qa.t_scored', all.filter((a) => a.score).length],
       ['qa.t_needs_note', all.filter(needsNote).length],
     ];
     tally.replaceChildren(...items.map(([k, n], i) => h('span', { class: 'qa-tally-item' + (i === 4 && n ? ' is-warn' : '') }, h('span', { class: 'muted' }, t(k)), h('b', { class: 'mono' }, String(n)))));
   };
+  const pageName = (p) => {
+    const a = p[0].s.code;
+    const b = p[p.length - 1].s.code;
+    return a === b ? a : a + ' – ' + b;
+  };
   const drawPager = () =>
     pager.replaceChildren(
-      ...stds.map((s, i) =>
-        h(
+      ...pages.map((p, i) => {
+        const st = pageState(p);
+        return h(
           'button',
-          { type: 'button', class: 'qa-pg qa-pg-' + state(s) + (i === at ? ' is-here' : ''), 'aria-current': i === at ? 'page' : null, title: s.code + ' · ' + t('qa.pg.' + state(s)), 'aria-label': s.code + ' · ' + t('qa.pg.' + state(s)), onclick: () => go(i) },
+          { type: 'button', class: 'qa-pg qa-pg-' + st + (i === at ? ' is-here' : ''), 'aria-current': i === at ? 'page' : null, title: pageName(p) + ' · ' + t('qa.pg.' + st), 'aria-label': pageName(p) + ' · ' + t('qa.pg.' + st), onclick: () => go(i) },
           String(i + 1),
-        ),
-      ),
+        );
+      }),
     );
   const refresh = () => {
     drawTally();
     drawPager();
+  };
+
+  // The blocks on the page, so a score passed on to a sub-standard shown here is drawn again.
+  const blocks = new Map();
+  const passOn = (s, e, moved, passed) => {
+    const master = elLabel(s, e);
+    for (const a of moved)
+      for (const code of (a.p && a.p.children) || []) {
+        if (!passed.includes(code)) continue;
+        const k = byCode.get(code);
+        if (!k) continue;
+        let x = k.e.acts.find((y) => y.kind === a.kind);
+        if (!x) k.e.acts.push((x = { id: null, kind: a.kind }));
+        Object.assign(x, { score: a.score, note: a.note, via: master });
+        x.sent = sentKey(x);
+        blocks.get(k.e)?.();
+      }
   };
 
   // Saving: one element at a time, in order, with what the page holds when the request leaves.
@@ -672,6 +752,7 @@ export async function assessPage(root, param, alive, _app, mock) {
     let timer = null;
     const send = async () => {
       const snap = e.acts.slice();
+      const moved = snap.filter((a) => sentKey(a) !== a.sent);
       status.textContent = t('qa.saving');
       status.className = 'qa-save small muted';
       try {
@@ -679,10 +760,17 @@ export async function assessPage(root, param, alive, _app, mock) {
         const r = mock
           ? await api('/mock/' + mock.id + '/score', { method: 'PUT', body: { standard_id: s.id, element_id: e.id, activities } })
           : await api('/standards/' + s.id + '/elements/' + e.id, { method: 'PUT', body: { activities } });
-        r.activities.forEach((x, i) => (snap[i].id = x.id));
+        r.activities.forEach((x, i) => {
+          snap[i].id = x.id;
+          snap[i].via = x.via || null;
+        });
+        for (const a of moved) a.sent = sentKey(a);
         e.score = r.element.score;
         s.score = r.score;
-        status.textContent = t('qa.saved');
+        const passed = r.passed || [];
+        if (passed.length) passOn(s, e, moved, passed);
+        status.textContent = t('qa.saved') + (passed.length ? ' · ' + t('qa.scores_too') + ': ' + passed.join(', ') : '');
+        refresh();
       } catch (err) {
         status.textContent = errText(err);
         status.className = 'qa-save small form-error';
@@ -694,15 +782,82 @@ export async function assessPage(root, param, alive, _app, mock) {
     };
   };
 
+  // The score this activity had before: the one before the last in the sub-standard's history, or in a mock
+  // survey the hospital's own self-assessment.
+  const history = new Map();
+  const prevLink = (s, e, a) => {
+    const out = h('span', { class: 'small muted qa-prev-out' });
+    const show = async () => {
+      if (mock) {
+        out.textContent = e.official ? mk[e.official] + ' · ' + t('qa.score.' + e.official) : t('qa.prev_none');
+        return;
+      }
+      try {
+        if (!history.has(e.id)) history.set(e.id, api('/standards/' + s.id + '/elements/' + e.id + '/history'));
+        const rows = (await history.get(e.id)).history.filter((x) => !x.kind || x.kind === a.kind);
+        const i = rows.length && rows[0].score === a.score ? 1 : 0;
+        const x = rows[i];
+        out.textContent = x ? mk[x.score] + ' · ' + (x.user_name || '') + ' · ' + fmtDate(x.at) + (x.note ? ' · ' + x.note : '') : t('qa.prev_none');
+      } catch (err) {
+        out.textContent = errText(err);
+      }
+    };
+    return [h('button', { type: 'button', class: 'btn-link small', onclick: show }, t('qa.prev_score')), out];
+  };
+
+  // Mock surveys: a gap can be moved to the survey's closing summary, with where it was seen.
+  const debriefLink = (s, e, a, redraw) => {
+    const fk = s.id + ':' + e.id + ':' + a.kind;
+    const f = findings.get(fk);
+    if (!f && !isGap(a)) return null;
+    const open = () => {
+      const area = input({ type: 'text', maxlength: 150, value: f ? f.area || '' : '' });
+      const text = h('textarea', { rows: 4, maxlength: 2000, required: true }, f ? f.finding : a.note || '');
+      const drop = f
+        ? h('button', {
+            type: 'button',
+            class: 'btn-link small form-error',
+            onclick: async () => {
+              try {
+                await api('/mock/' + mock.id + '/findings/' + f.id, { method: 'DELETE' });
+                findings.delete(fk);
+                dlg.close();
+                redraw();
+              } catch (err) {
+                toast(errText(err));
+              }
+            },
+          }, t('common.delete'))
+        : null;
+      const dlg = openDialog({
+        title: t('qa.debrief_title') + ' · ' + (e.pseudo ? s.code : elLabel(s, e)) + ' · ' + t('qa.act.' + a.kind),
+        body: h('div', {}, field(t('qa.area'), area), field(t('qa.finding'), text), drop),
+        onSubmit: async () => {
+          const r = await api('/mock/' + mock.id + '/findings', { method: 'PUT', body: { standard_id: s.id, element_id: e.id, kind: a.kind, score: a.score, area: area.value, finding: text.value } });
+          findings.set(fk, r.finding);
+          redraw();
+        },
+      });
+    };
+    return h('button', { type: 'button', class: 'btn-link small' + (f ? ' is-on' : ''), onclick: open }, f ? t('qa.debrief_on') : t('qa.debrief'));
+  };
+
+  const codeList = (codes) => h('span', { class: 'mono', dir: 'ltr' }, codes.join(', '));
   const activityRow = (s, e, a, save, redraw) => {
-    const can = s.can_score;
+    const lock = lockedBy(a);
+    const can = s.can_score && !lock;
+    const planned = !!a.p;
+    const hasPlan = e.acts.some((x) => x.p);
     const name = 'qa-a-' + e.id + '-' + Math.random().toString(36).slice(2, 8);
-    const kind = can ? select(ACTIVITIES.map((k) => [k, t('qa.act.' + k)]), a.kind, { class: 'qa-kind', 'aria-label': t('qa.activity') }) : h('span', { class: 'tag' }, t('qa.act.' + a.kind));
-    if (can)
+    let kind;
+    if (planned || !s.can_score || hasPlan) kind = h('span', { class: 'tag qa-kind-tag' }, t('qa.act.' + a.kind));
+    else {
+      kind = select(ACTIVITIES.map((k) => [k, t('qa.act.' + k)]), a.kind, { class: 'qa-kind', 'aria-label': t('qa.activity') });
       kind.addEventListener('change', () => {
         a.kind = kind.value;
         save();
       });
+    }
     const pills = h(
       'div',
       { class: 'qa-marks', role: 'radiogroup', 'aria-label': t('qa.score') + ': ' + elLabel(s, e) },
@@ -730,15 +885,20 @@ export async function assessPage(root, param, alive, _app, mock) {
           },
         }, t('qa.clear'))
       : null;
-    const note = input({ type: 'text', class: 'qa-act-note', maxlength: 1000, value: a.note, placeholder: t('qa.comment'), 'aria-label': t('qa.comment') + ': ' + elLabel(s, e), disabled: !can });
+    const note = h('textarea', { class: 'qa-act-note', rows: 1, maxlength: 1000, placeholder: t('qa.comment'), 'aria-label': t('qa.comment') + ': ' + elLabel(s, e), disabled: !can }, a.note || '');
+    const fit = () => {
+      note.style.height = 'auto';
+      note.style.height = note.scrollHeight + 2 + 'px';
+    };
     note.addEventListener('input', () => {
       a.note = note.value;
+      fit();
       sync();
       refresh();
     });
     note.addEventListener('change', () => save());
     const drop =
-      can && e.acts.length > 1
+      s.can_score && !planned && e.acts.length > 1
         ? h('button', {
             type: 'button',
             class: 'btn btn-icon btn-small',
@@ -752,7 +912,17 @@ export async function assessPage(root, param, alive, _app, mock) {
             },
           }, icon('close', 16))
         : null;
-    const row = h('div', { class: 'qa-act' }, h('div', { class: 'qa-act-head' }, kind, pills, clear, drop), note);
+    const children = a.p && a.p.children && a.p.children.length ? a.p.children : null;
+    const links = h(
+      'div',
+      { class: 'qa-act-links small' },
+      children ? h('span', { class: 'qa-act-master' }, t('qa.scores_too') + ': ', codeList(children)) : null,
+      lock ? h('span', { class: 'qa-act-child' }, t('qa.scored_by') + ': ', codeList([lock])) : a.via ? h('span', { class: 'qa-act-child muted' }, t('qa.scored_by') + ': ', codeList([a.via])) : null,
+      e.pseudo || !a.id ? null : prevLink(s, e, a),
+      mock && s.can_score ? debriefLink(s, e, a, redraw) : null,
+    );
+    if (a.note) requestAnimationFrame(fit);
+    const row = h('div', { class: 'qa-act' + (lock ? ' is-locked' : '') }, h('div', { class: 'qa-act-head' }, kind, pills, clear, drop), note, links.childNodes.length ? links : null);
     const sync = () => row.classList.toggle('is-need', needsNote(a));
     sync();
     return row;
@@ -762,69 +932,106 @@ export async function assessPage(root, param, alive, _app, mock) {
     const status = h('span', { class: 'qa-save small muted', role: 'status' });
     const save = saver(s, e, status);
     const box = h('div', { class: 'qa-acts' });
-    const redraw = () => box.replaceChildren(...e.acts.map((a) => activityRow(s, e, a, (w) => save(w), redraw)));
+    const redraw = () => box.replaceChildren(...visActs(e).map((a) => activityRow(s, e, a, (w) => save(w), redraw)));
     redraw();
-    const add = s.can_score
-      ? h('button', {
-          type: 'button',
-          class: 'btn-link small',
-          onclick: () => {
-            const used = new Set(e.acts.map((a) => a.kind));
-            e.acts.push({ id: null, kind: ACTIVITIES.find((k) => !used.has(k)) || 'observation', score: null, note: '' });
-            redraw();
-            refresh();
-            save();
-          },
-        }, icon('plus', 14), t('qa.act_add'))
-      : null;
+    blocks.set(e, redraw);
+    const planTeams = [...new Set(e.acts.flatMap((a) => (a.p && a.p.teams) || []))];
+    const add =
+      s.can_score && !e.acts.some((a) => a.p)
+        ? h('button', {
+            type: 'button',
+            class: 'btn-link small',
+            onclick: () => {
+              const used = new Set(e.acts.map((a) => a.kind));
+              const k = ACTIVITIES.find((x) => !used.has(x));
+              if (!k) return;
+              e.acts.push({ id: null, kind: k, score: null, note: '', sent: '|' });
+              redraw();
+              refresh();
+              save();
+            },
+          }, icon('plus', 14), t('qa.act_add'))
+        : null;
     return h(
       'li',
       { class: 'qa-el-assess' },
-      h('div', { class: 'qa-el-head' }, h('span', { class: 'mono small strong qa-el-code', dir: 'ltr' }, e.pseudo ? s.code : elLabel(s, e)), e.pseudo ? null : elBadges(e), status),
+      h(
+        'div',
+        { class: 'qa-el-head' },
+        h('span', { class: 'mono small strong qa-el-code', dir: 'ltr' }, e.pseudo ? s.code : elLabel(s, e)),
+        e.pseudo ? null : elBadges(e),
+        planTeams.length > 1 ? h('span', { class: 'small muted qa-shared', title: planTeams.map((x) => t('qa.team.' + x)).join('، ') }, t('qa.shared') + ': ', h('span', { class: 'mono', dir: 'ltr' }, planTeams.join(', '))) : null,
+        status,
+      ),
       e.pseudo ? null : elBody(s, e),
       box,
       add,
     );
   };
 
+  const stdPart = ({ s, els, cont }) =>
+    h(
+      'article',
+      { class: 'panel qa-std' },
+      h(
+        'div',
+        { class: 'qa-std-head' },
+        h('span', { class: 'qa-std-code mono', dir: 'ltr' }, s.code),
+        h(
+          'div',
+          { class: 'qa-std-title' },
+          h('p', { class: 'strong' }, cont ? h('span', { class: 'muted' }, '(' + t('qa.cont') + ') ') : null, stdText(s)),
+          h('div', { class: 'qa-std-tags' }, s.esr && fw === 'cbahi' ? h('span', { class: 'chip chip-expired qa-esr' }, 'ESR') : null, s.jci && fw === 'cbahi' ? h('span', { class: 'small muted', dir: 'ltr' }, 'JCI ' + s.jci) : null, scoreChip(s.score)),
+        ),
+      ),
+      !cont && s.intent ? h('details', { class: 'qa-intent' }, h('summary', { class: 'small' }, t('qa.intent')), h('div', { class: 'qa-intent-text small', dir: 'auto' }, s.intent)) : null,
+      s.elements.length
+        ? h('ol', { class: 'qa-el-list' }, els.map((e) => elementBlock(s, e)))
+        : h('p', {}, s.can_score ? h('button', { type: 'button', class: 'btn btn-small', onclick: () => assessDialog(s) }, icon('check'), t('qa.assess')) : null),
+    );
+
   const go = (i) => {
-    at = Math.max(0, Math.min(i, stds.length - 1));
+    at = Math.max(0, Math.min(i, pages.length - 1));
     pos[key] = at;
     draw();
     root.querySelector('.qa-tally')?.scrollIntoView({ block: 'nearest' });
   };
   const draw = () => {
     drawPager();
-    const s = stds[at];
-    if (!s) {
+    blocks.clear();
+    const p = pages[at];
+    if (!p) {
       page.replaceChildren(h('p', { class: 'empty' }, t('qa.no_standards')));
       return;
     }
     page.replaceChildren(
-      h(
-        'article',
-        { class: 'panel qa-std' },
-        h(
-          'div',
-          { class: 'qa-std-head' },
-          h('span', { class: 'qa-std-code mono', dir: 'ltr' }, s.code),
-          h('div', { class: 'qa-std-title' }, h('p', { class: 'strong' }, stdText(s)), h('div', { class: 'qa-std-tags' }, s.esr && fw === 'cbahi' ? h('span', { class: 'chip chip-expired qa-esr' }, 'ESR') : null, s.jci && fw === 'cbahi' ? h('span', { class: 'small muted', dir: 'ltr' }, 'JCI ' + s.jci) : null, scoreChip(s.score))),
-        ),
-        s.elements.length
-          ? h('ol', { class: 'qa-el-list' }, s.elements.map((e) => elementBlock(s, e)))
-          : h('p', {}, s.can_score ? h('button', { type: 'button', class: 'btn btn-small', onclick: () => assessDialog(s) }, icon('check'), t('qa.assess')) : null),
-      ),
+      ...p.map(stdPart),
       h(
         'div',
         { class: 'qa-std-nav' },
         h('button', { type: 'button', class: 'btn', disabled: at === 0, onclick: () => go(at - 1) }, t('qa.prev')),
-        h('span', { class: 'muted small mono', dir: 'ltr' }, at + 1 + ' / ' + stds.length),
-        h('button', { type: 'button', class: 'btn btn-primary', disabled: at >= stds.length - 1, onclick: () => go(at + 1) }, t('qa.next')),
+        h('span', { class: 'muted small mono', dir: 'ltr' }, at + 1 + ' / ' + pages.length),
+        h('button', { type: 'button', class: 'btn btn-primary', disabled: at >= pages.length - 1, onclick: () => go(at + 1) }, t('qa.next')),
       ),
     );
   };
+  // The surveyor's specialty: only the activities it scores, and those another sub-standard scores for it locked.
+  let teamPick = null;
+  if (teams.length) {
+    teamPick = select([['', t('qa.team_all')], ...teams.map((x) => [x, x + ' · ' + t('qa.team.' + x)])], team, { class: 'qa-team', 'aria-label': t('qa.team') });
+    teamPick.addEventListener('change', () => {
+      const first = pages[at] && pages[at][0] ? pages[at][0].s.code : null;
+      team = S.qaTeam = teamPick.value;
+      paginate();
+      const i = first ? pages.findIndex((p) => p.some((x) => x.s.code === first)) : -1;
+      at = i >= 0 ? i : 0;
+      pos[key] = at;
+      drawTally();
+      draw();
+    });
+  }
   root.replaceChildren(
-    h('div', { class: 'page-head' }, h('div', {}, mock ? link('quality/mock/' + mock.id, { class: 'back-link' }, list.survey.code + ' · ' + list.survey.title) : link(stdLink(fw, ch), { class: 'back-link' }, title), h('h1', {}, mock ? title : t('qa.assess_chapter')))),
+    h('div', { class: 'page-head' }, h('div', {}, mock ? link('quality/mock/' + mock.id, { class: 'back-link' }, list.survey.code + ' · ' + list.survey.title) : link(stdLink(fw, ch), { class: 'back-link' }, title), h('h1', {}, mock ? title : t('qa.assess_chapter'))), teamPick),
     h('div', { class: 'qa-assess-top' }, tally, pager),
     page,
   );

@@ -335,6 +335,42 @@ check((await qv('/bootstrap')).j.portal_url === '', 'and the systems button stay
   r = await owner('/standards/' + s10.id + '/history');
   check(r.j.history.length >= 2 && r.j.history[0].score === 'met', "the standard's history keeps its worked-out scores", r.j.history);
 
+  // The surveyors' plan: a pack names each sub-standard's activities, which specialties score them, and an
+  // activity that scores sub-standards of other chapters along with itself.
+  r = await owner('/standards/pack', 'POST', {
+    framework: 'cbahi',
+    standards: [
+      { code: 'IPC.12', title_en: 'Test master.', intent: 'Why this standard exists.', elements: [{ num: '1', text: 'Master sub.', acts: [{ kind: 'document', teams: ['IC', 'LD'], children: ['IPC.13.1'] }, { kind: 'interview', teams: ['IC'] }, { kind: 'tour' }] }] },
+      { code: 'IPC.13', title_en: 'Test child.', elements: [{ num: '1', text: 'Child sub.', acts: [{ kind: 'document', teams: ['IC', 'MD'], master: { IC: 'IPC.12.1', XX: 'bad' } }, { kind: 'cmr', teams: ['MD'] }] }] },
+    ],
+  });
+  check(r.s === 200 && r.j.saved === 2, 'a pack with activity plans and intent', r.j);
+  let ipc = (await owner('/standards?chapter=IPC')).j.standards;
+  const s12 = ipc.find((x) => x.code === 'IPC.12');
+  const s13 = ipc.find((x) => x.code === 'IPC.13');
+  check(s12.intent === 'Why this standard exists.', 'the standard intent is kept', s12.intent);
+  check(s12.elements[0].plan.length === 2 && s12.elements[0].plan[0].children[0] === 'IPC.13.1' && s13.elements[0].plan[0].master.IC === 'IPC.12.1' && !s13.elements[0].plan[0].master.XX, 'the plan keeps known activities, teams and links', [s12.elements[0].plan, s13.elements[0].plan]);
+  const m12 = '/standards/' + s12.id + '/elements/' + s12.elements[0].id;
+  const c13 = '/standards/' + s13.id + '/elements/' + s13.elements[0].id;
+  r = await qa(m12, 'PUT', { activities: [{ kind: 'document', score: 'partial', note: 'Old version' }, { kind: 'interview', score: 'met' }] });
+  check(r.s === 200 && r.j.passed.length === 1 && r.j.passed[0] === 'IPC.13.1', 'scoring the master passes the score on', r.j);
+  ipc = (await owner('/standards?chapter=IPC')).j.standards;
+  let k13 = ipc.find((x) => x.code === 'IPC.13').elements[0];
+  const kd = k13.activities.find((a) => a.kind === 'document');
+  check(kd && kd.score === 'partial' && kd.note === 'Old version' && kd.via === 'IPC.12.1' && k13.activities.some((a) => a.kind === 'cmr' && !a.score) && k13.score === null, 'the child gets the score, marked with its master, and its own planned activities', k13.activities);
+  r = await qa(m12, 'PUT', { activities: r.j.activities.map((a) => ({ ...a })) });
+  check(r.j.passed.length === 0, 'saving the master unchanged passes nothing', r.j);
+  const keep = k13.activities.map((a) => ({ id: a.id, kind: a.kind, score: a.score, note: a.note }));
+  r = await qa(c13, 'PUT', { activities: keep.map((a) => (a.kind === 'cmr' ? { ...a, score: 'met' } : a)) });
+  check(r.j.activities.find((a) => a.kind === 'document').via === 'IPC.12.1' && r.j.element.score === 'partial', 'the passed score keeps its origin while it is unchanged', r.j);
+  r = await qa(c13, 'PUT', { activities: keep.map((a) => (a.kind === 'cmr' ? { ...a, score: 'met' } : { ...a, score: 'met' })) });
+  check(!r.j.activities.find((a) => a.kind === 'document').via && r.j.element.score === 'met', 'scoring the child itself drops the origin', r.j);
+  r = await qa(m12 + '/history');
+  check(r.s === 200 && r.j.history.length >= 2 && r.j.history.some((x) => x.kind === 'document' && x.score === 'partial'), "a sub-standard's history lists its scores by activity", r.j);
+  r = await owner('/standards/pack', 'POST', { framework: 'cbahi', standards: [{ code: 'IPC.12', title_en: 'Test master.', elements: [{ num: '1', text: 'Master sub.' }] }] });
+  ipc = (await owner('/standards?chapter=IPC')).j.standards;
+  check(ipc.find((x) => x.code === 'IPC.12').elements[0].plan.length === 2 && ipc.find((x) => x.code === 'IPC.12').intent, 'a pack without plans keeps the ones already there', ipc.find((x) => x.code === 'IPC.12'));
+
   // Sub-standards typed in by a manager, in the standard's dialog.
   const base10 = { code: 'IPC.10', title_ar: '', title_en: 'Test activities.' };
   const cur = (await owner('/standards?chapter=IPC')).j.standards.find((x) => x.code === 'IPC.10');

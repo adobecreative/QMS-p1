@@ -182,6 +182,15 @@ export async function ensureSchema(env) {
   const { results: ovrCols } = await env.DB.prepare('PRAGMA table_info(ovr)').all();
   if (!ovrCols.some((c) => c.name === 'ref')) await env.DB.prepare('ALTER TABLE ovr ADD COLUMN ref TEXT').run();
   await env.DB.batch([env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_capa_ovr ON capa(ovr_id)'), env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_ovr_ref ON ovr(ref)')]);
+  // The surveyor's plan from the import pack: a standard's intent, and each sub-standard's activities (which
+  // surveyor teams check them, and the ones another sub-standard scores). An activity scored that way keeps
+  // the code it came from (via).
+  const { results: stCols } = await env.DB.prepare('PRAGMA table_info(standards)').all();
+  if (!stCols.some((c) => c.name === 'intent')) await env.DB.prepare('ALTER TABLE standards ADD COLUMN intent TEXT').run();
+  const { results: elCols } = await env.DB.prepare('PRAGMA table_info(std_elements)').all();
+  if (!elCols.some((c) => c.name === 'plan')) await env.DB.prepare('ALTER TABLE std_elements ADD COLUMN plan TEXT').run();
+  const { results: actCols } = await env.DB.prepare('PRAGMA table_info(std_activities)').all();
+  if (!actCols.some((c) => c.name === 'via')) await env.DB.prepare('ALTER TABLE std_activities ADD COLUMN via TEXT').run();
   // Hospital departments, teams and common problem types, once per database.
   if (!(await env.DB.prepare("SELECT 1 AS x FROM settings WHERE key = 'starter_seeded'").first())) await seedStarter(env);
   // Common device types, once, after the teams they belong to exist.

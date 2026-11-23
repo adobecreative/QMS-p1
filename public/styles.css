@@ -3707,6 +3707,61 @@ a.qa-card:hover {
 .qa-mark input:disabled + span {
   cursor: default;
 }
+.qa-act-note {
+  resize: vertical;
+  font: inherit;
+  min-height: 38px;
+  padding: 6px 10px;
+  overflow: hidden;
+}
+.qa-act-links {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  color: var(--ink-2);
+}
+.qa-act-links .btn-link.is-on {
+  color: var(--green);
+  font-weight: 600;
+}
+.qa-act-master {
+  color: var(--accent);
+}
+.qa-act.is-locked {
+  opacity: 0.75;
+}
+.qa-act.is-locked .qa-act-child {
+  font-weight: 600;
+}
+.qa-kind-tag {
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+.qa-shared {
+  white-space: nowrap;
+}
+.qa-intent {
+  margin: 0 0 10px;
+}
+.qa-intent summary {
+  cursor: pointer;
+  color: var(--accent);
+}
+.qa-intent-text {
+  margin-top: 6px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--ground);
+  white-space: pre-line;
+  color: var(--ink-2);
+  max-height: 320px;
+  overflow-y: auto;
+}
+.page-head .qa-team {
+  width: auto;
+}
 .qa-std-nav {
   display: flex;
   align-items: center;
