@@ -7,8 +7,26 @@ import { nowIso } from './util.js';
 /* ------------------------------- database -------------------------------- */
 
 export let schemaReady = false;
+// A fingerprint of the tables and of the steps below. A database already brought up to date by this same code
+// keeps it in settings, so a fresh worker start costs one query instead of some 80 (a cold start took over
+// 4 seconds, too slow for the Fikra portal's status check). Any change to the schema or to these steps changes it.
+let schemaFp = null;
+function fingerprint() {
+  const text = SCHEMA.join('\n') + '\n' + MIGRATIONS.join('\n') + '\n' + ensureSchema.toString();
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193) >>> 0;
+  return h.toString(16) + '.' + text.length;
+}
 export async function ensureSchema(env) {
   if (schemaReady) return;
+  schemaFp = schemaFp || fingerprint();
+  const saved = await env.DB.prepare("SELECT value FROM settings WHERE key = 'schema_fp'")
+    .first()
+    .catch(() => null); // no settings table yet: a new database
+  if (saved && saved.value === schemaFp) {
+    schemaReady = true;
+    return;
+  }
   const found = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='settings'").first();
   if (!found) await env.DB.batch(SCHEMA.map((sql) => env.DB.prepare(sql)));
   await env.DB.batch(MIGRATIONS.map((sql) => env.DB.prepare(sql)));
@@ -195,6 +213,7 @@ export async function ensureSchema(env) {
   if (!(await env.DB.prepare("SELECT 1 AS x FROM settings WHERE key = 'starter_seeded'").first())) await seedStarter(env);
   // Common device types, once, after the teams they belong to exist.
   if (!(await env.DB.prepare("SELECT 1 AS x FROM settings WHERE key = 'asset_types_seeded'").first())) await seedAssetTypes(env);
+  await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('schema_fp', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(schemaFp).run();
   schemaReady = true;
 }
 
