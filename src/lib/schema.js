@@ -1178,6 +1178,22 @@ export const MIGRATIONS = [
      user_name TEXT,
      at TEXT NOT NULL,
      UNIQUE (survey_id, standard_id, element_id))`,
+  // Debriefing: the findings a surveyor moves from a scored activity to the survey's closing summary, with the
+  // place they were seen.
+  `CREATE TABLE IF NOT EXISTS mock_findings (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     survey_id INTEGER NOT NULL,
+     standard_id INTEGER NOT NULL,
+     element_id INTEGER NOT NULL DEFAULT 0,
+     code TEXT NOT NULL,
+     kind TEXT NOT NULL,
+     score TEXT,
+     area TEXT,
+     finding TEXT NOT NULL,
+     user_id INTEGER,
+     user_name TEXT,
+     at TEXT NOT NULL,
+     UNIQUE (survey_id, element_id, standard_id, kind))`,
   // Tracers: a patient's path through the units (kind patient, mrn) or one system across the hospital (kind system,
   // topic medication / infection / facility / data). Each line is met, not met or n/a; a line not met opens a CAPA.
   `CREATE TABLE IF NOT EXISTS tracers (

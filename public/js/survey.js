@@ -295,6 +295,37 @@ async function surveyDetail(root, id, alive) {
           h('ul', { class: 'mock-gaps' }, d.esr_gaps.map((g) => h('li', {}, h('span', { class: 'mono strong', dir: 'ltr' }, g.code), ' ', pick(g.title_ar, g.title_en), ' ', scoreChip(g.score), g.note ? h('div', { class: 'small muted' }, g.note) : ''))),
         )
       : '',
+    (d.findings || []).length
+      ? h(
+          'section',
+          { class: 'panel' },
+          panelHead(t('mock.findings')),
+          h(
+            'div',
+            { class: 'table-scroll' },
+            h(
+              'table',
+              {},
+              h('thead', {}, h('tr', {}, [t('qa.t_subs'), t('qa.activity'), t('qa.score'), t('qa.area'), t('qa.finding')].map((c) => h('th', { scope: 'col' }, c)))),
+              h(
+                'tbody',
+                {},
+                d.findings.map((f) =>
+                  h(
+                    'tr',
+                    {},
+                    h('td', {}, h('span', { class: 'mono strong', dir: 'ltr' }, f.code)),
+                    h('td', {}, t('qa.act.' + f.kind)),
+                    h('td', {}, f.score ? scoreChip(f.score) : '-'),
+                    h('td', {}, f.area || '-'),
+                    h('td', { class: 'pre-wrap', dir: 'auto' }, f.finding),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        )
+      : '',
     sv.result ? h('section', { class: 'panel pad' }, h('h2', {}, t('mock.result')), h('p', { class: 'pre-wrap', dir: 'auto' }, sv.result)) : '',
     tracersPanel(d.tracers, d.can_trace ? h('button', { type: 'button', class: 'btn btn-small', onclick: async () => tracerDialog(await api('/mock'), id) }, icon('plus'), t('tr.add')) : ''),
   );

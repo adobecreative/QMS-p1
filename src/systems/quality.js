@@ -13,8 +13,55 @@ import { fmsEvidence, portalDocUrl, portalDocsOn } from './fmslink.js';
 
 // met = fully met, partial = partially met, not_met, na = not applicable to this hospital.
 export const STD_SCORES = ['met', 'partial', 'not_met', 'na'];
-// How the surveyor checks a sub-standard: reads a document, looks at the place, asks the staff.
-export const STD_ACTIVITIES = ['document', 'observation', 'interview'];
+// How the surveyor checks a sub-standard, in the CBAHI survey's order: document review, open medical record
+// review, personnel file review, observation, staff interview, document evidence, closed medical record review,
+// and the committees and meetings the surveyor sits with (P&T, infection control, environmental safety,
+// quality, contracted services).
+export const STD_ACTIVITIES = ['document', 'omr', 'personnel', 'observation', 'interview', 'evidence', 'cmr', 'ptc', 'ipcc', 'esc', 'qmc', 'contracts'];
+// The surveyor teams that share the standards: leadership & quality, medical, nursing, medication, laboratory,
+// facility & safety, infection control.
+export const STD_TEAMS = ['LD', 'MD', 'NR', 'MM', 'LB', 'FMS', 'IC'];
+const EL_CODE_RE = /^[A-Z&]{2,6}\.[0-9A-Za-z.\-]{1,24}$/;
+// A sub-standard's plan from the import pack: its activities in order, the teams that check each one, the
+// sub-standards it scores along with it (children), and, per team, the one that scores it (master).
+export function readPlan(list) {
+  if (!Array.isArray(list) || !list.length) return null;
+  const seen = new Set();
+  const out = [];
+  for (const a of list.slice(0, 12)) {
+    const kind = a && STD_ACTIVITIES.includes(a.kind) ? a.kind : null;
+    if (!kind || seen.has(kind)) continue;
+    seen.add(kind);
+    const x = { kind };
+    const teams = (Array.isArray(a.teams) ? a.teams : []).filter((t) => STD_TEAMS.includes(t));
+    if (teams.length) x.teams = teams;
+    const children = (Array.isArray(a.children) ? a.children : []).map((c) => String(c)).filter((c) => EL_CODE_RE.test(c)).slice(0, 20);
+    if (children.length) x.children = children;
+    const master = {};
+    for (const [t, c] of Object.entries(a.master && typeof a.master === 'object' ? a.master : {})) if (STD_TEAMS.includes(t) && EL_CODE_RE.test(String(c))) master[t] = String(c);
+    if (Object.keys(master).length) x.master = master;
+    out.push(x);
+  }
+  return out.length ? JSON.stringify(out) : null;
+}
+export const parsePlan = (v) => {
+  try {
+    const a = JSON.parse(v || 'null');
+    return Array.isArray(a) ? a : null;
+  } catch {
+    return null;
+  }
+};
+// The sub-standards an activity scores along with itself (its children in other chapters), with what each
+// one needs to be updated: the element, its standard and the rows it already has.
+export async function childElements(env, fw, codes) {
+  if (!codes.length) return [];
+  const { results } = await env.DB.prepare(
+    `SELECT e.id, e.standard_id, e.num, e.plan, e.score, s.code AS std_code, s.esr, s.score AS std_score FROM std_elements e JOIN standards s ON s.id = e.standard_id
+      WHERE s.framework = ? AND s.active = 1 AND (s.code || '.' || e.num) IN (${codes.map(() => '?').join(',')})`,
+  ).bind(fw, ...codes).all();
+  return results;
+}
 
 // The chapters a hospital starts with. ESR is not a chapter: it is a flag on standards in any chapter.
 // Names and the JCI mapping can be changed from the Chapters page; new chapters can be added.
@@ -147,6 +194,53 @@ function readStandard(body, chapters, allowNoAr = false) {
   const esr = body.esr === true || body.esr === 1 || body.esr === '1' ? 1 : 0;
   const department_id = Number.isInteger(Number(body.department_id)) && body.department_id !== null && body.department_id !== '' ? Number(body.department_id) : null;
   return { code, chapter, title_ar, title_en, jci, esr, department_id };
+}
+
+// Passes an activity's score and comment on to the sub-standards it scores along with itself, then works out
+// their own scores again. A planned activity they lack is added, still open. Returns the codes updated.
+async function passOn(env, fw, master, pass, user, now) {
+  const kids = await childElements(env, fw, [...new Set(pass.map((p) => p.code))]);
+  const done = [];
+  for (const k of kids) {
+    const code = k.std_code + '.' + k.num;
+    const { results: rows } = await env.DB.prepare('SELECT * FROM std_activities WHERE element_id = ? ORDER BY sort, id').bind(k.id).all();
+    const live = rows.map((r) => ({ ...r }));
+    let sort = live.reduce((m, r) => Math.max(m, r.sort || 0), 0);
+    const stmts = [];
+    const add = async (kind, a) => {
+      const res = await env.DB.prepare('INSERT INTO std_activities (standard_id, element_id, kind, score, note, via, assessed_at, assessed_by, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .bind(k.standard_id, k.id, kind, a ? a.score : null, a ? a.note : null, a ? master : null, a && a.score ? now : null, a && a.score ? user.name : null, ++sort)
+        .run();
+      const r = { id: res.meta.last_row_id, kind, score: a ? a.score : null, note: a ? a.note : null };
+      live.push(r);
+      return r;
+    };
+    for (const { a } of pass.filter((p) => p.code === code)) {
+      let r = live.find((x) => x.kind === a.kind);
+      if (r) {
+        r.score = a.score;
+        r.note = a.note;
+        stmts.push(env.DB.prepare('UPDATE std_activities SET score = ?, note = ?, via = ?, assessed_at = ?, assessed_by = ? WHERE id = ?').bind(a.score, a.note, master, a.score ? now : null, a.score ? user.name : null, r.id));
+      } else r = await add(a.kind, a);
+      if (a.score) stmts.push(env.DB.prepare('INSERT INTO std_assessments (standard_id, element_id, activity_id, score, note, user_id, user_name, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').bind(k.standard_id, k.id, r.id, a.score, a.note, user.id, user.name + ' (' + master + ')', now));
+    }
+    for (const p of parsePlan(k.plan) || []) if (!live.some((x) => x.kind === p.kind)) await add(p.kind, null);
+    const escore = rollup(live.map((x) => x.score), false);
+    const enote = live.map((x) => x.note).filter(Boolean).join(' · ').slice(0, 1000) || null;
+    stmts.push(env.DB.prepare('UPDATE std_elements SET score = ?, note = ?, assessed_at = ?, assessed_by = ? WHERE id = ?').bind(escore, enote, escore ? now : null, escore ? user.name : null, k.id));
+    const { results: sib } = await env.DB.prepare('SELECT id, score FROM std_elements WHERE standard_id = ?').bind(k.standard_id).all();
+    const score = rollup(sib.map((e) => (e.id === k.id ? escore : e.score)), FRAMEWORKS[fw]?.esr && k.esr);
+    if (score !== k.std_score) {
+      stmts.push(
+        env.DB.prepare('UPDATE standards SET score = ?, assessed_at = ?, assessed_by = ?, updated_at = ? WHERE id = ?').bind(score, score ? now : null, score ? user.name : null, now, k.standard_id),
+        logStmt(env, user, 'assess', 'standard', k.standard_id, k.std_code, { score: [k.std_score, score], via: master }),
+      );
+      if (score) stmts.push(env.DB.prepare('INSERT INTO std_assessments (standard_id, score, user_id, user_name, at) VALUES (?, ?, ?, ?, ?)').bind(k.standard_id, score, user.id, user.name + ' (' + master + ')', now));
+    }
+    await env.DB.batch(stmts);
+    done.push(code);
+  }
+  return done;
 }
 
 export async function handleQuality(request, env, url, seg, method, user) {
@@ -313,12 +407,12 @@ export async function handleQuality(request, env, url, seg, method, user) {
           WHERE ${where.join(' AND ')} ORDER BY s.chapter, s.id LIMIT 3000`,
       ).bind(...binds).all(),
       env.DB.prepare(`SELECT e.* FROM std_elements e JOIN standards s ON s.id = e.standard_id WHERE ${where.join(' AND ')} ORDER BY e.standard_id, e.sort, e.id LIMIT 20000`).bind(...binds).all(),
-      env.DB.prepare(`SELECT a.id, a.element_id, a.kind, a.score, a.note, a.assessed_at, a.assessed_by FROM std_activities a JOIN standards s ON s.id = a.standard_id WHERE ${where.join(' AND ')} ORDER BY a.element_id, a.sort, a.id LIMIT 50000`).bind(...binds).all(),
+      env.DB.prepare(`SELECT a.id, a.element_id, a.kind, a.score, a.note, a.via, a.assessed_at, a.assessed_by FROM std_activities a JOIN standards s ON s.id = a.standard_id WHERE ${where.join(' AND ')} ORDER BY a.element_id, a.sort, a.id LIMIT 50000`).bind(...binds).all(),
     ]);
     const byEl = {};
     for (const a of acts) (byEl[a.element_id] = byEl[a.element_id] || []).push(a);
     const byStd = {};
-    for (const e of els) (byStd[e.standard_id] = byStd[e.standard_id] || []).push({ ...e, activities: byEl[e.id] || [] });
+    for (const e of els) (byStd[e.standard_id] = byStd[e.standard_id] || []).push({ ...e, plan: parsePlan(e.plan), activities: byEl[e.id] || [] });
     return json({ framework: fw, standards: results.map((s) => ({ ...s, elements: byStd[s.id] || [], can_score: canScore(s) })), can_manage: manager });
   }
 
@@ -354,9 +448,9 @@ export async function handleQuality(request, env, url, seg, method, user) {
       try {
         const d = readStandard({ ...(row || {}), jci: fw === 'cbahi' ? row && row.jci : null }, known, true);
         const elements = (Array.isArray(row.elements) ? row.elements.slice(0, 60) : [])
-          .map((e, k) => ({ num: str(e && String(e.num ?? ''), 10), text: str(e && e.text, 4000), doc: e && e.doc ? 1 : 0, is_new: e && e.is_new ? 1 : 0, sort: k + 1 }))
+          .map((e, k) => ({ num: str(e && String(e.num ?? ''), 10), text: str(e && e.text, 4000), doc: e && e.doc ? 1 : 0, is_new: e && e.is_new ? 1 : 0, sort: k + 1, plan: readPlan(e && e.acts) }))
           .filter((e) => e.num && e.text);
-        ok.push({ ...d, elements });
+        ok.push({ ...d, elements, intent: str(row.intent, 8000) || null });
       } catch (e) {
         errors.push({ row: i + 1, code: str(row && row.code, 30), error: e.code || 'bad_row' });
       }
@@ -365,11 +459,11 @@ export async function handleQuality(request, env, url, seg, method, user) {
       await env.DB.batch(
         ok.map((d) =>
           env.DB.prepare(
-            `INSERT INTO standards (framework, chapter, code, title_ar, title_en, esr, jci, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+            `INSERT INTO standards (framework, chapter, code, title_ar, title_en, esr, jci, intent, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
              ON CONFLICT(framework, code) DO UPDATE SET chapter = excluded.chapter, title_en = excluded.title_en,
                title_ar = CASE WHEN excluded.title_ar <> '' THEN excluded.title_ar ELSE standards.title_ar END,
-               esr = excluded.esr, jci = COALESCE(excluded.jci, standards.jci), active = 1, updated_at = excluded.updated_at`,
-          ).bind(fw, d.chapter, d.code, d.title_ar, d.title_en, d.esr, d.jci, now, now),
+               esr = excluded.esr, jci = COALESCE(excluded.jci, standards.jci), intent = COALESCE(excluded.intent, standards.intent), active = 1, updated_at = excluded.updated_at`,
+          ).bind(fw, d.chapter, d.code, d.title_ar, d.title_en, d.esr, d.jci, d.intent, now, now),
         ),
       );
       const codes = ok.map((d) => d.code);
@@ -381,9 +475,9 @@ export async function handleQuality(request, env, url, seg, method, user) {
         for (const e of d.elements)
           stmts.push(
             env.DB.prepare(
-              `INSERT INTO std_elements (standard_id, num, text, doc, is_new, sort) VALUES (?, ?, ?, ?, ?, ?)
-               ON CONFLICT(standard_id, num) DO UPDATE SET text = excluded.text, doc = excluded.doc, is_new = excluded.is_new, sort = excluded.sort`,
-            ).bind(sid, e.num, e.text, e.doc, e.is_new, e.sort),
+              `INSERT INTO std_elements (standard_id, num, text, doc, is_new, sort, plan) VALUES (?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(standard_id, num) DO UPDATE SET text = excluded.text, doc = excluded.doc, is_new = excluded.is_new, sort = excluded.sort, plan = COALESCE(excluded.plan, std_elements.plan)`,
+            ).bind(sid, e.num, e.text, e.doc, e.is_new, e.sort, e.plan),
           );
         // An element the new edition dropped goes, unless it was already scored.
         if (d.elements.length)
@@ -540,9 +634,10 @@ export async function handleQuality(request, env, url, seg, method, user) {
       const o = old[a.id];
       const changed = o.score !== a.score || (o.note || null) !== a.note;
       if (!changed && o.kind === a.kind && o.sort === a.sort) continue;
+      // Scored here, it is no longer the copy of another sub-standard's score.
       stmts.push(
-        env.DB.prepare('UPDATE std_activities SET kind = ?, score = ?, note = ?, sort = ?, assessed_at = ?, assessed_by = ? WHERE id = ?').bind(
-          a.kind, a.score, a.note, a.sort, changed ? (a.score ? now : null) : o.assessed_at, changed ? (a.score ? user.name : null) : o.assessed_by, a.id,
+        env.DB.prepare('UPDATE std_activities SET kind = ?, score = ?, note = ?, sort = ?, assessed_at = ?, assessed_by = ?, via = ? WHERE id = ?').bind(
+          a.kind, a.score, a.note, a.sort, changed ? (a.score ? now : null) : o.assessed_at, changed ? (a.score ? user.name : null) : o.assessed_by, changed ? null : o.via || null, a.id,
         ),
       );
       if (changed) stmts.push(...history(a.id, a));
@@ -561,7 +656,22 @@ export async function handleQuality(request, env, url, seg, method, user) {
       if (score) stmts.push(env.DB.prepare('INSERT INTO std_assessments (standard_id, score, note, user_id, user_name, at) VALUES (?, ?, ?, ?, ?, ?)').bind(id, score, std.note, user.id, user.name, now));
     }
     await env.DB.batch(stmts);
-    return json({ ok: true, element: { id: eid, score: escore, note: enote }, activities: want.map((a) => ({ id: a.id, kind: a.kind, score: a.score, note: a.note })), score });
+    // An activity that also scores sub-standards in other chapters (CBAHI's master and child items) passes its
+    // score and comment on to them.
+    const plan = parsePlan(el.plan) || [];
+    const moved = want.filter((a) => !old[a.id] || old[a.id].score !== a.score || (old[a.id].note || null) !== a.note);
+    const pass = moved.flatMap((a) => (plan.find((p) => p.kind === a.kind)?.children || []).map((code) => ({ code, a })));
+    const passed = pass.length ? await passOn(env, std.framework, std.code + '.' + el.num, pass, user, now) : [];
+    return json({ ok: true, element: { id: eid, score: escore, note: enote }, activities: want.map((a) => ({ id: a.id, kind: a.kind, score: a.score, note: a.note, via: !moved.includes(a) && old[a.id] ? old[a.id].via || null : null })), score, passed });
+  }
+
+  // One sub-standard's earlier scores, newest first, each with the activity it was given to.
+  if (method === 'GET' && seg[2] === 'elements' && /^\d+$/.test(seg[3] || '') && seg[4] === 'history' && seg.length === 5) {
+    const { results } = await env.DB.prepare(
+      `SELECT a.score, a.note, a.user_name, a.at, x.kind FROM std_assessments a LEFT JOIN std_activities x ON x.id = a.activity_id
+        WHERE a.standard_id = ? AND a.element_id = ? ORDER BY a.at DESC, a.id DESC LIMIT 100`,
+    ).bind(id, Number(seg[3])).all();
+    return json({ history: results });
   }
 
   if (method === 'PUT' && seg.length === 2) {
