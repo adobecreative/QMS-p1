@@ -3019,6 +3019,21 @@ input[type='datetime-local'],
 input[type='time'] {
   direction: ltr;
 }
+/* iPad/iPhone Safari gives date fields a fixed native width that spills out of narrow columns. */
+input[type='date'],
+input[type='datetime-local'],
+input[type='time'],
+input[type='month'] {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+}
+input::-webkit-date-and-time-value {
+  min-height: 1.5em;
+  text-align: start;
+}
 
 /* ---------------------- Quality & Accreditation (CBAHI) --------------------- */
 .qa-grid {

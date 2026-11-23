@@ -541,7 +541,19 @@ function auditDialog(a, d) {
   const from = input({ type: 'date', value: a ? a.period_from || '' : '' });
   const to = input({ type: 'date', value: a ? a.period_to || '' : '' });
   const sample = input({ type: 'number', min: 1, max: 10000, step: 1, dir: 'ltr', value: a && a.sample ? a.sample : '' });
-  const kpi = select([['', '-'], ...d.kpis.map((k) => [k.id, k.code + ' · ' + pick(k.name_ar, k.name_en)])], a ? a.kpi_id || '' : '');
+  // Indicators come from the indicators module (active, manual entry, percentage); a chosen chapter narrows them.
+  const kpi = select([['', '-']], '');
+  const kpiField = field(t('qp.kpi'), kpi);
+  const fillKpi = () => {
+    const keep = kpi.value || (a && a.kpi_id ? String(a.kpi_id) : '');
+    const ch = chapter.value;
+    const rows = d.kpis.filter((k) => !ch || !k.chapter || k.chapter === ch || String(k.id) === keep);
+    kpi.replaceChildren(...[['', '-'], ...rows.map((k) => [k.id, k.code + ' · ' + pick(k.name_ar, k.name_en)])].map(([v, l]) => h('option', { value: v }, l)));
+    kpi.value = rows.some((k) => String(k.id) === keep) ? keep : '';
+    kpiField.hidden = !rows.length;
+  };
+  fillKpi();
+  chapter.addEventListener('change', fillKpi);
   const list = h('ol', { class: 'aud-crit' });
   const crit = [];
   const addRow = (c) => {
@@ -561,7 +573,7 @@ function auditDialog(a, d) {
       const x = d.library.find((y) => y.key === lib.value);
       if (!x) return;
       if (!title.value) title.value = pick(x.title_ar, x.title_en);
-      if (x.chapter && !chapter.value) chapter.value = x.chapter;
+      if (x.chapter && !chapter.value) (chapter.value = x.chapter), fillKpi();
       crit.splice(0).forEach((r) => r.li.remove());
       x.criteria.forEach(addRow);
     });
@@ -573,7 +585,7 @@ function auditDialog(a, d) {
       lib ? field(t('kpi.library'), lib) : '',
       field(t('aud.topic'), title),
       field(t('aud.reference'), ref),
-      h('div', { class: 'form-grid' }, dept ? field(t('ovr.dept'), dept) : '', field(t('aud.owner'), owner), field(t('qa.chapter'), chapter), field(t('qp.kpi'), kpi)),
+      h('div', { class: 'form-grid' }, dept ? field(t('ovr.dept'), dept) : '', field(t('aud.owner'), owner), field(t('qa.chapter'), chapter), kpiField),
       h('div', { class: 'form-grid' }, field(t('aud.from'), from), field(t('aud.to'), to), field(t('aud.sample'), sample)),
       h('div', { class: 'field' }, h('span', { class: 'label' }, t('aud.criteria')), list, h('button', { type: 'button', class: 'btn-link small', onclick: () => addRow(null) }, icon('plus', 14), t('aud.add_criterion'))),
     ),

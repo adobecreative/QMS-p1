@@ -172,7 +172,7 @@ export async function handleAudits(request, env, url, seg, method, user) {
       env.DB.prepare('SELECT audit_id, answers FROM audit_cases').all(),
       env.DB.prepare('SELECT id, name_ar, name_en FROM departments ORDER BY name_ar').all(),
       env.DB.prepare('SELECT id, name, name_en FROM users WHERE active = 1 AND id <> (SELECT MIN(id) FROM users) ORDER BY name').all(),
-      env.DB.prepare("SELECT id, code, name_ar, name_en FROM kpis WHERE active = 1 AND unit = 'pct' AND source = 'manual' ORDER BY code").all(),
+      env.DB.prepare("SELECT id, code, name_ar, name_en, chapter FROM kpis WHERE active = 1 AND unit = 'pct' AND source = 'manual' ORDER BY code").all(),
       env.DB.prepare("SELECT code, name_ar, name_en FROM std_chapters WHERE framework = 'cbahi' AND active = 1 ORDER BY sort, code").all(),
     ]);
     const cBy = {};
