@@ -13,7 +13,7 @@ export async function fullBackupData(env) {
     all('SELECT * FROM files ORDER BY id'),
     all('SELECT * FROM acks ORDER BY file_id, user_id'),
     all('SELECT * FROM logs ORDER BY id'),
-    all("SELECT key, value FROM settings WHERE key NOT IN ('mail_token', 'brevo_key', 'push_vapid', 'link_key') ORDER BY key"),
+    all("SELECT key, value FROM settings WHERE key NOT IN ('mail_token', 'brevo_key', 'push_vapid', 'link_key', 'schema_fp') ORDER BY key"),
     all('SELECT * FROM staff ORDER BY id'),
     all('SELECT * FROM ticket_categories ORDER BY id'),
     all('SELECT * FROM locations ORDER BY id'),
